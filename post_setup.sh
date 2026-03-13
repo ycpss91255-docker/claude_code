@@ -19,7 +19,7 @@ fi
 source "${ENV_FILE}"
 
 if [[ "${GPU_ENABLED}" == "true" ]]; then
-    printf '\nBASE_IMAGE=nvidia/cuda:12.3.2-cudnn9-devel-ubuntu22.04\nGPU_VARIANT=true\n' >> "${ENV_FILE}"
+    printf '\nBASE_IMAGE=nvidia/cuda:13.1.1-cudnn-devel-ubuntu24.04\nGPU_VARIANT=true\n' >> "${ENV_FILE}"
 else
     printf '\nBASE_IMAGE=node:20-slim\nGPU_VARIANT=false\n' >> "${ENV_FILE}"
 fi

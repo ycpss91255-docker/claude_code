@@ -223,7 +223,7 @@ rm .env.keys
 |------|------|
 | `USER_NAME` / `USER_UID` / `USER_GID` | 對應主機的容器用戶（自動偵測） |
 | `GPU_ENABLED` | 自動偵測，決定 `BASE_IMAGE` 與 `GPU_VARIANT` |
-| `BASE_IMAGE` | `node:20-slim`（CPU）或 `nvidia/cuda:12.3.2-cudnn9-devel-ubuntu22.04`（GPU） |
+| `BASE_IMAGE` | `node:20-slim`（CPU）或 `nvidia/cuda:13.1.1-cudnn-devel-ubuntu24.04`（GPU） |
 | `WS_PATH` | 主機路徑，掛載至容器內的 `~/work` |
 | `IMAGE_NAME` | Docker 映像名稱（預設：`claude_code`） |
 
@@ -295,7 +295,7 @@ rm .env.keys
 | make, g++, cmake | 建置工具鏈 |
 | tree | 目錄結構視覺化 |
 
-GPU 版本額外包含：CUDA 12.3.2、cuDNN 9、OpenCL、Vulkan。
+GPU 版本額外包含：CUDA 13.1.1、cuDNN、OpenCL、Vulkan。
 
 ### 容器能力
 

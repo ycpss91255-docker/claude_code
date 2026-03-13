@@ -221,7 +221,7 @@ Auto-generated `.env` file controls all build and runtime parameters. See [.env.
 |----------|-------------|
 | `USER_NAME` / `USER_UID` / `USER_GID` | Container user matching host (auto-detected) |
 | `GPU_ENABLED` | Auto-detected, drives `BASE_IMAGE` and `GPU_VARIANT` |
-| `BASE_IMAGE` | `node:20-slim` (CPU) or `nvidia/cuda:12.3.2-cudnn9-devel-ubuntu22.04` (GPU) |
+| `BASE_IMAGE` | `node:20-slim` (CPU) or `nvidia/cuda:13.1.1-cudnn-devel-ubuntu24.04` (GPU) |
 | `WS_PATH` | Host path mounted to `~/work` inside container |
 | `IMAGE_NAME` | Docker image name (default: `claude_code`) |
 
@@ -293,7 +293,7 @@ Tests validate: Claude Code availability, dev tools, system config (non-root use
 | make, g++, cmake | Build toolchain |
 | tree | Directory visualization |
 
-GPU variant additionally includes: CUDA 12.3.2, cuDNN 9, OpenCL, Vulkan.
+GPU variant additionally includes: CUDA 13.1.1, cuDNN, OpenCL, Vulkan.
 
 ### Container Capabilities
 
