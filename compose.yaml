@@ -24,7 +24,9 @@ services:
       - seccomp:unconfined
     volumes:
       - ${WS_PATH}:/home/${USER_NAME}/work
-      - ${CLAUDE_HOST_DIR:-~/.claude}:/tmp/.claude-host:ro
+      # Credentials only (read-only, no history/memory/settings)
+      - ${CLAUDE_HOST_DIR:-~/.claude}/.credentials.json:/tmp/.claude-credentials.json:ro
+      # Session data (persisted on host)
       - ${DATA_DIR:-./data}/.claude:/home/${USER_NAME}/.claude
 
   # ── Development environment (GPU) ──────────────────────────────
