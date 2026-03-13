@@ -1,0 +1,27 @@
+name: Main CI/CD Pipeline
+run-name: ${{ github.actor }} triggered CI/CD on ${{ github.ref_name }}
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  call-unit-test:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test-worker.yaml
+    secrets: inherit
+
+  call-release:
+    needs: call-unit-test
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-worker.yaml
+    secrets: inherit
