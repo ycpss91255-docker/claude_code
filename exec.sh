@@ -3,10 +3,10 @@ set -euo pipefail
 
 FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
-# Load .env for IMAGE_NAME
-set -o allexport
-# shellcheck disable=SC1091
-source "${FILE_PATH}/.env"
-set +o allexport
+TARGET="${1:-devel}"
+shift 2>/dev/null || true
+CMD="${*:-bash}"
 
-docker exec -it "${IMAGE_NAME}" "${@:-bash}"
+docker compose -f "${FILE_PATH}/compose.yaml" \
+    --env-file "${FILE_PATH}/.env" \
+    exec "${TARGET}" ${CMD}

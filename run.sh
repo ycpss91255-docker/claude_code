@@ -6,9 +6,14 @@ FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 # Parse arguments
 TARGET="devel"
 DATA_DIR_ARG=""
+DETACH=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        -d|--detach)
+            DETACH=true
+            shift
+            ;;
         --data-dir)
             DATA_DIR_ARG="$2"
             shift 2
@@ -55,6 +60,12 @@ elif [[ -z "${DATA_DIR:-}" ]]; then
     fi
 fi
 
-docker compose -f "${FILE_PATH}/compose.yaml" \
-    --env-file "${FILE_PATH}/.env" \
-    run --rm "${TARGET}"
+if [[ "${DETACH}" == true ]]; then
+    docker compose -f "${FILE_PATH}/compose.yaml" \
+        --env-file "${FILE_PATH}/.env" \
+        up -d "${TARGET}"
+else
+    docker compose -f "${FILE_PATH}/compose.yaml" \
+        --env-file "${FILE_PATH}/.env" \
+        run --rm "${TARGET}"
+fi
