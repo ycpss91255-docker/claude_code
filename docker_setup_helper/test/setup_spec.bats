@@ -118,34 +118,52 @@ esac'
 # detect_image_name
 # ════════════════════════════════════════════════════════════════════
 
-@test "detect_image_name strips docker_ prefix" {
+@test "detect_image_name finds *_ws in path" {
     local _result
-    detect_image_name _result "/home/user/projects/docker_myapp"
+    detect_image_name _result "/home/user/myapp_ws/src/docker"
     assert_equal "${_result}" "myapp"
 }
 
-@test "detect_image_name strips _ws suffix" {
+@test "detect_image_name finds *_ws at end of path" {
     local _result
     detect_image_name _result "/home/user/projects/myapp_ws"
     assert_equal "${_result}" "myapp"
 }
 
-@test "detect_image_name uses plain directory name" {
+@test "detect_image_name prefers *_ws over docker_* last dir" {
+    local _result
+    detect_image_name _result "/home/user/robot_ws/src/docker_nav"
+    assert_equal "${_result}" "robot"
+}
+
+@test "detect_image_name strips docker_ prefix from last dir" {
+    local _result
+    detect_image_name _result "/home/user/projects/docker_myapp"
+    assert_equal "${_result}" "myapp"
+}
+
+@test "detect_image_name strips docker_ from absolute root" {
+    local _result
+    detect_image_name _result "/docker_project"
+    assert_equal "${_result}" "project"
+}
+
+@test "detect_image_name returns unknown for plain directory" {
     local _result
     detect_image_name _result "/home/user/projects/ros_noetic"
-    assert_equal "${_result}" "ros_noetic"
+    assert_equal "${_result}" "unknown"
+}
+
+@test "detect_image_name returns unknown for generic path" {
+    local _result
+    detect_image_name _result "/home/user/MyProject"
+    assert_equal "${_result}" "unknown"
 }
 
 @test "detect_image_name lowercases the result" {
     local _result
-    detect_image_name _result "/home/user/MyProject"
-    assert_equal "${_result}" "myproject"
-}
-
-@test "detect_image_name skips empty parts from absolute path" {
-    local _result
-    detect_image_name _result "/docker_project"
-    assert_equal "${_result}" "project"
+    detect_image_name _result "/home/user/MyApp_ws/src/docker"
+    assert_equal "${_result}" "myapp"
 }
 
 # ════════════════════════════════════════════════════════════════════
