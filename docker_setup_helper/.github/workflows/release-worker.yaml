@@ -1,0 +1,37 @@
+name: Reusable Release Worker
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_FILES: >
+        src/
+        LICENSE
+        README.md
+        ci.sh
+        docker-compose.yaml
+      VERSION: "${{ github.ref_name }}"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Package project
+        run: |
+          tar -czvf docker-setup-helper-${VERSION}.tar.gz ${RELEASE_FILES}
+          zip -r docker-setup-helper-${VERSION}.zip ${RELEASE_FILES}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            docker-setup-helper-${{ github.ref_name }}.tar.gz
+            docker-setup-helper-${{ github.ref_name }}.zip
+          generate_release_notes: true
+          prerelease: "${{ contains(github.ref_name, '-') }}"

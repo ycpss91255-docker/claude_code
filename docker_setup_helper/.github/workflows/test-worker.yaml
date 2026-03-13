@@ -1,0 +1,53 @@
+name: Reusable Test Worker
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run CI (Lint & Test) via Docker
+        run: |
+          chmod +x ci.sh
+          ./ci.sh
+
+      - name: Show Coverage Summary in Log
+        run: |
+          python3 -c "
+          import json, glob
+          try:
+              files = glob.glob('coverage/*/coverage.json')
+              if not files:
+                  print('Coverage data not found.')
+                  exit(0)
+              with open(files[0]) as f:
+                  data = json.load(f)
+              print('\n' + '='*60)
+              print(f'{\"File Name\":<45} {\"Coverage\":>10}')
+              print('-'*60)
+              for f in data.get('files', []):
+                  if '/usr/' not in f['file']:
+                      name = f['file'].split('/')[-1]
+                      print(f'{name:<45} {f[\"percent_covered\"]:>9}%')
+              print('='*60 + '\n')
+          except Exception as e:
+              print(f'Error: {e}')
+          "
+
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/*/cov.xml
+          fail_ci_if_error: false
