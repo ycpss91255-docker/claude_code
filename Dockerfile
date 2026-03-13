@@ -63,7 +63,8 @@ RUN apt-get update && \
         locales && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
-    locale-gen "en_US.UTF-8" && \
+    sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen && \
+    locale-gen && \
     update-locale LANG="en_US.UTF-8" && \
     ln -snf /usr/share/zoneinfo/"${TZ}" /etc/localtime && echo "${TZ}" > /etc/timezone
 
