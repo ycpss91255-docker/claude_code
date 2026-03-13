@@ -10,6 +10,21 @@ DETACH=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        -h|--help)
+            cat <<'EOF'
+Usage: ./run.sh [-h] [-d|--detach] [--data-dir DIR] [TARGET]
+
+Options:
+  -h, --help        Show this help
+  -d, --detach      Run in background (docker compose up -d)
+  --data-dir DIR    Specify data directory for session persistence
+
+Targets:
+  devel      Development environment, CPU (default)
+  devel-gpu  GPU variant (NVIDIA CUDA)
+EOF
+            exit 0
+            ;;
         -d|--detach)
             DETACH=true
             shift
