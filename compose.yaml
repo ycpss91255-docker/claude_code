@@ -1,0 +1,57 @@
+services:
+  # ── Development environment (CPU, default) ─────────────────────
+  devel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: devel
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
+        GPU_VARIANT: ${GPU_VARIANT:-false}
+        USER: ${USER_NAME}
+        GROUP: ${USER_GROUP}
+        UID: ${USER_UID}
+        GID: ${USER_GID}
+    image: ${DOCKER_HUB_USER}/${IMAGE_NAME}:devel
+    container_name: ${IMAGE_NAME}
+    stdin_open: true
+    tty: true
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+      - MKNOD
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      - ${WS_PATH}:/home/${USER_NAME}/work
+      - ${CLAUDE_HOST_DIR:-~/.claude}:/tmp/.claude-host:ro
+      - ${DATA_DIR:-./data}/.claude:/home/${USER_NAME}/.claude
+
+  # ── Development environment (GPU) ──────────────────────────────
+  devel-gpu:
+    extends:
+      service: devel
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [compute, utility, graphics]
+
+  # ── Smoke test (ephemeral) ─────────────────────────────────────
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
+        GPU_VARIANT: ${GPU_VARIANT:-false}
+        USER: ${USER_NAME}
+        GROUP: ${USER_GROUP}
+        UID: ${USER_UID}
+        GID: ${USER_GID}
+    image: ${DOCKER_HUB_USER}/${IMAGE_NAME}:test
+    profiles:
+      - test
