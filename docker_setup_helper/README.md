@@ -42,9 +42,9 @@ A modular Docker environment setup toolkit that automates system parameter detec
 │           └── tmux/
 │               ├── setup.sh             # Tmux + TPM setup script
 │               └── tmux.conf            # Tmux configuration
-├── test/                                # Bats test cases (86 tests)
+├── test/                                # Bats test cases (87 tests)
 │   ├── test_helper.bash                 # Test utilities & mock helpers
-│   ├── setup_spec.bats                  # setup.sh tests (32 cases)
+│   ├── setup_spec.bats                  # setup.sh tests (33 cases)
 │   ├── bashrc_spec.bats                 # bashrc validation (14 cases)
 │   ├── pip_setup_spec.bats              # pip setup tests (3 cases)
 │   ├── terminator_config_spec.bats      # terminator config validation (10 cases)
@@ -129,9 +129,9 @@ source "${DYNAMIC_PATH}"
 Coverage targets: **Patch** 100%, **Project** never decreasing (`auto`).
 
 <details>
-<summary>Click to expand test details (86 tests)</summary>
+<summary>Click to expand test details (87 tests)</summary>
 
-#### setup.sh (32)
+#### setup.sh (33)
 
 | Test | Description |
 |------|-------------|
@@ -167,6 +167,7 @@ Coverage targets: **Patch** 100%, **Project** never decreasing (`auto`).
 | `_msg` | Returns Chinese messages when `_LANG=zh` |
 | `main` | `--lang zh` sets Chinese messages |
 | `main` | `--lang` requires a value |
+| `_base_path` | Default resolves to repo root, not script dir (regression) |
 
 #### bashrc (14)
 

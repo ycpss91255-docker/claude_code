@@ -283,6 +283,33 @@ EOF
     assert_success
 }
 
+@test "default _base_path resolves to repo root, not script dir" {
+    # Regression: setup.sh lives at docker_setup_helper/src/setup.sh
+    # Default _base_path must go up 2 levels to repo root, not stay in src/
+    local _repo_root="${TEMP_DIR}/docker_myapp"
+    mkdir -p "${_repo_root}/docker_setup_helper/src"
+    cp /source/src/setup.sh "${_repo_root}/docker_setup_helper/src/setup.sh"
+
+    # Create .env.example as fallback for IMAGE_NAME
+    echo "IMAGE_NAME=myapp" > "${_repo_root}/.env.example"
+
+    # Create a dummy ws for detect_ws_path
+    local _ws="${TEMP_DIR}/myapp_ws"
+    mkdir -p "${_ws}"
+
+    # Run setup.sh directly (no --base-path), simulating user calling it
+    run bash -c "cd '${_repo_root}' && bash docker_setup_helper/src/setup.sh"
+    assert_success
+
+    # .env should be at repo root, not in docker_setup_helper/src/
+    assert [ -f "${_repo_root}/.env" ]
+    assert [ ! -f "${_repo_root}/docker_setup_helper/src/.env" ]
+
+    # IMAGE_NAME should derive from repo root dir (docker_myapp → myapp)
+    run grep "IMAGE_NAME=myapp" "${_repo_root}/.env"
+    assert_success
+}
+
 @test "main returns error on unknown argument" {
     run bash -c "source /source/src/setup.sh; main --invalid-arg"
     assert_failure
