@@ -258,7 +258,8 @@ main() {
     done
 
     if [[ -z "${_base_path}" ]]; then
-        _base_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+        # setup.sh is at docker_setup_helper/src/setup.sh, repo root is ../../
+        _base_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/../.." && pwd -P)"
     fi
 
     local _env_file="${_base_path}/.env"
