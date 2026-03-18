@@ -114,14 +114,16 @@ flowchart LR
 ## Quick Start
 
 ```bash
-# Build (auto-generates .env on first run)
+# Build (auto-generates .env on every run)
 ./build.sh              # CPU variant (default)
 ./build.sh devel-gpu    # GPU variant
+./build.sh --no-env test  # Build without refreshing .env
 
 # Run
 ./run.sh                          # CPU variant (default)
 ./run.sh devel-gpu                # GPU variant
 ./run.sh --data-dir ../agent_foo  # Specify data directory
+./run.sh --no-env -d              # Background start, skip .env refresh
 
 # Exec into running container
 ./exec.sh
@@ -215,7 +217,7 @@ On container startup, if `.env.gpg` is detected in the workspace, you will be pr
 
 ## Configuration
 
-Auto-generated `.env` file controls all build and runtime parameters. See [.env.example](.env.example) for details.
+`.env` is auto-generated on every `build.sh` / `run.sh` invocation (pass `--no-env` to skip). See [.env.example](.env.example) for details.
 
 | Variable | Description |
 |----------|-------------|

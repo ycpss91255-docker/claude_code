@@ -116,14 +116,16 @@ flowchart LR
 ## 快速開始
 
 ```bash
-# Build (auto-generates .env on first run)
+# Build (auto-generates .env on every run)
 ./build.sh              # CPU variant (default)
 ./build.sh devel-gpu    # GPU variant
+./build.sh --no-env test  # 建置但不更新 .env
 
 # Run
 ./run.sh                          # CPU variant (default)
 ./run.sh devel-gpu                # GPU variant
 ./run.sh --data-dir ../agent_foo  # Specify data directory
+./run.sh --no-env -d              # 背景啟動，跳過 .env 更新
 
 # Exec into running container
 ./exec.sh
@@ -217,7 +219,7 @@ rm .env.keys
 
 ## 設定
 
-自動產生的 `.env` 檔案控制所有建置與執行時參數。詳情請參閱 [.env.example](.env.example)。
+每次執行 `build.sh` / `run.sh` 時會自動產生 `.env`（可傳入 `--no-env` 跳過）。詳情請參閱 [.env.example](.env.example)。
 
 | 變數 | 說明 |
 |------|------|
