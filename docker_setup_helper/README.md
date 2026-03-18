@@ -146,7 +146,7 @@ Coverage targets: **Patch** 100%, **Project** never decreasing (`auto`).
 | `detect_gpu` | Returns `false` when not installed |
 | `detect_image_name` | Finds `*_ws` in path |
 | `detect_image_name` | Finds `*_ws` at end of path |
-| `detect_image_name` | Prefers `*_ws` over `docker_*` last dir |
+| `detect_image_name` | Prefers `docker_*` over `*_ws` in path |
 | `detect_image_name` | Strips `docker_` prefix from last dir |
 | `detect_image_name` | Strips `docker_` from absolute root |
 | `detect_image_name` | Returns `unknown` for plain directory |
@@ -277,10 +277,10 @@ graph TD
     A --> F["detect_image_name"]:::detect
     A --> G["detect_ws_path"]:::detect
 
-    F --> F1{"path has *_ws?"}:::decision
-    F1 -- "Yes" --> F1R["use prefix\ne.g. ros_noetic_ws → ros_noetic"]:::result
-    F1 -- "No" --> F2{"last dir is docker_*?"}:::decision
-    F2 -- "Yes" --> F2R["strip prefix\ne.g. docker_ros_noetic → ros_noetic"]:::result
+    F --> F1{"last dir is docker_*?"}:::decision
+    F1 -- "Yes" --> F1R["strip prefix\ne.g. docker_ros_noetic → ros_noetic"]:::result
+    F1 -- "No" --> F2{"path has *_ws?"}:::decision
+    F2 -- "Yes" --> F2R["use prefix\ne.g. ros_noetic_ws → ros_noetic"]:::result
     F2 -- "No" --> F3{".env.example\nhas IMAGE_NAME?"}:::decision
     F3 -- "Yes" --> F3R["use .env.example value"]:::result
     F3 -- "No" --> F4R["'unknown'"]:::result
@@ -319,8 +319,8 @@ Scans the repo directory path to derive the Docker image name:
 
 | Priority | Rule | Example Path | Result |
 |:--------:|------|-------------|--------|
-| 1 | Scan entire path **right→left** for a `*_ws` directory → use the prefix before `_ws` | `/home/user/ros_noetic_ws/docker/ros_noetic` → finds `ros_noetic_ws` | `ros_noetic` |
-| 2 | Last path component matches `docker_*` → strip the `docker_` prefix | `/home/user/docker_ros_noetic` | `ros_noetic` |
+| 1 | Last path component matches `docker_*` → strip the `docker_` prefix | `/home/user/docker_ros_noetic` | `ros_noetic` |
+| 2 | Scan entire path **right→left** for a `*_ws` directory → use the prefix before `_ws` | `/home/user/ros_noetic_ws/docker/ros_noetic` → finds `ros_noetic_ws` | `ros_noetic` |
 | 3 | Read `IMAGE_NAME=` from `.env.example` in the repo root | `.env.example` contains `IMAGE_NAME=ros_noetic` | `ros_noetic` |
 | 4 | Fallback | None of the above matched | `unknown` |
 
