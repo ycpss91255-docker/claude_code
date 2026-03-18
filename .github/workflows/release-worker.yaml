@@ -20,7 +20,7 @@ jobs:
                 build.sh run.sh exec.sh \
                 post_setup.sh encrypt_env.sh \
                 .env.example smoke_test/ \
-                README.md README_zh-TW.md "${ARCHIVE_NAME}/"
+                README.md README.zh-TW.md "${ARCHIVE_NAME}/"
 
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
           zip -r  "${ARCHIVE_NAME}.zip"    "${ARCHIVE_NAME}"
