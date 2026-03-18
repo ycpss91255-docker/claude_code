@@ -20,7 +20,7 @@ A modular Docker environment setup toolkit that automates system parameter detec
 
 - **System Detection**: Auto-detects user info (UID/GID), hardware architecture, GPU support, and Docker Hub credentials.
 - **Image Name Inference**: Derives image names from directory structure (`docker_*` prefix, `*_ws` suffix conventions).
-- **Workspace Discovery**: 3-strategy workspace path detection (path traversal, sibling scan, interactive prompt).
+- **Workspace Discovery**: 3-strategy workspace path detection (sibling scan, path traversal, parent directory fallback).
 - **`.env` Generation**: Produces ready-to-use `.env` files for Docker Compose builds.
 - **Shell Config Management**: Includes setup scripts for Bash, Tmux, and Terminator configurations.
 - **100% Test Coverage**: All source code is fully tested with Bats + Kcov.
