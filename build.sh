@@ -5,7 +5,11 @@ FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 usage() {
     cat >&2 <<'EOF'
-Usage: ./build.sh [-h] [TARGET]
+Usage: ./build.sh [-h] [--no-env] [TARGET]
+
+Options:
+  -h, --help   Show this help
+  --no-env     Skip .env regeneration
 
 Targets:
   devel      Development environment (default)
@@ -15,20 +19,33 @@ EOF
     exit 0
 }
 
-if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
-    usage
-fi
+# Parse arguments
+TARGET="devel"
+SKIP_ENV=false
 
-# Generate .env if not exists
-if [[ ! -f "${FILE_PATH}/.env" ]]; then
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            ;;
+        --no-env)
+            SKIP_ENV=true
+            shift
+            ;;
+        *)
+            TARGET="$1"
+            shift
+            ;;
+    esac
+done
+
+# Generate .env
+if [[ "${SKIP_ENV}" == false ]]; then
     "${FILE_PATH}/docker_setup_helper/src/setup.sh" --base-path "${FILE_PATH}"
 fi
 
 # Derive BASE_IMAGE from GPU_ENABLED
 "${FILE_PATH}/post_setup.sh" "${FILE_PATH}/.env"
-
-# Build target: devel (default), devel-cpu, test
-TARGET="${1:-devel}"
 
 docker compose -f "${FILE_PATH}/compose.yaml" \
     --env-file "${FILE_PATH}/.env" \

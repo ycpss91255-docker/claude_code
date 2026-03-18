@@ -5,11 +5,12 @@ FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 usage() {
     cat >&2 <<'EOF'
-Usage: ./run.sh [-h] [-d|--detach] [--data-dir DIR] [TARGET]
+Usage: ./run.sh [-h] [-d|--detach] [--no-env] [--data-dir DIR] [TARGET]
 
 Options:
   -h, --help        Show this help
   -d, --detach      Run in background (docker compose up -d)
+  --no-env          Skip .env regeneration
   --data-dir DIR    Specify data directory for session persistence
 
 Targets:
@@ -23,6 +24,7 @@ EOF
 TARGET="devel"
 DATA_DIR_ARG=""
 DETACH=false
+SKIP_ENV=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -31,6 +33,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -d|--detach)
             DETACH=true
+            shift
+            ;;
+        --no-env)
+            SKIP_ENV=true
             shift
             ;;
         --data-dir)
@@ -44,8 +50,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Generate .env if not exists
-if [[ ! -f "${FILE_PATH}/.env" ]]; then
+# Generate .env
+if [[ "${SKIP_ENV}" == false ]]; then
     "${FILE_PATH}/docker_setup_helper/src/setup.sh" --base-path "${FILE_PATH}"
 fi
 
