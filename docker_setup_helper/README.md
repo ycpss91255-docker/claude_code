@@ -143,26 +143,50 @@ fi
 ### Detection & Generation Flow
 
 ```mermaid
-graph LR
-    A["setup.sh"]:::entry
+graph TD
+    A["setup.sh main()"]:::entry
 
     A --> B["detect_user_info\nUID / GID / username / group"]:::detect
-    A --> C["detect_hardware\nx86_64 / aarch64"]:::detect
-    A --> D["detect_gpu\nnvidia-smi check"]:::detect
-    A --> E["detect_docker_hub_user\ndocker info"]:::detect
-    A --> F["detect_image_name\ndirectory name inference"]:::detect
-    A --> G["detect_ws_path\n3-strategy workspace search"]:::detect
+    A --> C["detect_hardware\nuname -m"]:::detect
+    A --> D["detect_docker_hub_user\ndocker info → USER → id -un"]:::detect
+    A --> E["detect_gpu\ndpkg-query nvidia-container-toolkit"]:::detect
+    A --> F["detect_image_name"]:::detect
+    A --> G["detect_ws_path"]:::detect
+
+    F --> F1{"path has *_ws?"}:::decision
+    F1 -- "Yes" --> F1R["use prefix\ne.g. ros_noetic_ws → ros_noetic"]:::result
+    F1 -- "No" --> F2{"last dir is docker_*?"}:::decision
+    F2 -- "Yes" --> F2R["strip prefix\ne.g. docker_ros_noetic → ros_noetic"]:::result
+    F2 -- "No" --> F3{".env.example\nhas IMAGE_NAME?"}:::decision
+    F3 -- "Yes" --> F3R["use .env.example value"]:::result
+    F3 -- "No" --> F4R["'unknown'"]:::result
+
+    G --> G0{"existing .env\nWS_PATH valid?"}:::decision
+    G0 -- "Yes" --> G0R["keep existing value"]:::result
+    G0 -- "No" --> G1{"dir is docker_*\nand sibling *_ws?"}:::decision
+    G1 -- "Yes" --> G1R["sibling *_ws path"]:::result
+    G1 -- "No" --> G2{"parent path\ncontains *_ws?"}:::decision
+    G2 -- "Yes" --> G2R["that *_ws directory"]:::result
+    G2 -- "No" --> G3R["parent directory"]:::result
 
     B --> H[".env"]:::output
     C --> H
     D --> H
     E --> H
-    F --> H
-    G --> H
+    F1R --> H
+    F2R --> H
+    F3R --> H
+    F4R --> H
+    G0R --> H
+    G1R --> H
+    G2R --> H
+    G3R --> H
 
     classDef entry fill:#1a5276,color:#fff,stroke:#2980b9
     classDef detect fill:#8B6914,color:#fff,stroke:#c8960c
-    classDef output fill:#1e8449,color:#fff,stroke:#27ae60
+    classDef decision fill:#7d3c98,color:#fff,stroke:#a569bd
+    classDef result fill:#1e8449,color:#fff,stroke:#27ae60
+    classDef output fill:#1e8449,color:#fff,stroke:#27ae60,stroke-width:3px
 ```
 
 ### IMAGE_NAME Inference (`detect_image_name`)

@@ -143,26 +143,50 @@ fi
 ### 偵測與產生流程
 
 ```mermaid
-graph LR
-    A["setup.sh"]:::entry
+graph TD
+    A["setup.sh main()"]:::entry
 
     A --> B["detect_user_info\nUID / GID / username / group"]:::detect
-    A --> C["detect_hardware\nx86_64 / aarch64"]:::detect
-    A --> D["detect_gpu\nnvidia-smi check"]:::detect
-    A --> E["detect_docker_hub_user\ndocker info"]:::detect
-    A --> F["detect_image_name\n目錄名稱推導"]:::detect
-    A --> G["detect_ws_path\n三策略工作區搜尋"]:::detect
+    A --> C["detect_hardware\nuname -m"]:::detect
+    A --> D["detect_docker_hub_user\ndocker info → USER → id -un"]:::detect
+    A --> E["detect_gpu\ndpkg-query nvidia-container-toolkit"]:::detect
+    A --> F["detect_image_name"]:::detect
+    A --> G["detect_ws_path"]:::detect
+
+    F --> F1{"路徑含 *_ws？"}:::decision
+    F1 -- "是" --> F1R["取前綴\n如 ros_noetic_ws → ros_noetic"]:::result
+    F1 -- "否" --> F2{"最後一層為 docker_*？"}:::decision
+    F2 -- "是" --> F2R["去前綴\n如 docker_ros_noetic → ros_noetic"]:::result
+    F2 -- "否" --> F3{".env.example\n有 IMAGE_NAME？"}:::decision
+    F3 -- "是" --> F3R["使用 .env.example 的值"]:::result
+    F3 -- "否" --> F4R["'unknown'"]:::result
+
+    G --> G0{"既有 .env\nWS_PATH 有效？"}:::decision
+    G0 -- "是" --> G0R["保留現有值"]:::result
+    G0 -- "否" --> G1{"目錄為 docker_*\n且同層有 *_ws？"}:::decision
+    G1 -- "是" --> G1R["同層 *_ws 路徑"]:::result
+    G1 -- "否" --> G2{"上層路徑\n含 *_ws？"}:::decision
+    G2 -- "是" --> G2R["該 *_ws 目錄"]:::result
+    G2 -- "否" --> G3R["上層目錄"]:::result
 
     B --> H[".env"]:::output
     C --> H
     D --> H
     E --> H
-    F --> H
-    G --> H
+    F1R --> H
+    F2R --> H
+    F3R --> H
+    F4R --> H
+    G0R --> H
+    G1R --> H
+    G2R --> H
+    G3R --> H
 
     classDef entry fill:#1a5276,color:#fff,stroke:#2980b9
     classDef detect fill:#8B6914,color:#fff,stroke:#c8960c
-    classDef output fill:#1e8449,color:#fff,stroke:#27ae60
+    classDef decision fill:#7d3c98,color:#fff,stroke:#a569bd
+    classDef result fill:#1e8449,color:#fff,stroke:#27ae60
+    classDef output fill:#1e8449,color:#fff,stroke:#27ae60,stroke-width:3px
 ```
 
 ### IMAGE_NAME 推導（`detect_image_name`）
