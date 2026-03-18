@@ -5,7 +5,7 @@ bats_load_library "bats-support"
 bats_load_library "bats-assert"
 
 # bats-mock: for stubbing system commands (id, uname, docker, dpkg-query)
-# Installed via git in docker-compose.yaml
+# Installed via git in compose.yaml
 load "${BATS_LIB_PATH}/bats-mock/stub"
 
 # bash_test_helper (via git subtree):

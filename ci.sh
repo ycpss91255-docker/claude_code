@@ -12,4 +12,4 @@ fi
 export HOST_UID=$(id -u)
 export HOST_GID=$(id -g)
 
-$DOCKER_COMPOSE -f "$(dirname "$0")/docker-compose.yaml" run --rm ci
+$DOCKER_COMPOSE -f "$(dirname "$0")/compose.yaml" run --rm ci
