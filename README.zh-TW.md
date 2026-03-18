@@ -146,7 +146,7 @@ source "${DYNAMIC_PATH}"
 | `detect_gpu` | 未安裝時回傳 `false` |
 | `detect_image_name` | 路徑中找到 `*_ws` |
 | `detect_image_name` | 路徑末端找到 `*_ws` |
-| `detect_image_name` | `*_ws` 優先於 `docker_*` 最後一層 |
+| `detect_image_name` | `docker_*` 優先於路徑中的 `*_ws` |
 | `detect_image_name` | 去除最後一層的 `docker_` 前綴 |
 | `detect_image_name` | 從絕對路徑根目錄去除 `docker_` |
 | `detect_image_name` | 一般目錄回傳 `unknown` |
@@ -277,10 +277,10 @@ graph TD
     A --> F["detect_image_name"]:::detect
     A --> G["detect_ws_path"]:::detect
 
-    F --> F1{"路徑含 *_ws？"}:::decision
-    F1 -- "是" --> F1R["取前綴\n如 ros_noetic_ws → ros_noetic"]:::result
-    F1 -- "否" --> F2{"最後一層為 docker_*？"}:::decision
-    F2 -- "是" --> F2R["去前綴\n如 docker_ros_noetic → ros_noetic"]:::result
+    F --> F1{"最後一層為 docker_*？"}:::decision
+    F1 -- "是" --> F1R["去前綴\n如 docker_ros_noetic → ros_noetic"]:::result
+    F1 -- "否" --> F2{"路徑含 *_ws？"}:::decision
+    F2 -- "是" --> F2R["取前綴\n如 ros_noetic_ws → ros_noetic"]:::result
     F2 -- "否" --> F3{".env.example\n有 IMAGE_NAME？"}:::decision
     F3 -- "是" --> F3R["使用 .env.example 的值"]:::result
     F3 -- "否" --> F4R["'unknown'"]:::result
@@ -319,8 +319,8 @@ graph TD
 
 | 優先序 | 規則 | 範例路徑 | 結果 |
 |:------:|------|----------|------|
-| 1 | 掃描完整路徑（**右→左**）找 `*_ws` 目錄 → 取 `_ws` 前面的名稱 | `/home/user/ros_noetic_ws/docker/ros_noetic` → 找到 `ros_noetic_ws` | `ros_noetic` |
-| 2 | 最後一層目錄符合 `docker_*` → 去掉 `docker_` 前綴 | `/home/user/docker_ros_noetic` | `ros_noetic` |
+| 1 | 最後一層目錄符合 `docker_*` → 去掉 `docker_` 前綴 | `/home/user/docker_ros_noetic` | `ros_noetic` |
+| 2 | 掃描完整路徑（**右→左**）找 `*_ws` 目錄 → 取 `_ws` 前面的名稱 | `/home/user/ros_noetic_ws/docker/ros_noetic` → 找到 `ros_noetic_ws` | `ros_noetic` |
 | 3 | 讀取 repo 根目錄 `.env.example` 中的 `IMAGE_NAME=` | `.env.example` 含 `IMAGE_NAME=ros_noetic` | `ros_noetic` |
 | 4 | 退回值 | 以上皆不符合 | `unknown` |
 

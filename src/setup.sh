@@ -103,8 +103,8 @@ detect_gpu() {
 # detect_image_name
 #
 # Detection priority:
-#   1. Scan entire path (right to left) for *_ws → use prefix
-#   2. Check last directory only for docker_* → strip prefix
+#   1. Check last directory only for docker_* → strip prefix
+#   2. Scan entire path (right to left) for *_ws → use prefix
 #   3. Fallback to "unknown"
 #
 # Usage: detect_image_name <outvar> <path>
@@ -118,28 +118,28 @@ detect_image_name() {
 
     IFS='/' read -ra _parts <<< "${_path}"
 
-    # 1. Scan entire path for *_ws (right to left)
+    # 1. Check last directory for docker_* prefix
     local i _part
     for (( i=${#_parts[@]}-1; i>=0; i-- )); do
         _part="${_parts[i]}"
         [[ -z "${_part}" ]] && continue
-        if [[ "${_part}" == *_ws ]]; then
-            _found="${_part%_ws}"
-            break
-        fi
+        _last="${_part}"
+        break
     done
+    if [[ "${_last}" == docker_* ]]; then
+        _found="${_last#docker_}"
+    fi
 
-    # 2. Check last directory for docker_* prefix
+    # 2. Scan entire path for *_ws (right to left)
     if [[ -z "${_found}" ]]; then
         for (( i=${#_parts[@]}-1; i>=0; i-- )); do
             _part="${_parts[i]}"
             [[ -z "${_part}" ]] && continue
-            _last="${_part}"
-            break
+            if [[ "${_part}" == *_ws ]]; then
+                _found="${_part%_ws}"
+                break
+            fi
         done
-        if [[ "${_last}" == docker_* ]]; then
-            _found="${_last#docker_}"
-        fi
     fi
 
     # 3. Fallback

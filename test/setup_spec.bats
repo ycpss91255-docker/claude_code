@@ -130,10 +130,10 @@ esac'
     assert_equal "${_result}" "myapp"
 }
 
-@test "detect_image_name prefers *_ws over docker_* last dir" {
+@test "detect_image_name prefers docker_* over *_ws in path" {
     local _result
     detect_image_name _result "/home/user/robot_ws/src/docker_nav"
-    assert_equal "${_result}" "robot"
+    assert_equal "${_result}" "nav"
 }
 
 @test "detect_image_name strips docker_ prefix from last dir" {
