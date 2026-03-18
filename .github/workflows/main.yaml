@@ -12,13 +12,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  call-lint:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/lint-worker.yaml
+
   call-docker-build:
     permissions:
       contents: read
     uses: ./.github/workflows/build-worker.yaml
 
   call-release:
-    needs: call-docker-build
+    needs: [call-lint, call-docker-build]
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
