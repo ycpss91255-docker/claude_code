@@ -125,9 +125,134 @@ source "${DYNAMIC_PATH}"
 ```
 
 ### Test Coverage
-We pursue high-quality code with the following targets:
-- **Patch**: 100% coverage required for new changes.
-- **Project**: Progressive improvement (`auto`), never decreasing.
+
+Coverage targets: **Patch** 100%, **Project** never decreasing (`auto`).
+
+<details>
+<summary>Click to expand test details (86 tests)</summary>
+
+#### setup.sh (32)
+
+| Test | Description |
+|------|-------------|
+| `detect_user_info` | Uses `USER` env when set |
+| `detect_user_info` | Falls back to `id -un` when `USER` unset |
+| `detect_user_info` | Sets group/uid/gid correctly |
+| `detect_hardware` | Returns `uname -m` output |
+| `detect_docker_hub_user` | Uses `docker info` username when logged in |
+| `detect_docker_hub_user` | Falls back to `USER` when docker returns empty |
+| `detect_docker_hub_user` | Falls back to `id -un` when `USER` also unset |
+| `detect_gpu` | Returns `true` when nvidia-container-toolkit installed |
+| `detect_gpu` | Returns `false` when not installed |
+| `detect_image_name` | Finds `*_ws` in path |
+| `detect_image_name` | Finds `*_ws` at end of path |
+| `detect_image_name` | Prefers `*_ws` over `docker_*` last dir |
+| `detect_image_name` | Strips `docker_` prefix from last dir |
+| `detect_image_name` | Strips `docker_` from absolute root |
+| `detect_image_name` | Returns `unknown` for plain directory |
+| `detect_image_name` | Returns `unknown` for generic path |
+| `detect_image_name` | Lowercases the result |
+| `detect_ws_path` | Strategy 1: `docker_*` finds sibling `*_ws` |
+| `detect_ws_path` | Strategy 1: `docker_*` without sibling falls through |
+| `detect_ws_path` | Strategy 2: finds `_ws` component in path |
+| `detect_ws_path` | Strategy 3: falls back to parent directory |
+| `write_env` | Creates `.env` with all required variables |
+| `main` | Creates `.env` when it does not exist |
+| `main` | Sources existing `.env` and reuses valid `WS_PATH` |
+| `main` | Re-detects `WS_PATH` when path in `.env` no longer exists |
+| `main` | Uses `BASH_SOURCE` fallback when `--base-path` not given |
+| `main` | Returns error on unknown argument |
+| `main` | Returns error when `--base-path` value is missing |
+| `_msg` | Returns English messages by default |
+| `_msg` | Returns Chinese messages when `_LANG=zh` |
+| `main` | `--lang zh` sets Chinese messages |
+| `main` | `--lang` requires a value |
+
+#### bashrc (14)
+
+| Test | Description |
+|------|-------------|
+| `alias_func` | Defined |
+| `swc` | Defined |
+| `color_git_branch` | Defined |
+| `ros_complete` | Defined |
+| `ros_source` | Defined |
+| `ebc` | Alias defined |
+| `sbc` | Alias defined |
+| `alias_func` | Called in bashrc |
+| `color_git_branch` | Called in bashrc |
+| `ros_complete` | Called in bashrc |
+| `ros_source` | Called in bashrc |
+| `swc` | Searches for catkin `devel/setup.bash` |
+| `ros_source` | References `ROS_DISTRO` |
+| `color_git_branch` | Sets `PS1` |
+
+#### pip setup (3)
+
+| Test | Description |
+|------|-------------|
+| `setup.sh` | Runs `pip install` with `requirements.txt` |
+| `setup.sh` | Sets `PIP_BREAK_SYSTEM_PACKAGES=1` |
+| `setup.sh` | Fails when pip is not available |
+
+#### terminator config (10)
+
+| Test | Description |
+|------|-------------|
+| Config | Has `[global_config]` section |
+| Config | Has `[keybindings]` section |
+| Config | Has `[profiles]` section |
+| Config | Has `[layouts]` section |
+| Config | Has `[plugins]` section |
+| Profiles | Has `[[default]]` |
+| Default | Disables system font |
+| Default | Has infinite scrollback |
+| Layouts | Has Window type |
+| Layouts | Has Terminal type |
+
+#### terminator setup (7)
+
+| Test | Description |
+|------|-------------|
+| `check_deps` | Returns 0 when terminator installed |
+| `check_deps` | Fails when terminator not installed |
+| `_entry_point` | Calls main when deps pass |
+| `_entry_point` | Fails when deps missing |
+| `main` | Creates terminator config directory |
+| `main` | Copies terminator config file |
+| `main` | Calls `chown` with correct user and group |
+
+#### tmux.conf (12)
+
+| Test | Description |
+|------|-------------|
+| Config | Defines prefix key |
+| Config | Sets default shell to bash |
+| Config | Sets default terminal |
+| Config | Enables mouse support |
+| Config | Enables vi `status-keys` |
+| Config | Enables vi `mode-keys` |
+| Config | Defines split-window bindings |
+| Config | Defines reload config binding |
+| Config | Enables status bar |
+| Config | Sets status bar position |
+| Config | Declares tpm plugin |
+| Config | Initializes tpm at end of file |
+
+#### tmux setup (8)
+
+| Test | Description |
+|------|-------------|
+| `check_deps` | Returns 0 when tmux and git installed |
+| `check_deps` | Fails when tmux not installed |
+| `check_deps` | Fails when git not installed |
+| `_entry_point` | Calls main when deps pass |
+| `_entry_point` | Fails when deps missing |
+| `main` | Clones tpm repository |
+| `main` | Creates tmux config directory |
+| `main` | Copies `tmux.conf` to config directory |
+
+</details>
 
 ### BASH_SOURCE Guard Pattern
 All scripts use the `BASH_SOURCE` guard pattern for testability:
