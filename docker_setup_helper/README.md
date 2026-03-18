@@ -165,6 +165,55 @@ graph LR
     classDef output fill:#1e8449,color:#fff,stroke:#27ae60
 ```
 
+### IMAGE_NAME Inference (`detect_image_name`)
+
+Scans the repo directory path to derive the Docker image name:
+
+| Priority | Rule | Example Path | Result |
+|:--------:|------|-------------|--------|
+| 1 | Scan entire path **right→left** for a `*_ws` directory → use the prefix before `_ws` | `/home/user/ros_noetic_ws/docker/ros_noetic` → finds `ros_noetic_ws` | `ros_noetic` |
+| 2 | Last path component matches `docker_*` → strip the `docker_` prefix | `/home/user/docker_ros_noetic` | `ros_noetic` |
+| 3 | Read `IMAGE_NAME=` from `.env.example` in the repo root | `.env.example` contains `IMAGE_NAME=ros_noetic` | `ros_noetic` |
+| 4 | Fallback | None of the above matched | `unknown` |
+
+### WS_PATH Workspace Detection (`detect_ws_path`)
+
+Three-strategy search to locate the workspace mount path, executed in order until one succeeds:
+
+#### Strategy 1 — Sibling scan
+
+If the **current directory name** starts with `docker_`, strip the prefix and look for a **sibling** directory named `{name}_ws`.
+
+```
+/home/user/
+├── docker_ros_noetic/    ← current dir matches docker_*
+│   └── (this repo)          strip prefix → "ros_noetic"
+└── ros_noetic_ws/        ← sibling ros_noetic_ws found → WS_PATH
+```
+
+#### Strategy 2 — Path traversal (upward)
+
+Walk the **absolute path upward** component by component. If any component ends with `_ws`, use that directory.
+
+```
+/home/user/ros_noetic_ws/src/docker_ros_noetic/
+           ^^^^^^^^^^^^^^
+           walking upward: docker_ros_noetic → src → ros_noetic_ws (match!)
+           → WS_PATH = /home/user/ros_noetic_ws
+```
+
+#### Strategy 3 — Parent directory fallback
+
+If neither strategy found a `_ws` directory, fall back to the **parent directory** of the repo.
+
+```
+/home/user/projects/ros_noetic/
+                    ^^^^^^^^^^^  ← repo (no *_ws anywhere)
+           ^^^^^^^^              ← WS_PATH = /home/user/projects
+```
+
+> **Note:** If `.env` already exists and `WS_PATH` points to a valid directory, detection is skipped entirely and the existing value is preserved.
+
 ### CI Pipeline
 
 ```mermaid
