@@ -233,7 +233,66 @@ Build the test target to verify the environment:
 ./build.sh test
 ```
 
-Tests validate: Claude Code availability, dev tools, system config (non-root user, timezone, locale), absence of Gemini/Codex, and absence of unnecessary tools (tmux, vim, fzf, terminator).
+Located in `smoke_test/agent_env.bats` — **29 tests** total.
+
+<details>
+<summary>Click to expand test details</summary>
+
+#### AI tools (3)
+
+| Test | Description |
+|------|-------------|
+| `claude` | Available |
+| `gemini` | Available |
+| `codex` | Available |
+
+#### Dev tools (14)
+
+| Test | Description |
+|------|-------------|
+| `node` | Available |
+| `npm` | Available |
+| `git` | Available |
+| `python3` | Available |
+| `make` | Available |
+| `cmake` | Available |
+| `g++` | Available |
+| `curl` | Available |
+| `wget` | Available |
+| `jq` | Available |
+| `rg` (ripgrep) | Available |
+| `tree` | Available |
+| `docker` | Available |
+| `gpg` | Available |
+
+#### System (7)
+
+| Test | Description |
+|------|-------------|
+| User | Not root |
+| `sudo` | Passwordless works |
+| Timezone | `Asia/Taipei` |
+| `LANG` | `en_US.UTF-8` |
+| Work directory | Exists |
+| Work directory | Writable |
+| `entrypoint.sh` | Exists |
+
+#### Excluded tools (4)
+
+| Test | Description |
+|------|-------------|
+| `tmux` | NOT installed (minimal image) |
+| `vim` | NOT installed |
+| `fzf` | NOT installed |
+| `terminator` | NOT installed |
+
+#### Security (1)
+
+| Test | Description |
+|------|-------------|
+| `encrypt_env.sh` | In PATH |
+
+</details>
 
 ## Architecture
 
@@ -253,7 +312,7 @@ Tests validate: Claude Code availability, dev tools, system config (non-root use
 │   └── test_helper.bash
 ├── docker_setup_helper/   # Auto .env generator (git subtree)
 ├── README.md
-└── README_zh-TW.md
+└── README.zh-TW.md
 ```
 
 ### Dockerfile Stages

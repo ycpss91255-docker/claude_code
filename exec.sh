@@ -3,8 +3,8 @@ set -euo pipefail
 
 FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
-if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
-    cat <<'EOF'
+usage() {
+    cat >&2 <<'EOF'
 Usage: ./exec.sh [-h] [TARGET] [CMD...]
 
 Arguments:
@@ -17,6 +17,10 @@ Examples:
   ./exec.sh devel htop       # Run htop in devel container
 EOF
     exit 0
+}
+
+if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
+    usage
 fi
 
 TARGET="${1:-devel}"

@@ -229,13 +229,72 @@ rm .env.keys
 
 ## 冒煙測試
 
-建置測試目標以驗證環境：
+建置 test target 驗證環境：
 
 ```bash
 ./build.sh test
 ```
 
-測試項目涵蓋：Claude Code 可用性、開發工具、系統設定（非 root 用戶、時區、語系）、確認無 Gemini/Codex，以及確認無不必要的工具（tmux、vim、fzf、terminator）。
+位於 `smoke_test/agent_env.bats`，共 **29** 項。
+
+<details>
+<summary>展開查看測試細項</summary>
+
+#### AI 工具 (3)
+
+| 測試項目 | 說明 |
+|----------|------|
+| `claude` | 可用 |
+| `gemini` | 可用 |
+| `codex` | 可用 |
+
+#### 開發工具 (14)
+
+| 測試項目 | 說明 |
+|----------|------|
+| `node` | 可用 |
+| `npm` | 可用 |
+| `git` | 可用 |
+| `python3` | 可用 |
+| `make` | 可用 |
+| `cmake` | 可用 |
+| `g++` | 可用 |
+| `curl` | 可用 |
+| `wget` | 可用 |
+| `jq` | 可用 |
+| `rg` (ripgrep) | 可用 |
+| `tree` | 可用 |
+| `docker` | 可用 |
+| `gpg` | 可用 |
+
+#### 系統 (7)
+
+| 測試項目 | 說明 |
+|----------|------|
+| 用戶 | 非 root |
+| `sudo` | 免密碼執行 |
+| 時區 | `Asia/Taipei` |
+| `LANG` | `en_US.UTF-8` |
+| work 目錄 | 存在 |
+| work 目錄 | 可寫入 |
+| `entrypoint.sh` | 存在 |
+
+#### 排除工具 (4)
+
+| 測試項目 | 說明 |
+|----------|------|
+| `tmux` | 未安裝（最小化映像） |
+| `vim` | 未安裝 |
+| `fzf` | 未安裝 |
+| `terminator` | 未安裝 |
+
+#### 安全性 (1)
+
+| 測試項目 | 說明 |
+|----------|------|
+| `encrypt_env.sh` | 在 PATH 中 |
+
+</details>
 
 ## 架構
 
@@ -255,7 +314,7 @@ rm .env.keys
 │   └── test_helper.bash
 ├── docker_setup_helper/   # Auto .env generator (git subtree)
 ├── README.md
-└── README_zh-TW.md
+└── README.zh-TW.md
 ```
 
 ### Dockerfile 階段

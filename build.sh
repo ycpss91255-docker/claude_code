@@ -3,8 +3,8 @@ set -euo pipefail
 
 FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
-if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
-    cat <<'EOF'
+usage() {
+    cat >&2 <<'EOF'
 Usage: ./build.sh [-h] [TARGET]
 
 Targets:
@@ -13,6 +13,10 @@ Targets:
   test       Run smoke tests
 EOF
     exit 0
+}
+
+if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
+    usage
 fi
 
 # Generate .env if not exists

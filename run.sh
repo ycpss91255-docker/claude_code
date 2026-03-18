@@ -3,15 +3,8 @@ set -euo pipefail
 
 FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
-# Parse arguments
-TARGET="devel"
-DATA_DIR_ARG=""
-DETACH=false
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -h|--help)
-            cat <<'EOF'
+usage() {
+    cat >&2 <<'EOF'
 Usage: ./run.sh [-h] [-d|--detach] [--data-dir DIR] [TARGET]
 
 Options:
@@ -23,7 +16,18 @@ Targets:
   devel      Development environment, CPU (default)
   devel-gpu  GPU variant (NVIDIA CUDA)
 EOF
-            exit 0
+    exit 0
+}
+
+# Parse arguments
+TARGET="devel"
+DATA_DIR_ARG=""
+DETACH=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
             ;;
         -d|--detach)
             DETACH=true
