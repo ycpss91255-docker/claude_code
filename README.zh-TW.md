@@ -125,9 +125,134 @@ source "${DYNAMIC_PATH}"
 ```
 
 ### 測試覆蓋率
-我們追求高品質的程式碼，設定如下：
-- **新程式碼（Patch）**：必須 100% 覆蓋。
-- **整體專案（Project）**：只進步，不退步（`auto`）。
+
+覆蓋率目標：**Patch** 100%，**Project** 只進步不退步（`auto`）。
+
+<details>
+<summary>展開查看測試細項（86 個測試）</summary>
+
+#### setup.sh（32）
+
+| 測試項目 | 說明 |
+|----------|------|
+| `detect_user_info` | `USER` 環境變數存在時使用 |
+| `detect_user_info` | `USER` 未設定時退回 `id -un` |
+| `detect_user_info` | 正確設定 group/uid/gid |
+| `detect_hardware` | 回傳 `uname -m` 輸出 |
+| `detect_docker_hub_user` | 已登入時使用 `docker info` 的 username |
+| `detect_docker_hub_user` | docker 回傳空值時退回 `USER` |
+| `detect_docker_hub_user` | `USER` 也未設定時退回 `id -un` |
+| `detect_gpu` | nvidia-container-toolkit 已安裝時回傳 `true` |
+| `detect_gpu` | 未安裝時回傳 `false` |
+| `detect_image_name` | 路徑中找到 `*_ws` |
+| `detect_image_name` | 路徑末端找到 `*_ws` |
+| `detect_image_name` | `*_ws` 優先於 `docker_*` 最後一層 |
+| `detect_image_name` | 去除最後一層的 `docker_` 前綴 |
+| `detect_image_name` | 從絕對路徑根目錄去除 `docker_` |
+| `detect_image_name` | 一般目錄回傳 `unknown` |
+| `detect_image_name` | 通用路徑回傳 `unknown` |
+| `detect_image_name` | 結果轉小寫 |
+| `detect_ws_path` | 策略 1：`docker_*` 找到同層 `*_ws` |
+| `detect_ws_path` | 策略 1：`docker_*` 無同層 `*_ws` 時向下繼續 |
+| `detect_ws_path` | 策略 2：路徑中找到 `_ws` 元件 |
+| `detect_ws_path` | 策略 3：退回上層目錄 |
+| `write_env` | 建立含所有必要變數的 `.env` |
+| `main` | `.env` 不存在時建立 |
+| `main` | 讀取既有 `.env` 並保留有效 `WS_PATH` |
+| `main` | `.env` 中 `WS_PATH` 失效時重新偵測 |
+| `main` | 未指定 `--base-path` 時使用 `BASH_SOURCE` 退回值 |
+| `main` | 未知參數時回傳錯誤 |
+| `main` | `--base-path` 缺少值時回傳錯誤 |
+| `_msg` | 預設回傳英文訊息 |
+| `_msg` | `_LANG=zh` 時回傳中文訊息 |
+| `main` | `--lang zh` 設定中文訊息 |
+| `main` | `--lang` 缺少值時回傳錯誤 |
+
+#### bashrc（14）
+
+| 測試項目 | 說明 |
+|----------|------|
+| `alias_func` | 已定義 |
+| `swc` | 已定義 |
+| `color_git_branch` | 已定義 |
+| `ros_complete` | 已定義 |
+| `ros_source` | 已定義 |
+| `ebc` | alias 已定義 |
+| `sbc` | alias 已定義 |
+| `alias_func` | 在 bashrc 中被呼叫 |
+| `color_git_branch` | 在 bashrc 中被呼叫 |
+| `ros_complete` | 在 bashrc 中被呼叫 |
+| `ros_source` | 在 bashrc 中被呼叫 |
+| `swc` | 搜尋 catkin `devel/setup.bash` |
+| `ros_source` | 引用 `ROS_DISTRO` |
+| `color_git_branch` | 設定 `PS1` |
+
+#### pip 安裝（3）
+
+| 測試項目 | 說明 |
+|----------|------|
+| `setup.sh` | 以 `requirements.txt` 執行 `pip install` |
+| `setup.sh` | 設定 `PIP_BREAK_SYSTEM_PACKAGES=1` |
+| `setup.sh` | pip 不可用時失敗 |
+
+#### terminator 設定檔（10）
+
+| 測試項目 | 說明 |
+|----------|------|
+| 設定檔 | 含 `[global_config]` 區段 |
+| 設定檔 | 含 `[keybindings]` 區段 |
+| 設定檔 | 含 `[profiles]` 區段 |
+| 設定檔 | 含 `[layouts]` 區段 |
+| 設定檔 | 含 `[plugins]` 區段 |
+| profiles | 含 `[[default]]` |
+| default | 停用系統字型 |
+| default | 無限制捲動緩衝 |
+| layouts | 含 Window 類型 |
+| layouts | 含 Terminal 類型 |
+
+#### terminator 安裝（7）
+
+| 測試項目 | 說明 |
+|----------|------|
+| `check_deps` | terminator 已安裝時回傳 0 |
+| `check_deps` | terminator 未安裝時失敗 |
+| `_entry_point` | 依賴通過時呼叫 main |
+| `_entry_point` | 依賴缺失時失敗 |
+| `main` | 建立 terminator 設定目錄 |
+| `main` | 複製 terminator 設定檔 |
+| `main` | 以正確的 user/group 執行 `chown` |
+
+#### tmux.conf（12）
+
+| 測試項目 | 說明 |
+|----------|------|
+| 設定檔 | 定義 prefix key |
+| 設定檔 | 預設 shell 為 bash |
+| 設定檔 | 設定預設終端 |
+| 設定檔 | 啟用滑鼠支援 |
+| 設定檔 | 啟用 vi `status-keys` |
+| 設定檔 | 啟用 vi `mode-keys` |
+| 設定檔 | 定義分割視窗快捷鍵 |
+| 設定檔 | 定義重載設定快捷鍵 |
+| 設定檔 | 啟用狀態列 |
+| 設定檔 | 設定狀態列位置 |
+| 設定檔 | 宣告 tpm 插件 |
+| 設定檔 | 檔案末端初始化 tpm |
+
+#### tmux 安裝（8）
+
+| 測試項目 | 說明 |
+|----------|------|
+| `check_deps` | tmux 與 git 已安裝時回傳 0 |
+| `check_deps` | tmux 未安裝時失敗 |
+| `check_deps` | git 未安裝時失敗 |
+| `_entry_point` | 依賴通過時呼叫 main |
+| `_entry_point` | 依賴缺失時失敗 |
+| `main` | clone tpm 儲存庫 |
+| `main` | 建立 tmux 設定目錄 |
+| `main` | 複製 `tmux.conf` 至設定目錄 |
+
+</details>
 
 ### BASH_SOURCE Guard 模式
 所有腳本皆使用 `BASH_SOURCE` 守衛模式，確保可測試性：

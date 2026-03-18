@@ -7,7 +7,7 @@
 #   - Docker Hub username detection
 #   - GPU support detection
 #   - Image name inference (compatible with docker_* / *_ws naming conventions)
-#   - Workspace path detection (path traversal → sibling scan → interactive prompt)
+#   - Workspace path detection (sibling scan → path traversal → parent directory fallback)
 #   - .env generation
 #
 # Usage: setup.sh [--base-path <path>] [--lang zh]
