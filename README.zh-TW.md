@@ -42,9 +42,9 @@
 │           └── tmux/
 │               ├── setup.sh             # Tmux + TPM 設定腳本
 │               └── tmux.conf            # Tmux 設定檔
-├── test/                                # Bats 測試案例（86 個測試）
+├── test/                                # Bats 測試案例（87 個測試）
 │   ├── test_helper.bash                 # 測試輔助工具與 mock 函式
-│   ├── setup_spec.bats                  # setup.sh 測試（32 個案例）
+│   ├── setup_spec.bats                  # setup.sh 測試（33 個案例）
 │   ├── bashrc_spec.bats                 # bashrc 驗證測試（14 個案例）
 │   ├── pip_setup_spec.bats              # pip 安裝測試（3 個案例）
 │   ├── terminator_config_spec.bats      # terminator 設定驗證（10 個案例）
@@ -129,9 +129,9 @@ source "${DYNAMIC_PATH}"
 覆蓋率目標：**Patch** 100%，**Project** 只進步不退步（`auto`）。
 
 <details>
-<summary>展開查看測試細項（86 個測試）</summary>
+<summary>展開查看測試細項（87 個測試）</summary>
 
-#### setup.sh（32）
+#### setup.sh（33）
 
 | 測試項目 | 說明 |
 |----------|------|
@@ -167,6 +167,7 @@ source "${DYNAMIC_PATH}"
 | `_msg` | `_LANG=zh` 時回傳中文訊息 |
 | `main` | `--lang zh` 設定中文訊息 |
 | `main` | `--lang` 缺少值時回傳錯誤 |
+| `_base_path` | 預設解析至 repo root，非 script 所在目錄（regression） |
 
 #### bashrc（14）
 
