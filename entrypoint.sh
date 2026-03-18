@@ -2,6 +2,7 @@
 set -e
 
 # ── DinD: Start internal Docker daemon ──
+# shellcheck disable=SC2024  # redirect target is root-writable in container
 sudo dockerd > /var/log/dockerd.log 2>&1 &
 
 echo "Waiting for Docker daemon..."
