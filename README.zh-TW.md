@@ -23,7 +23,6 @@
 - **工作區搜尋**：三策略工作區路徑偵測（同層掃描、向上遍歷、退回上層目錄）。
 - **`.env` 生成**：產出可直接用於 Docker Compose 建置的 `.env` 檔案。
 - **Shell 設定管理**：內建 Bash、Tmux、Terminator 的設定腳本。
-- **100% 測試覆蓋率**：所有原始碼皆以 Bats + Kcov 完整測試。
 
 ## 📁 專案結構
 
@@ -43,9 +42,9 @@
 │           └── tmux/
 │               ├── setup.sh             # Tmux + TPM 設定腳本
 │               └── tmux.conf            # Tmux 設定檔
-├── test/                                # Bats 測試案例（80 個測試）
+├── test/                                # Bats 測試案例（86 個測試）
 │   ├── test_helper.bash                 # 測試輔助工具與 mock 函式
-│   ├── setup_spec.bats                  # setup.sh 測試（26 個案例）
+│   ├── setup_spec.bats                  # setup.sh 測試（32 個案例）
 │   ├── bashrc_spec.bats                 # bashrc 驗證測試（14 個案例）
 │   ├── pip_setup_spec.bats              # pip 安裝測試（3 個案例）
 │   ├── terminator_config_spec.bats      # terminator 設定驗證（10 個案例）
@@ -243,7 +242,7 @@ graph TD
 ```mermaid
 graph LR
     S["ci.sh"]:::entry --> SC["ShellCheck\n語法檢查所有 .sh"]:::step
-    SC --> BT["Bats\n80 個單元測試"]:::step
+    SC --> BT["Bats\n86 個單元測試"]:::step
     BT --> KC["Kcov\n覆蓋率報告"]:::step
     KC --> CC["Codecov\n上傳"]:::step
 

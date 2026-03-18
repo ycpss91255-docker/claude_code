@@ -23,7 +23,6 @@ A modular Docker environment setup toolkit that automates system parameter detec
 - **Workspace Discovery**: 3-strategy workspace path detection (sibling scan, path traversal, parent directory fallback).
 - **`.env` Generation**: Produces ready-to-use `.env` files for Docker Compose builds.
 - **Shell Config Management**: Includes setup scripts for Bash, Tmux, and Terminator configurations.
-- **100% Test Coverage**: All source code is fully tested with Bats + Kcov.
 
 ## 📁 Project Structure
 
@@ -43,9 +42,9 @@ A modular Docker environment setup toolkit that automates system parameter detec
 │           └── tmux/
 │               ├── setup.sh             # Tmux + TPM setup script
 │               └── tmux.conf            # Tmux configuration
-├── test/                                # Bats test cases (80 tests)
+├── test/                                # Bats test cases (86 tests)
 │   ├── test_helper.bash                 # Test utilities & mock helpers
-│   ├── setup_spec.bats                  # setup.sh tests (26 cases)
+│   ├── setup_spec.bats                  # setup.sh tests (32 cases)
 │   ├── bashrc_spec.bats                 # bashrc validation (14 cases)
 │   ├── pip_setup_spec.bats              # pip setup tests (3 cases)
 │   ├── terminator_config_spec.bats      # terminator config validation (10 cases)
@@ -243,7 +242,7 @@ If neither strategy found a `_ws` directory, fall back to the **parent directory
 ```mermaid
 graph LR
     S["ci.sh"]:::entry --> SC["ShellCheck\nlint all .sh files"]:::step
-    SC --> BT["Bats\n80 unit tests"]:::step
+    SC --> BT["Bats\n86 unit tests"]:::step
     BT --> KC["Kcov\ncoverage report"]:::step
     KC --> CC["Codecov\nupload"]:::step
 
