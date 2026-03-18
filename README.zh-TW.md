@@ -165,6 +165,55 @@ graph LR
     classDef output fill:#1e8449,color:#fff,stroke:#27ae60
 ```
 
+### IMAGE_NAME 推導（`detect_image_name`）
+
+掃描 repo 目錄路徑，推導 Docker 映像名稱：
+
+| 優先序 | 規則 | 範例路徑 | 結果 |
+|:------:|------|----------|------|
+| 1 | 掃描完整路徑（**右→左**）找 `*_ws` 目錄 → 取 `_ws` 前面的名稱 | `/home/user/ros_noetic_ws/docker/ros_noetic` → 找到 `ros_noetic_ws` | `ros_noetic` |
+| 2 | 最後一層目錄符合 `docker_*` → 去掉 `docker_` 前綴 | `/home/user/docker_ros_noetic` | `ros_noetic` |
+| 3 | 讀取 repo 根目錄 `.env.example` 中的 `IMAGE_NAME=` | `.env.example` 含 `IMAGE_NAME=ros_noetic` | `ros_noetic` |
+| 4 | 退回值 | 以上皆不符合 | `unknown` |
+
+### WS_PATH 工作區偵測（`detect_ws_path`）
+
+三策略搜尋，依序執行直到成功為止：
+
+#### 策略 1 — 同層掃描
+
+若**目前目錄名稱**以 `docker_` 開頭，去掉前綴後在**同層**尋找 `{name}_ws` 目錄。
+
+```
+/home/user/
+├── docker_ros_noetic/    ← 目前目錄符合 docker_*
+│   └── (此 repo)            去前綴 → "ros_noetic"
+└── ros_noetic_ws/        ← 同層找到 ros_noetic_ws → WS_PATH
+```
+
+#### 策略 2 — 向上遍歷
+
+沿著**絕對路徑逐層向上**檢查，若某層目錄名稱以 `_ws` 結尾，即使用該目錄。
+
+```
+/home/user/ros_noetic_ws/src/docker_ros_noetic/
+           ^^^^^^^^^^^^^^
+           向上遍歷：docker_ros_noetic → src → ros_noetic_ws（命中！）
+           → WS_PATH = /home/user/ros_noetic_ws
+```
+
+#### 策略 3 — 退回上層目錄
+
+若以上兩個策略都沒有找到 `_ws` 目錄，退回使用 repo 的**上一層目錄**。
+
+```
+/home/user/projects/ros_noetic/
+                    ^^^^^^^^^^^  ← repo（路徑中無 *_ws）
+           ^^^^^^^^              ← WS_PATH = /home/user/projects
+```
+
+> **注意：** 若 `.env` 已存在且 `WS_PATH` 指向有效目錄，則完全跳過偵測，保留現有值。
+
 ### CI 流程
 
 ```mermaid
