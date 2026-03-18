@@ -52,7 +52,7 @@ A modular Docker environment setup toolkit that automates system parameter detec
 │   ├── tmux_conf_spec.bats              # tmux.conf validation (12 cases)
 │   └── tmux_setup_spec.bats             # tmux setup tests (8 cases)
 ├── ci.sh                                # Local CI entry point
-├── docker-compose.yaml                  # Docker CI environment
+├── compose.yaml                         # Docker CI environment
 ├── .codecov.yaml                        # Codecov configuration
 └── LICENSE
 ```
@@ -89,7 +89,7 @@ WS_PATH=/path/to/workspace
 ```
 
 ### 2. Use in Docker Compose
-Reference the generated `.env` in your `docker-compose.yaml`:
+Reference the generated `.env` in your `compose.yaml`:
 ```yaml
 services:
   dev:

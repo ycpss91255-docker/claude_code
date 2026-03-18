@@ -52,7 +52,7 @@
 │   ├── tmux_conf_spec.bats             # tmux.conf 驗證測試（12 個案例）
 │   └── tmux_setup_spec.bats             # tmux 安裝測試（8 個案例）
 ├── ci.sh                                # 在地 CI 啟動腳本
-├── docker-compose.yaml                  # Docker CI 環境
+├── compose.yaml                         # Docker CI 環境
 ├── .codecov.yaml                        # Codecov 設定檔
 └── LICENSE
 ```
@@ -89,7 +89,7 @@ WS_PATH=/path/to/workspace
 ```
 
 ### 2. 在 Docker Compose 中使用
-在 `docker-compose.yaml` 中引用產生的 `.env`：
+在 `compose.yaml` 中引用產生的 `.env`：
 ```yaml
 services:
   dev:

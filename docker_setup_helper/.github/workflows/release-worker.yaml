@@ -15,7 +15,7 @@ jobs:
         LICENSE
         README.md
         ci.sh
-        docker-compose.yaml
+        compose.yaml
       VERSION: "${{ github.ref_name }}"
 
     steps:
