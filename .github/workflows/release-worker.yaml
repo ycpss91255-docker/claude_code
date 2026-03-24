@@ -19,7 +19,7 @@ jobs:
           cp -r Dockerfile compose.yaml \
                 build.sh run.sh exec.sh stop.sh \
                 post_setup.sh encrypt_env.sh \
-                script/ .env.example smoke_test/ \
+                script/ .env.example test/smoke_test/ \
                 README.md doc/ "${ARCHIVE_NAME}/"
 
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
