@@ -16,11 +16,11 @@ jobs:
           ARCHIVE_NAME="claude_code-${VERSION}"
 
           mkdir -p "${ARCHIVE_NAME}"
-          cp -r Dockerfile compose.yaml entrypoint.sh \
-                build.sh run.sh exec.sh \
+          cp -r Dockerfile compose.yaml \
+                build.sh run.sh exec.sh stop.sh \
                 post_setup.sh encrypt_env.sh \
-                .env.example smoke_test/ \
-                README.md README.zh-TW.md "${ARCHIVE_NAME}/"
+                script/ .env.example smoke_test/ \
+                README.md doc/ "${ARCHIVE_NAME}/"
 
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
           zip -r  "${ARCHIVE_NAME}.zip"    "${ARCHIVE_NAME}"
