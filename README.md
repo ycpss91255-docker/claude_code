@@ -5,7 +5,7 @@
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
 [![License](https://img.shields.io/badge/License-GPL--3.0-yellow?style=flat-square)](./LICENSE)
 
-[English] | [繁體中文](./README.zh-TW.md)
+[English] | [繁體中文](doc/README.zh-TW.md) | [简体中文](doc/README.zh-CN.md) | [日本語](doc/README.ja.md)
 
 > **TL;DR** — Modular Bash toolkit that auto-detects system params (UID/GID, GPU, architecture, workspace) and generates `.env` for Docker Compose builds. 100% test coverage with Bats + Kcov.
 >
@@ -42,7 +42,7 @@ A modular Docker environment setup toolkit that automates system parameter detec
 │           └── tmux/
 │               ├── setup.sh             # Tmux + TPM setup script
 │               └── tmux.conf            # Tmux configuration
-├── test/                                # Bats test cases (87 tests)
+├── test/                                # Bats test cases (95 tests)
 │   ├── test_helper.bash                 # Test utilities & mock helpers
 │   ├── setup_spec.bats                  # setup.sh tests (33 cases)
 │   ├── bashrc_spec.bats                 # bashrc validation (14 cases)
@@ -129,9 +129,9 @@ source "${DYNAMIC_PATH}"
 Coverage targets: **Patch** 100%, **Project** never decreasing (`auto`).
 
 <details>
-<summary>Click to expand test details (87 tests)</summary>
+<summary>Click to expand test details (95 tests)</summary>
 
-#### setup.sh (33)
+#### setup.sh (41)
 
 | Test | Description |
 |------|-------------|
@@ -165,9 +165,17 @@ Coverage targets: **Patch** 100%, **Project** never decreasing (`auto`).
 | `main` | Returns error when `--base-path` value is missing |
 | `_msg` | Returns English messages by default |
 | `_msg` | Returns Chinese messages when `_LANG=zh` |
+| `_msg` | Returns Simplified Chinese messages when `_LANG=zh-CN` |
+| `_msg` | Returns Japanese messages when `_LANG=ja` |
 | `main` | `--lang zh` sets Chinese messages |
 | `main` | `--lang` requires a value |
 | `_base_path` | Default resolves to repo root, not script dir (regression) |
+| `_detect_lang` | Returns `zh` for `zh_TW.UTF-8` |
+| `_detect_lang` | Returns `zh-CN` for `zh_CN.UTF-8` |
+| `_detect_lang` | Returns `ja` for `ja_JP.UTF-8` |
+| `_detect_lang` | Returns `en` for `en_US.UTF-8` |
+| `_detect_lang` | Returns `en` when `LANG` is unset |
+| `_detect_lang` | Overridden by `SETUP_LANG` |
 
 #### bashrc (14)
 
@@ -368,7 +376,7 @@ If neither strategy found a `_ws` directory, fall back to the **parent directory
 ```mermaid
 graph LR
     S["ci.sh"]:::entry --> SC["ShellCheck\nlint all .sh files"]:::step
-    SC --> BT["Bats\n86 unit tests"]:::step
+    SC --> BT["Bats\n95 unit tests"]:::step
     BT --> KC["Kcov\ncoverage report"]:::step
     KC --> CC["Codecov\nupload"]:::step
 
