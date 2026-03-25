@@ -15,6 +15,7 @@ Docker-in-Docker (DinD) development container for Claude Code, with Anthropic's 
 - [Authentication](#authentication)
   - [OAuth (Interactive Login)](#oauth-interactive-login)
   - [API Key (Encrypted)](#api-key-encrypted)
+- [Usage as Subtree](#usage-as-subtree)
 - [Configuration](#configuration)
 - [Smoke Tests](#smoke-tests)
 - [Architecture](#architecture)
@@ -216,6 +217,66 @@ rm .env.keys
 On container startup, if `.env.gpg` is detected in the workspace, you will be prompted for the passphrase. Decrypted keys are only held in memory as environment variables.
 
 > **Note:** `.env` and `.env.gpg` are already in `.gitignore`.
+
+## Usage as Subtree
+
+This repo can be embedded into another project via `git subtree`, letting the project carry its own Docker dev environment.
+
+### Adding to Your Project
+
+```bash
+git subtree add --prefix=docker/claude_code \
+    https://github.com/ycpss91255-docker/claude_code.git main --squash
+```
+
+Example directory structure after adding:
+
+```text
+my_project/
+├── src/                         # Project source code
+├── docker/claude_code/          # Subtree
+│   ├── build.sh
+│   ├── run.sh
+│   ├── compose.yaml
+│   ├── Dockerfile
+│   └── docker_setup_helper/
+└── ...
+```
+
+### Building and Running
+
+```bash
+cd docker/claude_code
+./build.sh && ./run.sh
+```
+
+`build.sh` uses `--base-path` internally, so path detection works correctly regardless of where you run it from.
+
+### Workspace Detection
+
+<details>
+<summary>Click to expand detection behavior when used as subtree</summary>
+
+When the subtree sits at `my_project/docker/claude_code/`:
+
+- **IMAGE_NAME**: directory name is `claude_code` (not `docker_*`), so detection falls through to `.env.example` which has `IMAGE_NAME=claude_code` — works correctly.
+- **WS_PATH**: strategy 1 (sibling scan) and strategy 2 (path traversal) may not match, so strategy 3 (fallback) resolves to the parent directory (`my_project/docker/`).
+
+**Recommendation**: after the first build, edit `WS_PATH` in `.env` to point to your actual workspace. The value is preserved on subsequent builds.
+
+</details>
+
+### Syncing with Upstream
+
+```bash
+git subtree pull --prefix=docker/claude_code \
+    https://github.com/ycpss91255-docker/claude_code.git main --squash
+```
+
+> **Notes**:
+> - Local modifications are tracked by git normally.
+> - `subtree pull` may produce merge conflicts if upstream changed the same files you modified locally.
+> - Do **not** modify `docker_setup_helper/` inside the subtree — it is managed by the env repo's own subtree.
 
 ## Configuration
 

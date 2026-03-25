@@ -10,6 +10,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check docker_setup_helper version
+        run: |
+          LOCAL_VER=$(cat .docker_setup_helper_version)
+          LATEST_VER=$(git ls-remote --tags --sort=-v:refname \
+            https://github.com/ycpss91255-docker/docker_setup_helper.git \
+            | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' | head -1 | sed 's|refs/tags/||')
+          if [ "${LOCAL_VER}" != "${LATEST_VER}" ]; then
+            echo "::warning::docker_setup_helper ${LOCAL_VER} → ${LATEST_VER} available"
+          else
+            echo "docker_setup_helper is up to date (${LOCAL_VER})"
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
