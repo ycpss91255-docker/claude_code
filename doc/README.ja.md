@@ -15,6 +15,7 @@ Claude Code 用の Docker-in-Docker (DinD) 開発コンテナ。Anthropic の Cl
 - [認証](#認証)
   - [OAuth（対話式ログイン）](#oauth対話式ログイン)
   - [API キー（暗号化）](#api-キー暗号化)
+- [Subtree としての利用](#subtree-としての利用)
 - [設定](#設定)
 - [スモークテスト](#スモークテスト)
 - [アーキテクチャ](#アーキテクチャ)
@@ -216,6 +217,66 @@ rm .env.keys
 コンテナ起動時にワークスペースで `.env.gpg` が検出されると、パスフレーズの入力を求められます。復号されたキーは環境変数としてメモリ上にのみ保持されます。
 
 > **注意：** `.env` と `.env.gpg` は `.gitignore` に登録されています。
+
+## Subtree としての利用
+
+このリポジトリは `git subtree` を使って他のプロジェクトに組み込むことができ、プロジェクト自体に Docker 開発環境を持たせることができます。
+
+### プロジェクトへの追加
+
+```bash
+git subtree add --prefix=docker/claude_code \
+    https://github.com/ycpss91255-docker/claude_code.git main --squash
+```
+
+追加後のディレクトリ構造の例：
+
+```text
+my_project/
+├── src/                         # プロジェクトのソースコード
+├── docker/claude_code/          # Subtree
+│   ├── build.sh
+│   ├── run.sh
+│   ├── compose.yaml
+│   ├── Dockerfile
+│   └── docker_setup_helper/
+└── ...
+```
+
+### ビルドと実行
+
+```bash
+cd docker/claude_code
+./build.sh && ./run.sh
+```
+
+`build.sh` は内部で `--base-path` を使用しているため、どこから実行してもパス検出が正しく動作します。
+
+### ワークスペース検出の動作
+
+<details>
+<summary>クリックして subtree として使用時の検出動作を表示</summary>
+
+subtree が `my_project/docker/claude_code/` にある場合：
+
+- **IMAGE_NAME**：ディレクトリ名が `claude_code`（`docker_*` ではない）のため、検出は `.env.example` にフォールバックし、`IMAGE_NAME=claude_code` が設定されています — 正常に動作します。
+- **WS_PATH**：戦略 1（同階層スキャン）と戦略 2（上方向の走査）はマッチしない可能性があるため、戦略 3（フォールバック）が親ディレクトリ（`my_project/docker/`）に解決します。
+
+**推奨**：初回ビルド後、`.env` の `WS_PATH` を実際のワークスペースに編集してください。この値は以降のビルドで保持されます。
+
+</details>
+
+### 上流との同期
+
+```bash
+git subtree pull --prefix=docker/claude_code \
+    https://github.com/ycpss91255-docker/claude_code.git main --squash
+```
+
+> **注意事項**：
+> - ローカルの変更は git によって通常通り追跡されます。
+> - 上流がローカルで変更したファイルと同じファイルを変更した場合、`subtree pull` でマージコンフリクトが発生する可能性があります。
+> - subtree 内の `docker_setup_helper/` は**変更しないでください** — env リポジトリ自体の subtree によって管理されています。
 
 ## 設定
 

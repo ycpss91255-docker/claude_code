@@ -71,3 +71,29 @@ setup() {
     run bash /lint/stop.sh -h
     assert_line --partial "Usage:"
 }
+
+# -------------------- LANG auto-detect --------------------
+
+@test "build.sh detects zh from LANG=zh_TW.UTF-8" {
+    run env LANG=zh_TW.UTF-8 bash /lint/build.sh -h
+    assert_success
+    assert_line --partial "用法:"
+}
+
+@test "build.sh detects ja from LANG=ja_JP.UTF-8" {
+    run env LANG=ja_JP.UTF-8 bash /lint/build.sh -h
+    assert_success
+    assert_line --partial "使用法:"
+}
+
+@test "build.sh defaults to en for LANG=en_US.UTF-8" {
+    run env LANG=en_US.UTF-8 bash /lint/build.sh -h
+    assert_success
+    assert_line --partial "Usage:"
+}
+
+@test "build.sh SETUP_LANG overrides LANG" {
+    run env LANG=ja_JP.UTF-8 SETUP_LANG=zh bash /lint/build.sh -h
+    assert_success
+    assert_line --partial "用法:"
+}

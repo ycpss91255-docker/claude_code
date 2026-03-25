@@ -10,10 +10,19 @@
 #   - Workspace path detection (sibling scan → path traversal → parent directory fallback)
 #   - .env generation
 #
-# Usage: setup.sh [--base-path <path>] [--lang zh]
+# Usage: setup.sh [--base-path <path>] [--lang zh|zh-CN|ja]
 
 # ── i18n messages ──────────────────────────────────────────────
-_LANG="${SETUP_LANG:-en}"
+_detect_lang() {
+    local _sys_lang="${LANG:-}"
+    case "${_sys_lang}" in
+        zh_TW*) echo "zh" ;;
+        zh_CN*|zh_SG*) echo "zh-CN" ;;
+        ja*) echo "ja" ;;
+        *) echo "en" ;;
+    esac
+}
+_LANG="${SETUP_LANG:-$(_detect_lang)}"
 
 _msg() {
     local _key="${1}"
@@ -23,6 +32,18 @@ _msg() {
                 env_done)      echo ".env 更新完成" ;;
                 env_comment)   echo "自動偵測欄位請勿手動修改，如需變更 WS_PATH 可直接編輯此檔案" ;;
                 unknown_arg)   echo "未知參數" ;;
+            esac ;; # LCOV_EXCL_LINE
+        zh-CN) # LCOV_EXCL_LINE
+            case "${_key}" in
+                env_done)      echo ".env 更新完成" ;;
+                env_comment)   echo "自动检测字段请勿手动修改，如需变更 WS_PATH 可直接编辑此文件" ;;
+                unknown_arg)   echo "未知参数" ;;
+            esac ;; # LCOV_EXCL_LINE
+        ja) # LCOV_EXCL_LINE
+            case "${_key}" in
+                env_done)      echo ".env 更新完了" ;;
+                env_comment)   echo "自動検出フィールドは手動で編集しないでください。WS_PATH の変更はこのファイルを直接編集してください" ;;
+                unknown_arg)   echo "不明な引数" ;;
             esac ;; # LCOV_EXCL_LINE
         *) # LCOV_EXCL_LINE
             case "${_key}" in
@@ -233,7 +254,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 # main
 #
-# Usage: main [--base-path <path>] [--lang <en|zh>]
+# Usage: main [--base-path <path>] [--lang <en|zh|zh-CN|ja>]
 #   --base-path  override script directory (useful for testing)
 #   --lang       set message language (default: en)
 # ════════════════════════════════════════════════════════════════════
@@ -247,7 +268,7 @@ main() {
                 shift 2
                 ;;
             --lang)
-                _LANG="${2:?"--lang requires a value (en|zh)"}"
+                _LANG="${2:?"--lang requires a value (en|zh|zh-CN|ja)"}"
                 shift 2
                 ;;
             *)

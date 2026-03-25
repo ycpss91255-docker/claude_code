@@ -338,6 +338,57 @@ EOF
     assert_equal "$(_msg unknown_arg)"  "未知參數"
 }
 
+@test "_msg returns Simplified Chinese messages when _LANG=zh-CN" {
+    _LANG="zh-CN"
+    assert_equal "$(_msg env_done)"     ".env 更新完成"
+    assert_equal "$(_msg env_comment)"  "自动检测字段请勿手动修改，如需变更 WS_PATH 可直接编辑此文件"
+    assert_equal "$(_msg unknown_arg)"  "未知参数"
+}
+
+@test "_msg returns Japanese messages when _LANG=ja" {
+    _LANG="ja"
+    assert_equal "$(_msg env_done)"     ".env 更新完了"
+    assert_equal "$(_msg env_comment)"  "自動検出フィールドは手動で編集しないでください。WS_PATH の変更はこのファイルを直接編集してください"
+    assert_equal "$(_msg unknown_arg)"  "不明な引数"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _detect_lang
+# ════════════════════════════════════════════════════════════════════
+
+@test "_detect_lang returns zh for zh_TW.UTF-8" {
+    LANG="zh_TW.UTF-8"
+    assert_equal "$(_detect_lang)" "zh"
+}
+
+@test "_detect_lang returns zh-CN for zh_CN.UTF-8" {
+    LANG="zh_CN.UTF-8"
+    assert_equal "$(_detect_lang)" "zh-CN"
+}
+
+@test "_detect_lang returns ja for ja_JP.UTF-8" {
+    LANG="ja_JP.UTF-8"
+    assert_equal "$(_detect_lang)" "ja"
+}
+
+@test "_detect_lang returns en for en_US.UTF-8" {
+    LANG="en_US.UTF-8"
+    assert_equal "$(_detect_lang)" "en"
+}
+
+@test "_detect_lang returns en when LANG is unset" {
+    unset LANG
+    assert_equal "$(_detect_lang)" "en"
+}
+
+@test "_detect_lang is overridden by SETUP_LANG" {
+    LANG="ja_JP.UTF-8"
+    SETUP_LANG="zh"
+    # Re-evaluate _LANG as setup.sh would
+    _LANG="${SETUP_LANG:-$(_detect_lang)}"
+    assert_equal "${_LANG}" "zh"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # main --lang
 # ════════════════════════════════════════════════════════════════════
