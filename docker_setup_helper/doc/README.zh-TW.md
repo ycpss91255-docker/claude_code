@@ -3,9 +3,9 @@
 ![語言](https://img.shields.io/badge/語言-Bash-blue?style=flat-square)
 ![測試框架](https://img.shields.io/badge/測試框架-Bats-orange?style=flat-square)
 ![語法檢查](https://img.shields.io/badge/語法檢查-符合規範-brightgreen?style=flat-square)
-[![授權](https://img.shields.io/badge/授權-GPL--3.0-yellow?style=flat-square)](./LICENSE)
+[![授權](https://img.shields.io/badge/授權-GPL--3.0-yellow?style=flat-square)](../LICENSE)
 
-[English](./README.md) | [繁體中文]
+[English](../README.md) | [繁體中文] | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
 > **TL;DR** — 模組化 Bash 工具組，自動偵測系統參數（UID/GID、GPU、架構、工作區）並產生 `.env` 供 Docker Compose 建置使用。100% 測試覆蓋率（Bats + Kcov）。
 >
@@ -42,7 +42,7 @@
 │           └── tmux/
 │               ├── setup.sh             # Tmux + TPM 設定腳本
 │               └── tmux.conf            # Tmux 設定檔
-├── test/                                # Bats 測試案例（87 個測試）
+├── test/                                # Bats 測試案例（95 個測試）
 │   ├── test_helper.bash                 # 測試輔助工具與 mock 函式
 │   ├── setup_spec.bats                  # setup.sh 測試（33 個案例）
 │   ├── bashrc_spec.bats                 # bashrc 驗證測試（14 個案例）
@@ -129,9 +129,9 @@ source "${DYNAMIC_PATH}"
 覆蓋率目標：**Patch** 100%，**Project** 只進步不退步（`auto`）。
 
 <details>
-<summary>展開查看測試細項（87 個測試）</summary>
+<summary>展開查看測試細項（95 個測試）</summary>
 
-#### setup.sh（33）
+#### setup.sh（41）
 
 | 測試項目 | 說明 |
 |----------|------|
@@ -165,9 +165,17 @@ source "${DYNAMIC_PATH}"
 | `main` | `--base-path` 缺少值時回傳錯誤 |
 | `_msg` | 預設回傳英文訊息 |
 | `_msg` | `_LANG=zh` 時回傳中文訊息 |
+| `_msg` | `_LANG=zh-CN` 時回傳簡體中文訊息 |
+| `_msg` | `_LANG=ja` 時回傳日文訊息 |
 | `main` | `--lang zh` 設定中文訊息 |
 | `main` | `--lang` 缺少值時回傳錯誤 |
 | `_base_path` | 預設解析至 repo root，非 script 所在目錄（regression） |
+| `_detect_lang` | `zh_TW.UTF-8` 時回傳 `zh` |
+| `_detect_lang` | `zh_CN.UTF-8` 時回傳 `zh-CN` |
+| `_detect_lang` | `ja_JP.UTF-8` 時回傳 `ja` |
+| `_detect_lang` | `en_US.UTF-8` 時回傳 `en` |
+| `_detect_lang` | `LANG` 未設定時回傳 `en` |
+| `_detect_lang` | 被 `SETUP_LANG` 覆蓋 |
 
 #### bashrc（14）
 
@@ -368,7 +376,7 @@ graph TD
 ```mermaid
 graph LR
     S["ci.sh"]:::entry --> SC["ShellCheck\n語法檢查所有 .sh"]:::step
-    SC --> BT["Bats\n86 個單元測試"]:::step
+    SC --> BT["Bats\n95 個單元測試"]:::step
     BT --> KC["Kcov\n覆蓋率報告"]:::step
     KC --> CC["Codecov\n上傳"]:::step
 
@@ -377,4 +385,4 @@ graph LR
 ```
 
 ## 📄 授權
-[GPL-3.0](./LICENSE)
+[GPL-3.0](../LICENSE)
