@@ -1,0 +1,41 @@
+services:
+  ci:
+    image: kcov/kcov
+    security_opt:
+      - seccomp=unconfined
+    volumes:
+      - .:/source
+    working_dir: /source
+    environment:
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        set -e
+        apt-get update -qq && \
+        apt-get install -y --no-install-recommends \
+            bats \
+            bats-support \
+            bats-assert \
+            shellcheck \
+            git \
+            ca-certificates && \
+        git clone --depth 1 -b v1.2.5 \
+            https://github.com/jasonkarns/bats-mock /usr/lib/bats/bats-mock
+
+        echo "--- Running ShellCheck ---"
+        find . -maxdepth 1 -name "*.sh" | xargs shellcheck -x
+        shellcheck -x config/pip/setup.sh
+        shellcheck -x config/shell/terminator/setup.sh
+        shellcheck -x config/shell/tmux/setup.sh
+
+        echo "--- Running Tests & Coverage ---"
+        kcov --include-path=. \
+            --exclude-path=test/,smoke_test/,config/shell/bashrc,config/shell/terminator/config,config/shell/tmux/tmux.conf,.github/ \
+            ./coverage \
+            bats test/
+
+        chown -R "${HOST_UID}:${HOST_GID}" coverage/
+        echo "Coverage report: $(pwd)/coverage/index.html"
