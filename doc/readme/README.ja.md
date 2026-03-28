@@ -11,7 +11,21 @@
 
 [ycpss91255-docker](https://github.com/ycpss91255-docker) 組織のすべての Docker コンテナ repo 用共有テンプレート。
 
-[English](../../README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
+**[English](../../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
+
+---
+
+## 目次
+
+- [TL;DR](#tldr)
+- [概要](#概要)
+- [クイックスタート](#クイックスタート)
+- [CI Reusable Workflows](#ci-reusable-workflows)
+- [ローカルテスト実行](#ローカルテスト実行)
+- [テスト](#テスト)
+- [ディレクトリ構造](#ディレクトリ構造)
+
+---
 
 ## TL;DR
 
@@ -19,7 +33,7 @@
 # 新規 repo：subtree 追加 + 初期化
 git subtree add --prefix=docker_template \
     git@github.com:ycpss91255-docker/docker_template.git main --squash
-./docker_template/scripts/init.sh
+./docker_template/script/init.sh
 
 # 最新版にアップグレード
 make upgrade-check   # 確認
@@ -42,7 +56,7 @@ graph TB
         scripts["build.sh / run.sh / exec.sh / stop.sh<br/>setup.sh / .hadolint.yaml"]
         smoke["test/smoke_test/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
-        mgmt["scripts/<br/>init.sh / upgrade.sh / ci.sh / migrate.sh"]
+        mgmt["script/<br/>init.sh / upgrade.sh / ci.sh / migrate.sh"]
         workflows["再利用可能な Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
@@ -80,7 +94,7 @@ flowchart LR
     end
 
     build_test --> ci_container
-    make_test -->|"scripts/ci.sh"| ci_container
+    make_test -->|"script/ci.sh"| ci_container
     shellcheck --> hadolint --> bats
 
     push["git push / PR"] --> build_worker
@@ -102,9 +116,9 @@ flowchart LR
 | `test/smoke_test/` | 各 consumer repo 用の共有テスト |
 | `.hadolint.yaml` | 共有 Hadolint ルール |
 | `Makefile` | 統一コマンドエントリ（`make test`、`make upgrade` 等） |
-| `scripts/init.sh` | Consumer repo の初回 symlink セットアップ |
-| `scripts/upgrade.sh` | Subtree バージョンアップグレード |
-| `scripts/ci.sh` | CI パイプライン（ローカル + リモート） |
+| `script/init.sh` | Consumer repo の初回 symlink セットアップ |
+| `script/upgrade.sh` | Subtree バージョンアップグレード |
+| `script/ci.sh` | CI パイプライン（ローカル + リモート） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
 
 ### 各 repo で個別管理するファイル（共有しない）
@@ -126,7 +140,7 @@ git subtree add --prefix=docker_template \
     git@github.com:ycpss91255-docker/docker_template.git main --squash
 
 # 2. symlink 初期化（ワンコマンド）
-./docker_template/scripts/init.sh
+./docker_template/script/init.sh
 ```
 
 ### アップグレード
@@ -139,7 +153,7 @@ make upgrade-check
 make upgrade
 
 # バージョン指定
-./docker_template/scripts/upgrade.sh v0.3.0
+./docker_template/script/upgrade.sh v0.3.0
 ```
 
 ## CI Reusable Workflows
@@ -192,8 +206,8 @@ make help        # 全ターゲット表示
 
 直接実行：
 ```bash
-./scripts/ci.sh          # フル CI（docker compose 経由）
-./scripts/ci.sh --ci     # コンテナ内で実行（compose から呼び出し）
+./script/ci.sh          # フル CI（docker compose 経由）
+./script/ci.sh --ci     # コンテナ内で実行（compose から呼び出し）
 ```
 
 ## テスト
@@ -202,10 +216,6 @@ make help        # 全ターゲット表示
 - **22** 共有 smoke tests（`test/smoke_test/`）
 
 詳細は [TEST.md](../test/TEST.md) を参照。
-
-## 変更履歴
-
-[CHANGELOG.md](../changelog/CHANGELOG.md) を参照。
 
 ## ディレクトリ構造
 
@@ -231,13 +241,13 @@ docker_template/
 ├── Makefile                          # 統一コマンドエントリ（make test/lint/...）
 ├── compose.yaml                      # Docker CI ランナー
 ├── .hadolint.yaml                    # 共有 Hadolint ルール
-├── scripts/                          # テンプレート管理ツール
+├── script/                          # テンプレート管理ツール
 │   ├── init.sh                       # Consumer repo symlink セットアップ
 │   ├── upgrade.sh                    # Subtree バージョンアップグレード
 │   ├── ci.sh                         # CI パイプライン（ローカル + リモート）
 │   └── migrate.sh                    # バッチ repo 移行
 ├── .github/workflows/
-│   ├── self-test.yaml                # テンプレート CI（scripts/ci.sh を呼び出し）
+│   ├── self-test.yaml                # テンプレート CI（script/ci.sh を呼び出し）
 │   ├── build-worker.yaml             # 再利用可能なビルド workflow
 │   └── release-worker.yaml           # 再利用可能なリリース workflow
 ├── doc/

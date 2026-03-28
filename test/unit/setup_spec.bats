@@ -275,6 +275,24 @@ EOF
     assert_success
 }
 
+@test "main reads IMAGE_NAME from .env.example when detection returns unknown" {
+    local _ws="${TEMP_DIR}/test_ws"
+    local _proj="${TEMP_DIR}/my_generic_project"
+    mkdir -p "${_ws}" "${_proj}"
+
+    # Create .env.example with IMAGE_NAME
+    echo "IMAGE_NAME=my_custom_image" > "${_proj}/.env.example"
+
+    run bash -c "
+        source /source/setup.sh
+        detect_ws_path() { local -n _o=\$1; _o='${_ws}'; }
+        main --base-path '${_proj}'
+    "
+    assert_success
+    run grep 'IMAGE_NAME=my_custom_image' "${_proj}/.env"
+    assert_success
+}
+
 @test "main uses BASH_SOURCE fallback when --base-path not given" {
     local _ws="${TEMP_DIR}/test_ws"
     mkdir -p "${_ws}"

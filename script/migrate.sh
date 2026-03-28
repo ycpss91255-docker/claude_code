@@ -19,7 +19,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 TEMPLATE_REPO="git@github.com:ycpss91255-docker/docker_template.git"
-TEMPLATE_VERSION="v0.2.0"
+TEMPLATE_VERSION="v0.3.0"
 DRY_RUN=false
 
 # ── Repo registry ────────────────────────────────────────────────────────────
@@ -462,7 +462,7 @@ EOF
 
 main() {
     local cmd=""
-    local base_dir="${SCRIPT_DIR}/.."
+    local base_dir="${SCRIPT_DIR}/../.."
 
     while [[ $# -gt 0 ]]; do
         case "$1" in

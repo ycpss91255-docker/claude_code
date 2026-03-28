@@ -61,6 +61,13 @@ if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
     usage
 fi
 
-docker compose -f "${FILE_PATH}/compose.yaml" \
+# Load .env for project name
+set -o allexport
+# shellcheck disable=SC1091
+source "${FILE_PATH}/.env"
+set +o allexport
+
+docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
+    -f "${FILE_PATH}/compose.yaml" \
     --env-file "${FILE_PATH}/.env" \
     down "$@"

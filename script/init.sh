@@ -2,7 +2,7 @@
 # init.sh - Initialize a consumer repo with docker_template symlinks
 #
 # Run from the consumer repo root after git subtree add:
-#   ./docker_template/scripts/init.sh
+#   ./docker_template/script/init.sh
 #
 # Creates symlinks for shared scripts and removes old docker_setup_helper
 # artifacts if present.
@@ -46,6 +46,7 @@ _symlink "${TEMPLATE_REL}/build.sh" "build.sh"
 _symlink "${TEMPLATE_REL}/run.sh" "run.sh"
 _symlink "${TEMPLATE_REL}/exec.sh" "exec.sh"
 _symlink "${TEMPLATE_REL}/stop.sh" "stop.sh"
+_symlink "${TEMPLATE_REL}/Makefile" "Makefile"
 
 # .hadolint.yaml: only symlink if no custom version exists
 if [[ ! -f .hadolint.yaml ]] || diff -q .hadolint.yaml "${TEMPLATE_REL}/.hadolint.yaml" >/dev/null 2>&1; then
@@ -74,9 +75,9 @@ done
 
 # ── Version file ─────────────────────────────────────────────────────────────
 
-if [[ -f "${TEMPLATE_DIR}/scripts/migrate.sh" ]]; then
+if [[ -f "${TEMPLATE_DIR}/script/migrate.sh" ]]; then
     # Extract TEMPLATE_VERSION from migrate.sh
-    ver=$(grep -oP 'TEMPLATE_VERSION="\K[^"]+' "${TEMPLATE_DIR}/scripts/migrate.sh" 2>/dev/null || echo "v0.2.0")
+    ver=$(grep -oP 'TEMPLATE_VERSION="\K[^"]+' "${TEMPLATE_DIR}/script/migrate.sh" 2>/dev/null || echo "v0.2.0")
 else
     ver="v0.2.0"
 fi

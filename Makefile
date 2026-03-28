@@ -1,42 +1,31 @@
-.PHONY: test lint coverage init upgrade upgrade-check migrate migrate-list migrate-dry-run clean help
+.PHONY: build run run-detach test runtime exec stop help
 
-# ── Development ──────────────────────────────────────────────────────────────
+build: ## Build devel image
+	./build.sh
 
-test: ## Run full CI (ShellCheck + Bats + Kcov) via docker compose
-	./scripts/ci.sh
+run: ## Run container (interactive)
+	./run.sh
 
-lint: ## Run ShellCheck only
-	./scripts/ci.sh --lint-only
+run-detach: ## Run container in background
+	./run.sh -d
 
-coverage: ## Run tests with Kcov coverage
-	./scripts/ci.sh --coverage
+test: ## Build and run smoke tests
+	./build.sh test
 
-clean: ## Remove coverage reports
-	rm -rf coverage/
+runtime: ## Build runtime image
+	./build.sh runtime
 
-# ── Consumer repo setup ─────────────────────────────────────────────────────
+exec: ## Exec into running container (default: bash)
+	./exec.sh
 
-init: ## Initialize symlinks for consumer repo (first-time setup)
-	./scripts/init.sh
+stop: ## Stop and remove containers
+	./stop.sh
 
-upgrade: ## Upgrade docker_template subtree to latest version
-	./scripts/upgrade.sh
+upgrade: ## Upgrade docker_template subtree
+	./docker_template/script/upgrade.sh
 
-upgrade-check: ## Check if a newer docker_template version is available
-	./scripts/upgrade.sh --check
-
-# ── Batch management (template repo only) ────────────────────────────────────
-
-migrate: ## Migrate all repos from docker_setup_helper to docker_template
-	./scripts/migrate.sh --all
-
-migrate-list: ## List repos and their migration status
-	./scripts/migrate.sh --list
-
-migrate-dry-run: ## Dry-run migration for all repos
-	./scripts/migrate.sh --dry-run --all
-
-# ── Help ─────────────────────────────────────────────────────────────────────
+upgrade-check: ## Check for docker_template updates
+	./docker_template/script/upgrade.sh --check
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | \
