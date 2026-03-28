@@ -34,19 +34,72 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Structure: smoke_test files exist
+# Structure: ci.sh and Makefile exist
 # ════════════════════════════════════════════════════════════════════
 
-@test "smoke_test/test_helper.bash exists" {
-    assert [ -f /source/smoke_test/test_helper.bash ]
+@test "ci.sh exists and is executable" {
+    assert [ -f /source/scripts/ci.sh ]
+    assert [ -x /source/scripts/ci.sh ]
 }
 
-@test "smoke_test/script_help.bats exists" {
-    assert [ -f /source/smoke_test/script_help.bats ]
+@test "ci.sh uses set -euo pipefail" {
+    run grep "set -euo pipefail" /source/scripts/ci.sh
+    assert_success
 }
 
-@test "smoke_test/display_env.bats exists" {
-    assert [ -f /source/smoke_test/display_env.bats ]
+@test "Makefile exists" {
+    assert [ -f /source/Makefile ]
+}
+
+@test "Makefile has test target" {
+    run grep -E '^test:' /source/Makefile
+    assert_success
+}
+
+@test "Makefile has lint target" {
+    run grep -E '^lint:' /source/Makefile
+    assert_success
+}
+
+@test "Makefile has clean target" {
+    run grep -E '^clean:' /source/Makefile
+    assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Structure: test directory layout
+# ════════════════════════════════════════════════════════════════════
+
+@test "test/smoke_test/test_helper.bash exists" {
+    assert [ -f /source/test/smoke_test/test_helper.bash ]
+}
+
+@test "test/smoke_test/script_help.bats exists" {
+    assert [ -f /source/test/smoke_test/script_help.bats ]
+}
+
+@test "test/smoke_test/display_env.bats exists" {
+    assert [ -f /source/test/smoke_test/display_env.bats ]
+}
+
+@test "test/unit/ directory exists" {
+    assert [ -d /source/test/unit ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Structure: doc directory layout
+# ════════════════════════════════════════════════════════════════════
+
+@test "doc/readme/ directory exists" {
+    assert [ -d /source/doc/readme ]
+}
+
+@test "doc/test/ directory exists" {
+    assert [ -d /source/doc/test ]
+}
+
+@test "doc/changelog/ directory exists" {
+    assert [ -d /source/doc/changelog ]
 }
 
 # ════════════════════════════════════════════════════════════════════

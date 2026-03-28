@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **114 tests** total.
+Template self-tests: **124 tests** total.
 
 ## Test Files
 
@@ -50,7 +50,7 @@ Template self-tests: **114 tests** total.
 | `main --lang zh sets Chinese messages` | --lang flag |
 | `main --lang requires a value` | Missing --lang value |
 
-### test/template_spec.bats (19)
+### test/unit/template_spec.bats (29)
 
 | Test | Description |
 |------|-------------|
@@ -59,9 +59,19 @@ Template self-tests: **114 tests** total.
 | `exec.sh exists and is executable` | File check |
 | `stop.sh exists and is executable` | File check |
 | `setup.sh exists and is executable` | File check |
-| `smoke_test/test_helper.bash exists` | File check |
-| `smoke_test/script_help.bats exists` | File check |
-| `smoke_test/display_env.bats exists` | File check |
+| `ci.sh exists and is executable` | File check |
+| `ci.sh uses set -euo pipefail` | Shell convention |
+| `Makefile exists` | File check |
+| `Makefile has test target` | Makefile target |
+| `Makefile has lint target` | Makefile target |
+| `Makefile has clean target` | Makefile target |
+| `test/smoke_test/test_helper.bash exists` | Directory structure |
+| `test/smoke_test/script_help.bats exists` | Directory structure |
+| `test/smoke_test/display_env.bats exists` | Directory structure |
+| `test/unit/ directory exists` | Directory structure |
+| `doc/readme/ directory exists` | Directory structure |
+| `doc/test/ directory exists` | Directory structure |
+| `doc/changelog/ directory exists` | Directory structure |
 | `build.sh references docker_template/setup.sh` | Path reference |
 | `run.sh references docker_template/setup.sh` | Path reference |
 | `build.sh uses set -euo pipefail` | Shell convention |
