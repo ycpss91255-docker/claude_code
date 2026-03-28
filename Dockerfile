@@ -185,8 +185,8 @@ RUN ln -sf /opt/bats/bin/bats /usr/local/bin/bats
 ENV BATS_LIB_PATH="/usr/lib/bats"
 
 # Smoke test
-COPY docker_template/smoke_test/test_helper.bash /smoke_test/test_helper.bash
-COPY docker_template/smoke_test/script_help.bats /smoke_test/script_help.bats
+COPY docker_template/test/smoke_test/test_helper.bash /smoke_test/test_helper.bash
+COPY docker_template/test/smoke_test/script_help.bats /smoke_test/script_help.bats
 COPY test/smoke_test/ /smoke_test/
 
 ARG USER
