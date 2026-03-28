@@ -96,7 +96,7 @@ graph LR
 ```mermaid
 flowchart LR
     subgraph "run.sh"
-        A["Generate .env<br/>(docker_setup_helper)"] --> B["Derive BASE_IMAGE<br/>(post_setup.sh)"]
+        A["Generate .env<br/>(docker_template)"] --> B["Derive BASE_IMAGE<br/>(post_setup.sh)"]
         B --> C{"--data-dir?"}
         C -->|yes| D["Use specified dir"]
         C -->|no| E{"agent_* found?"}
@@ -239,7 +239,7 @@ my_project/
 │   ├── run.sh
 │   ├── compose.yaml
 │   ├── Dockerfile
-│   └── docker_setup_helper/
+│   └── docker_template/
 └── ...
 ```
 
@@ -276,7 +276,7 @@ git subtree pull --prefix=docker/claude_code \
 > **注意事項**：
 > - 本地修改會由 git 正常追蹤。
 > - 若上游修改了與你本地相同的檔案，`subtree pull` 可能會產生合併衝突。
-> - **不要**修改 subtree 內的 `docker_setup_helper/` — 它由 env repo 自身的 subtree 管理。
+> - **不要**修改 subtree 內的 `docker_template/` — 它由 env repo 自身的 subtree 管理。
 
 ## 設定
 
@@ -375,7 +375,7 @@ git subtree pull --prefix=docker/claude_code \
 ├── smoke_test/            # Bats smoke tests
 │   ├── claude_env.bats
 │   └── test_helper.bash
-├── docker_setup_helper/   # Auto .env generator (git subtree)
+├── docker_template/   # Auto .env generator (git subtree)
 ├── README.md
 └── README.zh-TW.md
 ```

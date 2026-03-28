@@ -96,7 +96,7 @@ graph LR
 ```mermaid
 flowchart LR
     subgraph "run.sh"
-        A["Generate .env<br/>(docker_setup_helper)"] --> B["Derive BASE_IMAGE<br/>(post_setup.sh)"]
+        A["Generate .env<br/>(docker_template)"] --> B["Derive BASE_IMAGE<br/>(post_setup.sh)"]
         B --> C{"--data-dir?"}
         C -->|yes| D["Use specified dir"]
         C -->|no| E{"agent_* found?"}
@@ -239,7 +239,7 @@ my_project/
 │   ├── run.sh
 │   ├── compose.yaml
 │   ├── Dockerfile
-│   └── docker_setup_helper/
+│   └── docker_template/
 └── ...
 ```
 
@@ -276,7 +276,7 @@ git subtree pull --prefix=docker/claude_code \
 > **注意事項**：
 > - ローカルの変更は git によって通常通り追跡されます。
 > - 上流がローカルで変更したファイルと同じファイルを変更した場合、`subtree pull` でマージコンフリクトが発生する可能性があります。
-> - subtree 内の `docker_setup_helper/` は**変更しないでください** — env リポジトリ自体の subtree によって管理されています。
+> - subtree 内の `docker_template/` は**変更しないでください** — env リポジトリ自体の subtree によって管理されています。
 
 ## 設定
 
@@ -375,7 +375,7 @@ test ターゲットをビルドして環境を検証：
 ├── smoke_test/            # Bats smoke tests
 │   ├── claude_env.bats
 │   └── test_helper.bash
-├── docker_setup_helper/   # Auto .env generator (git subtree)
+├── docker_template/   # Auto .env generator (git subtree)
 ├── README.md
 └── README.zh-TW.md
 ```
