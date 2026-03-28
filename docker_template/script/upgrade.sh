@@ -2,9 +2,9 @@
 # upgrade.sh - Upgrade docker_template subtree to the latest version
 #
 # Run from the consumer repo root:
-#   ./docker_template/scripts/upgrade.sh              # upgrade to latest tag
-#   ./docker_template/scripts/upgrade.sh v0.3.0       # upgrade to specific version
-#   ./docker_template/scripts/upgrade.sh --check      # check if update available
+#   ./docker_template/script/upgrade.sh              # upgrade to latest tag
+#   ./docker_template/script/upgrade.sh v0.3.0       # upgrade to specific version
+#   ./docker_template/script/upgrade.sh --check      # check if update available
 
 set -euo pipefail
 
@@ -116,7 +116,7 @@ COMMIT
 
 _usage() {
     cat >&2 <<'EOF'
-Usage: ./docker_template/scripts/upgrade.sh [VERSION|--check]
+Usage: ./docker_template/script/upgrade.sh [VERSION|--check]
 
 Upgrade docker_template subtree to the latest (or specified) version.
 
@@ -126,9 +126,9 @@ Arguments:
   -h, --help    Show this help
 
 Examples:
-  ./docker_template/scripts/upgrade.sh              # upgrade to latest
-  ./docker_template/scripts/upgrade.sh v0.3.0       # upgrade to specific version
-  ./docker_template/scripts/upgrade.sh --check      # check only
+  ./docker_template/script/upgrade.sh              # upgrade to latest
+  ./docker_template/script/upgrade.sh v0.3.0       # upgrade to specific version
+  ./docker_template/script/upgrade.sh --check      # check only
 EOF
     exit 0
 }

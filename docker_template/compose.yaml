@@ -12,4 +12,4 @@ services:
     entrypoint: /bin/bash
     command:
       - -c
-      - ./scripts/ci.sh --ci
+      - ./script/ci.sh --ci

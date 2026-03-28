@@ -11,7 +11,7 @@
 
 [ycpss91255-docker](https://github.com/ycpss91255-docker) 组织下所有 Docker 容器 repo 的共用模板。
 
-[English](../../README.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
+**[English](../../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
 ## TL;DR
 
@@ -19,7 +19,7 @@
 # 新 repo：添加 subtree + 初始化
 git subtree add --prefix=docker_template \
     git@github.com:ycpss91255-docker/docker_template.git main --squash
-./docker_template/scripts/init.sh
+./docker_template/script/init.sh
 
 # 升级到最新版
 make upgrade-check   # 检查
@@ -42,7 +42,7 @@ graph TB
         scripts["build.sh / run.sh / exec.sh / stop.sh<br/>setup.sh / .hadolint.yaml"]
         smoke["test/smoke_test/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
-        mgmt["scripts/<br/>init.sh / upgrade.sh / ci.sh / migrate.sh"]
+        mgmt["script/<br/>init.sh / upgrade.sh / ci.sh / migrate.sh"]
         workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
@@ -80,7 +80,7 @@ flowchart LR
     end
 
     build_test --> ci_container
-    make_test -->|"scripts/ci.sh"| ci_container
+    make_test -->|"script/ci.sh"| ci_container
     shellcheck --> hadolint --> bats
 
     push["git push / PR"] --> build_worker
@@ -102,9 +102,9 @@ flowchart LR
 | `test/smoke_test/` | 给各 consumer repo 使用的共用测试 |
 | `.hadolint.yaml` | 共用 Hadolint 规则 |
 | `Makefile` | 统一命令入口（`make test`、`make upgrade` 等） |
-| `scripts/init.sh` | Consumer repo 首次初始化 symlinks |
-| `scripts/upgrade.sh` | Subtree 版本升级 |
-| `scripts/ci.sh` | CI pipeline（本地 + 远端） |
+| `script/init.sh` | Consumer repo 首次初始化 symlinks |
+| `script/upgrade.sh` | Subtree 版本升级 |
+| `script/ci.sh` | CI pipeline（本地 + 远端） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
 ### 各 repo 自行维护的文件（不共用）
@@ -126,7 +126,7 @@ git subtree add --prefix=docker_template \
     git@github.com:ycpss91255-docker/docker_template.git main --squash
 
 # 2. 初始化 symlinks（一个命令搞定）
-./docker_template/scripts/init.sh
+./docker_template/script/init.sh
 ```
 
 ### 升级
@@ -139,7 +139,7 @@ make upgrade-check
 make upgrade
 
 # 或指定版本
-./docker_template/scripts/upgrade.sh v0.3.0
+./docker_template/script/upgrade.sh v0.3.0
 ```
 
 ## CI Reusable Workflows
@@ -192,8 +192,8 @@ make help        # 显示所有可用命令
 
 或直接运行：
 ```bash
-./scripts/ci.sh          # 完整 CI（通过 docker compose）
-./scripts/ci.sh --ci     # 在容器内运行（由 compose 调用）
+./script/ci.sh          # 完整 CI（通过 docker compose）
+./script/ci.sh --ci     # 在容器内运行（由 compose 调用）
 ```
 
 ## 测试
@@ -202,10 +202,6 @@ make help        # 显示所有可用命令
 - **22** 个共用 smoke tests（`test/smoke_test/`）
 
 详见 [TEST.md](../test/TEST.md)。
-
-## 变更记录
-
-详见 [CHANGELOG.md](../changelog/CHANGELOG.md)。
 
 ## 目录结构
 
@@ -231,13 +227,13 @@ docker_template/
 ├── Makefile                          # 统一命令入口（make test/lint/...）
 ├── compose.yaml                      # Docker CI 运行器
 ├── .hadolint.yaml                    # 共用 Hadolint 规则
-├── scripts/                          # 模板管理工具
+├── script/                          # 模板管理工具
 │   ├── init.sh                       # Consumer repo symlink 设置
 │   ├── upgrade.sh                    # Subtree 版本升级
 │   ├── ci.sh                         # CI pipeline（本地 + 远端）
 │   └── migrate.sh                    # 批量 repo 迁移
 ├── .github/workflows/
-│   ├── self-test.yaml                # 模板 CI（调用 scripts/ci.sh）
+│   ├── self-test.yaml                # 模板 CI（调用 script/ci.sh）
 │   ├── build-worker.yaml             # 可重用构建 workflow
 │   └── release-worker.yaml           # 可重用发布 workflow
 ├── doc/

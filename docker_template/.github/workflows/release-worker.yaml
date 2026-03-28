@@ -49,6 +49,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: doc/changelog/CHANGELOG.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |

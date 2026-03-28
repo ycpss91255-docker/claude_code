@@ -38,31 +38,35 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "ci.sh exists and is executable" {
-    assert [ -f /source/scripts/ci.sh ]
-    assert [ -x /source/scripts/ci.sh ]
+    assert [ -f /source/script/ci.sh ]
+    assert [ -x /source/script/ci.sh ]
 }
 
 @test "ci.sh uses set -euo pipefail" {
-    run grep "set -euo pipefail" /source/scripts/ci.sh
+    run grep "set -euo pipefail" /source/script/ci.sh
     assert_success
 }
 
-@test "Makefile exists" {
+@test "Makefile exists (repo entry)" {
     assert [ -f /source/Makefile ]
 }
 
-@test "Makefile has test target" {
-    run grep -E '^test:' /source/Makefile
+@test "Makefile has build target" {
+    run grep -E '^build:' /source/Makefile
     assert_success
 }
 
-@test "Makefile has lint target" {
-    run grep -E '^lint:' /source/Makefile
+@test "Makefile.ci exists (template CI)" {
+    assert [ -f /source/Makefile.ci ]
+}
+
+@test "Makefile.ci has test target" {
+    run grep -E '^test:' /source/Makefile.ci
     assert_success
 }
 
-@test "Makefile has clean target" {
-    run grep -E '^clean:' /source/Makefile
+@test "Makefile.ci has lint target" {
+    run grep -E '^lint:' /source/Makefile.ci
     assert_success
 }
 
@@ -137,6 +141,40 @@ setup() {
 
 @test "stop.sh uses set -euo pipefail" {
     run grep "set -euo pipefail" /source/stop.sh
+    assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Docker compose project name (-p)
+# ════════════════════════════════════════════════════════════════════
+
+@test "build.sh uses -p for compose project name" {
+    run grep -E '\-p.*DOCKER_HUB_USER.*IMAGE_NAME' /source/build.sh
+    assert_success
+}
+
+@test "run.sh uses -p for compose project name" {
+    run grep -E '\-p.*DOCKER_HUB_USER.*IMAGE_NAME' /source/run.sh
+    assert_success
+}
+
+@test "exec.sh uses -p for compose project name" {
+    run grep -E '\-p.*DOCKER_HUB_USER.*IMAGE_NAME' /source/exec.sh
+    assert_success
+}
+
+@test "stop.sh uses -p for compose project name" {
+    run grep -E '\-p.*DOCKER_HUB_USER.*IMAGE_NAME' /source/stop.sh
+    assert_success
+}
+
+@test "exec.sh sources .env" {
+    run grep 'source.*\.env' /source/exec.sh
+    assert_success
+}
+
+@test "stop.sh sources .env" {
+    run grep 'source.*\.env' /source/stop.sh
     assert_success
 }
 
