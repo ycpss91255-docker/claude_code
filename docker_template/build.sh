@@ -54,7 +54,7 @@ EOF
 
 ターゲット:
   devel    開発環境（デフォルト）
-  test     スモークテストを実行
+  test     smoke test を実行
   runtime  最小化ランタイムイメージ
 EOF
             ;;
@@ -105,6 +105,13 @@ if [[ "${SKIP_ENV}" == false ]]; then
     "${FILE_PATH}/docker_template/setup.sh" --base-path "${FILE_PATH}" --lang "${_LANG}"
 fi
 
-docker compose -f "${FILE_PATH}/compose.yaml" \
+# Load .env for project name
+set -o allexport
+# shellcheck disable=SC1091
+source "${FILE_PATH}/.env"
+set +o allexport
+
+docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
+    -f "${FILE_PATH}/compose.yaml" \
     --env-file "${FILE_PATH}/.env" \
     build "${TARGET}"

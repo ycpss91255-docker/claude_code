@@ -108,7 +108,14 @@ done
 
 CMD="${*:-bash}"
 
+# Load .env for project name
+set -o allexport
+# shellcheck disable=SC1091
+source "${FILE_PATH}/.env"
+set +o allexport
+
 # shellcheck disable=SC2086  # Intentional word splitting for multi-word commands
-docker compose -f "${FILE_PATH}/compose.yaml" \
+docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
+    -f "${FILE_PATH}/compose.yaml" \
     --env-file "${FILE_PATH}/.env" \
     exec "${TARGET}" ${CMD}
