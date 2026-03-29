@@ -292,72 +292,7 @@ git subtree pull --prefix=docker/claude_code \
 
 ## Smoke Tests
 
-Build the test target to verify the environment:
-
-```bash
-./build.sh test
-```
-
-Located in `test/smoke/claude_env.bats` — **29 tests** total.
-
-<details>
-<summary>Click to expand test details</summary>
-
-#### AI tools (3)
-
-| Test | Description |
-|------|-------------|
-| `claude` | Available |
-| `gemini` | Available |
-| `codex` | Available |
-
-#### Dev tools (14)
-
-| Test | Description |
-|------|-------------|
-| `node` | Available |
-| `npm` | Available |
-| `git` | Available |
-| `python3` | Available |
-| `make` | Available |
-| `cmake` | Available |
-| `g++` | Available |
-| `curl` | Available |
-| `wget` | Available |
-| `jq` | Available |
-| `rg` (ripgrep) | Available |
-| `tree` | Available |
-| `docker` | Available |
-| `gpg` | Available |
-
-#### System (7)
-
-| Test | Description |
-|------|-------------|
-| User | Not root |
-| `sudo` | Passwordless works |
-| Timezone | `Asia/Taipei` |
-| `LANG` | `en_US.UTF-8` |
-| Work directory | Exists |
-| Work directory | Writable |
-| `entrypoint.sh` | Exists |
-
-#### Excluded tools (4)
-
-| Test | Description |
-|------|-------------|
-| `tmux` | NOT installed (minimal image) |
-| `vim` | NOT installed |
-| `fzf` | NOT installed |
-| `terminator` | NOT installed |
-
-#### Security (1)
-
-| Test | Description |
-|------|-------------|
-| `encrypt_env.sh` | In PATH |
-
-</details>
+See [TEST.md](doc/test/TEST.md) for details.
 
 ## Architecture
 

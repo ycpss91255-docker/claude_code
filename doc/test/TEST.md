@@ -1,6 +1,6 @@
 # TEST.md
 
-**55 tests** total.
+**45 tests** total.
 
 ## test/smoke/claude_env.bats
 
@@ -52,33 +52,6 @@
 | `vim is NOT installed` | Agent containers exclude vim |
 | `fzf is NOT installed` | Agent containers exclude fzf |
 | `terminator is NOT installed` | Agent containers exclude terminator |
-
-## template/test/smoke/display_env.bats
-
-### Wayland env vars (3)
-
-| Test | Description |
-|------|-------------|
-| `compose.yaml contains WAYLAND_DISPLAY env` | Wayland display variable |
-| `compose.yaml contains XDG_RUNTIME_DIR env` | XDG runtime directory |
-| `compose.yaml contains XAUTHORITY env` | X authority variable |
-
-### Wayland volume mounts (3)
-
-| Test | Description |
-|------|-------------|
-| `compose.yaml mounts XDG_RUNTIME_DIR volume` | Runtime dir mount |
-| `compose.yaml mounts XAUTHORITY volume` | Xauthority mount |
-| `compose.yaml mounts X11-unix volume` | X11 socket mount |
-
-### xhost branching (4)
-
-| Test | Description |
-|------|-------------|
-| `run.sh contains XDG_SESSION_TYPE check` | Session type detection |
-| `run.sh calls xhost +SI:localuser on wayland` | Wayland xhost call |
-| `run.sh calls xhost +local: on X11` | X11 xhost call |
-| `run.sh defaults to X11 xhost when XDG_SESSION_TYPE unset` | Default fallback to X11 |
 
 ## template/test/smoke/script_help.bats
 
