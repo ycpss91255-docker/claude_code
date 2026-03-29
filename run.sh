@@ -1,1 +1,1 @@
-docker_template/run.sh
+template/run.sh

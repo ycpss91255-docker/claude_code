@@ -1,1 +1,1 @@
-docker_template/stop.sh
+template/stop.sh

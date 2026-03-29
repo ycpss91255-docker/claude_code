@@ -2,7 +2,7 @@
 
 **55 件のテスト**。
 
-## test/smoke_test/claude_env.bats
+## test/smoke/claude_env.bats
 
 ### AI tools (3)
 
@@ -53,7 +53,7 @@
 | `fzf is NOT installed` | Agent containers exclude fzf |
 | `terminator is NOT installed` | Agent containers exclude terminator |
 
-## docker_template/test/smoke_test/display_env.bats
+## template/test/smoke/display_env.bats
 
 ### Wayland env vars (3)
 
@@ -80,7 +80,7 @@
 | `run.sh calls xhost +local: on X11` | X11 xhost call |
 | `run.sh defaults to X11 xhost when XDG_SESSION_TYPE unset` | Default fallback to X11 |
 
-## docker_template/test/smoke_test/script_help.bats
+## template/test/smoke/script_help.bats
 
 ### build.sh (3)
 

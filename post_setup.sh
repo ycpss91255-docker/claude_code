@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Derive BASE_IMAGE and GPU_VARIANT from GPU_ENABLED in .env
-# Called by build.sh and run.sh after docker_template generates .env
+# Called by build.sh and run.sh after template generates .env
 
 ENV_FILE="${1:-.env}"
 
