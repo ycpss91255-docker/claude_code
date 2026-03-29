@@ -298,7 +298,7 @@ git subtree pull --prefix=docker/claude_code \
 ./build.sh test
 ```
 
-位于 `smoke/agent_env.bats`，共 **29** 项。
+位于 `test/smoke/claude_env.bats`，共 **29** 项。
 
 <details>
 <summary>展开查看测试详情</summary>
@@ -363,21 +363,32 @@ git subtree pull --prefix=docker/claude_code \
 
 ```
 .
-├── Dockerfile             # Multi-stage build (sys -> base -> devel -> test)
-├── compose.yaml           # Services: devel (CPU), devel-gpu, test
-├── build.sh               # Build with auto .env generation
-├── run.sh                 # Run with auto .env generation
-├── exec.sh                # Exec into running container
-├── entrypoint.sh          # DinD startup, OAuth copy, API key decryption
-├── encrypt_env.sh         # Helper to encrypt API keys
-├── post_setup.sh          # Derives BASE_IMAGE from GPU_ENABLED
-├── .env.example           # Template for .env
-├── smoke/            # Bats smoke tests
-│   ├── claude_env.bats
-│   └── test_helper.bash
-├── template/   # Auto .env generator (git subtree)
-├── README.md
-└── README.zh-TW.md
+├── Dockerfile                        # 多阶段构建 (sys -> base -> devel -> test)
+├── compose.yaml                      # 服务：devel (CPU)、devel-gpu、test
+├── build.sh -> template/build.sh     # 构建并自动生成 .env（symlink）
+├── run.sh -> template/run.sh         # 运行并自动生成 .env（symlink）
+├── exec.sh -> template/exec.sh       # 进入运行中的容器（symlink）
+├── stop.sh -> template/stop.sh       # 停止并移除容器（symlink）
+├── Makefile -> template/Makefile     # 构建目标（symlink）
+├── .hadolint.yaml                    # Hadolint 配置
+├── encrypt_env.sh                    # API 密钥加密工具
+├── post_setup.sh                     # 根据 GPU_ENABLED 决定 BASE_IMAGE
+├── .env.example                      # .env 模板
+├── .template_version                 # subtree 版本跟踪
+├── script/
+│   └── entrypoint.sh                 # DinD 启动、OAuth 复制、API 密钥解密
+├── test/
+│   └── smoke/
+│       └── claude_env.bats           # Bats smoke test（repo 专属）
+├── doc/                              # 翻译文档
+│   ├── README.zh-TW.md
+│   ├── README.zh-CN.md
+│   └── README.ja.md
+├── .github/
+│   └── workflows/
+│       └── main.yaml                 # CI/CD（调用 template 的 reusable workflows）
+├── template/                         # 共享脚本与配置（git subtree）
+└── README.md
 ```
 
 ### Dockerfile 阶段

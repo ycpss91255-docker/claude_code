@@ -298,7 +298,7 @@ test ターゲットをビルドして環境を検証：
 ./build.sh test
 ```
 
-`smoke/agent_env.bats` に配置、全 **29** 項目。
+`test/smoke/claude_env.bats` に配置、全 **29** 項目。
 
 <details>
 <summary>クリックしてテスト詳細を表示</summary>
@@ -363,21 +363,32 @@ test ターゲットをビルドして環境を検証：
 
 ```
 .
-├── Dockerfile             # Multi-stage build (sys -> base -> devel -> test)
-├── compose.yaml           # Services: devel (CPU), devel-gpu, test
-├── build.sh               # Build with auto .env generation
-├── run.sh                 # Run with auto .env generation
-├── exec.sh                # Exec into running container
-├── entrypoint.sh          # DinD startup, OAuth copy, API key decryption
-├── encrypt_env.sh         # Helper to encrypt API keys
-├── post_setup.sh          # Derives BASE_IMAGE from GPU_ENABLED
-├── .env.example           # Template for .env
-├── smoke/            # Bats smoke tests
-│   ├── claude_env.bats
-│   └── test_helper.bash
-├── template/   # Auto .env generator (git subtree)
-├── README.md
-└── README.zh-TW.md
+├── Dockerfile                        # マルチステージビルド (sys -> base -> devel -> test)
+├── compose.yaml                      # サービス：devel (CPU)、devel-gpu、test
+├── build.sh -> template/build.sh     # ビルド、.env 自動生成（symlink）
+├── run.sh -> template/run.sh         # 実行、.env 自動生成（symlink）
+├── exec.sh -> template/exec.sh       # 実行中のコンテナに入る（symlink）
+├── stop.sh -> template/stop.sh       # コンテナの停止と削除（symlink）
+├── Makefile -> template/Makefile     # ビルドターゲット（symlink）
+├── .hadolint.yaml                    # Hadolint 設定
+├── encrypt_env.sh                    # API キー暗号化ヘルパー
+├── post_setup.sh                     # GPU_ENABLED から BASE_IMAGE を導出
+├── .env.example                      # .env テンプレート
+├── .template_version                 # subtree バージョン追跡
+├── script/
+│   └── entrypoint.sh                 # DinD 起動、OAuth コピー、API キー復号
+├── test/
+│   └── smoke/
+│       └── claude_env.bats           # Bats smoke test（リポジトリ固有）
+├── doc/                              # 翻訳ドキュメント
+│   ├── README.zh-TW.md
+│   ├── README.zh-CN.md
+│   └── README.ja.md
+├── .github/
+│   └── workflows/
+│       └── main.yaml                 # CI/CD（template の reusable workflows を呼び出し）
+├── template/                         # 共有スクリプトと設定（git subtree）
+└── README.md
 ```
 
 ### Dockerfile ステージ
