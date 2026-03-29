@@ -298,7 +298,7 @@ Build the test target to verify the environment:
 ./build.sh test
 ```
 
-Located in `smoke/agent_env.bats` — **29 tests** total.
+Located in `test/smoke/claude_env.bats` — **29 tests** total.
 
 <details>
 <summary>Click to expand test details</summary>
@@ -363,21 +363,32 @@ Located in `smoke/agent_env.bats` — **29 tests** total.
 
 ```
 .
-├── Dockerfile             # Multi-stage build (sys -> base -> devel -> test)
-├── compose.yaml           # Services: devel (CPU), devel-gpu, test
-├── build.sh               # Build with auto .env generation
-├── run.sh                 # Run with auto .env generation
-├── exec.sh                # Exec into running container
-├── entrypoint.sh          # DinD startup, OAuth copy, API key decryption
-├── encrypt_env.sh         # Helper to encrypt API keys
-├── post_setup.sh          # Derives BASE_IMAGE from GPU_ENABLED
-├── .env.example           # Template for .env
-├── smoke/            # Bats smoke tests
-│   ├── claude_env.bats
-│   └── test_helper.bash
-├── template/   # Auto .env generator (git subtree)
-├── README.md
-└── README.zh-TW.md
+├── Dockerfile                        # Multi-stage build (sys -> base -> devel -> test)
+├── compose.yaml                      # Services: devel (CPU), devel-gpu, test
+├── build.sh -> template/build.sh     # Build with auto .env generation (symlink)
+├── run.sh -> template/run.sh         # Run with auto .env generation (symlink)
+├── exec.sh -> template/exec.sh       # Exec into running container (symlink)
+├── stop.sh -> template/stop.sh       # Stop and remove containers (symlink)
+├── Makefile -> template/Makefile     # Build targets (symlink)
+├── .hadolint.yaml                    # Hadolint configuration
+├── encrypt_env.sh                    # Helper to encrypt API keys
+├── post_setup.sh                     # Derives BASE_IMAGE from GPU_ENABLED
+├── .env.example                      # Template for .env
+├── .template_version                 # Subtree version tracking
+├── script/
+│   └── entrypoint.sh                 # DinD startup, OAuth copy, API key decryption
+├── test/
+│   └── smoke/
+│       └── claude_env.bats           # Bats smoke tests (repo-specific)
+├── doc/                              # Translated documentation
+│   ├── README.zh-TW.md
+│   ├── README.zh-CN.md
+│   └── README.ja.md
+├── .github/
+│   └── workflows/
+│       └── main.yaml                 # CI/CD (calls template reusable workflows)
+├── template/                         # Shared scripts and config (git subtree)
+└── README.md
 ```
 
 ### Dockerfile Stages
