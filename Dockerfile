@@ -187,7 +187,7 @@ ENV BATS_LIB_PATH="/usr/lib/bats"
 # Smoke test
 COPY template/test/smoke/test_helper.bash /smoke_test/test_helper.bash
 COPY template/test/smoke/script_help.bats /smoke_test/script_help.bats
-COPY test/smoke_test/ /smoke_test/
+COPY test/smoke/ /smoke_test/
 
 ARG USER
 USER "${USER}"
