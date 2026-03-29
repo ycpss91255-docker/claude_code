@@ -1,1 +1,1 @@
-docker_template/Makefile
+template/Makefile

@@ -96,7 +96,7 @@ graph LR
 ```mermaid
 flowchart LR
     subgraph "run.sh"
-        A["Generate .env<br/>(docker_template)"] --> B["Derive BASE_IMAGE<br/>(post_setup.sh)"]
+        A["Generate .env<br/>(template)"] --> B["Derive BASE_IMAGE<br/>(post_setup.sh)"]
         B --> C{"--data-dir?"}
         C -->|yes| D["Use specified dir"]
         C -->|no| E{"agent_* found?"}
@@ -239,7 +239,7 @@ my_project/
 │   ├── run.sh
 │   ├── compose.yaml
 │   ├── Dockerfile
-│   └── docker_template/
+│   └── template/
 └── ...
 ```
 
@@ -276,7 +276,7 @@ git subtree pull --prefix=docker/claude_code \
 > **Notes**:
 > - Local modifications are tracked by git normally.
 > - `subtree pull` may produce merge conflicts if upstream changed the same files you modified locally.
-> - Do **not** modify `docker_template/` inside the subtree — it is managed by the env repo's own subtree.
+> - Do **not** modify `template/` inside the subtree — it is managed by the env repo's own subtree.
 
 ## Configuration
 
@@ -298,7 +298,7 @@ Build the test target to verify the environment:
 ./build.sh test
 ```
 
-Located in `smoke_test/agent_env.bats` — **29 tests** total.
+Located in `smoke/agent_env.bats` — **29 tests** total.
 
 <details>
 <summary>Click to expand test details</summary>
@@ -372,10 +372,10 @@ Located in `smoke_test/agent_env.bats` — **29 tests** total.
 ├── encrypt_env.sh         # Helper to encrypt API keys
 ├── post_setup.sh          # Derives BASE_IMAGE from GPU_ENABLED
 ├── .env.example           # Template for .env
-├── smoke_test/            # Bats smoke tests
+├── smoke/            # Bats smoke tests
 │   ├── claude_env.bats
 │   └── test_helper.bash
-├── docker_template/   # Auto .env generator (git subtree)
+├── template/   # Auto .env generator (git subtree)
 ├── README.md
 └── README.zh-TW.md
 ```

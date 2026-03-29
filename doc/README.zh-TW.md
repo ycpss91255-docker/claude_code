@@ -96,7 +96,7 @@ graph LR
 ```mermaid
 flowchart LR
     subgraph "run.sh"
-        A["Generate .env<br/>(docker_template)"] --> B["Derive BASE_IMAGE<br/>(post_setup.sh)"]
+        A["Generate .env<br/>(template)"] --> B["Derive BASE_IMAGE<br/>(post_setup.sh)"]
         B --> C{"--data-dir?"}
         C -->|yes| D["Use specified dir"]
         C -->|no| E{"agent_* found?"}
@@ -239,7 +239,7 @@ my_project/
 │   ├── run.sh
 │   ├── compose.yaml
 │   ├── Dockerfile
-│   └── docker_template/
+│   └── template/
 └── ...
 ```
 
@@ -276,7 +276,7 @@ git subtree pull --prefix=docker/claude_code \
 > **注意事項**：
 > - 本地修改會由 git 正常追蹤。
 > - 若上游修改了與你本地相同的檔案，`subtree pull` 可能會產生合併衝突。
-> - **不要**修改 subtree 內的 `docker_template/` — 它由 env repo 自身的 subtree 管理。
+> - **不要**修改 subtree 內的 `template/` — 它由 env repo 自身的 subtree 管理。
 
 ## 設定
 
@@ -298,7 +298,7 @@ git subtree pull --prefix=docker/claude_code \
 ./build.sh test
 ```
 
-位於 `smoke_test/agent_env.bats`，共 **29** 項。
+位於 `smoke/agent_env.bats`，共 **29** 項。
 
 <details>
 <summary>展開查看測試細項</summary>
@@ -372,10 +372,10 @@ git subtree pull --prefix=docker/claude_code \
 ├── encrypt_env.sh         # Helper to encrypt API keys
 ├── post_setup.sh          # Derives BASE_IMAGE from GPU_ENABLED
 ├── .env.example           # Template for .env
-├── smoke_test/            # Bats smoke tests
+├── smoke/            # Bats smoke tests
 │   ├── claude_env.bats
 │   └── test_helper.bash
-├── docker_template/   # Auto .env generator (git subtree)
+├── template/   # Auto .env generator (git subtree)
 ├── README.md
 └── README.zh-TW.md
 ```

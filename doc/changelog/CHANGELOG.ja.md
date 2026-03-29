@@ -10,14 +10,14 @@
 ## [v2.0.0] - 2026-03-28
 
 ### 追加
-- migrate from docker_setup_helper to docker_template
+- migrate from docker_setup_helper to template
 
 ### 変更
 - remove docker_setup_helper subtree and local CI workflows
 
 ### 修正
 - use custom .hadolint.yaml for agent repos
-- copy only non-GUI smoke tests from docker_template
+- copy only non-GUI smoke tests from template
 
 ## [v1.5.0] - 2026-03-25
 
@@ -26,7 +26,7 @@
 - add config symlink to docker_setup_helper/src/config
 
 ### 変更
-- move smoke_test/ to test/smoke_test/
+- move smoke/ to test/smoke/
 - move READMEs to doc/, entrypoint.sh to script/
 
 ## [v1.4.0] - 2026-03-20
