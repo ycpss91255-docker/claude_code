@@ -56,7 +56,7 @@ graph TB
         scripts["build.sh / run.sh / exec.sh / stop.sh<br/>.hadolint.yaml"]
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
-        mgmt["script/<br/>setup.sh / init.sh / upgrade.sh / ci.sh / migrate.sh"]
+        mgmt["script/<br/>setup.sh / init.sh / upgrade.sh / ci.sh"]
         workflows["再利用可能な Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
@@ -239,7 +239,6 @@ template/
 │   ├── init.sh                       # Symlink セットアップ
 │   ├── upgrade.sh                    # Subtree バージョンアップグレード
 │   ├── ci.sh                         # CI パイプライン（ローカル + リモート）
-│   └── migrate.sh                    # バッチ repo 移行
 ├── test/
 │   ├── smoke/                   # 各 repo 用の共有テスト
 │   │   ├── test_helper.bash

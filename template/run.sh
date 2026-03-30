@@ -139,5 +139,5 @@ else
   docker compose -p "${DOCKER_HUB_USER}-${IMAGE_NAME}" \
     -f "${FILE_PATH}/compose.yaml" \
     --env-file "${FILE_PATH}/.env" \
-    run --rm "${TARGET}"
+    run --rm --name "${IMAGE_NAME}" "${TARGET}"
 fi
