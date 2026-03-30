@@ -76,7 +76,7 @@ _run_coverage() {
   echo "--- Running Tests with Kcov Coverage ---"
   kcov \
     --include-path="${REPO_ROOT}" \
-    --exclude-path="${REPO_ROOT}/test/,${REPO_ROOT}/script/ci.sh,${REPO_ROOT}/script/init.sh,${REPO_ROOT}/script/migrate.sh,${REPO_ROOT}/script/upgrade.sh,${REPO_ROOT}/config/shell/bashrc,${REPO_ROOT}/config/shell/terminator/config,${REPO_ROOT}/config/shell/tmux/tmux.conf,${REPO_ROOT}/.github/" \
+    --exclude-path="${REPO_ROOT}/test/,${REPO_ROOT}/script/ci.sh,${REPO_ROOT}/script/init.sh,${REPO_ROOT}/script/upgrade.sh,${REPO_ROOT}/config/shell/bashrc,${REPO_ROOT}/config/shell/terminator/config,${REPO_ROOT}/config/shell/tmux/tmux.conf,${REPO_ROOT}/.github/" \
     "${REPO_ROOT}/coverage" \
     bats "${REPO_ROOT}/test/unit/"
 }
