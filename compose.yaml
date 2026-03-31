@@ -6,6 +6,7 @@ services:
       dockerfile: Dockerfile
       target: devel
       args:
+        APT_MIRROR_DEBIAN: ${APT_MIRROR_DEBIAN:-mirror.twds.com.tw}
         BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
         GPU_VARIANT: ${GPU_VARIANT:-false}
         USER: ${USER_NAME}
@@ -48,6 +49,7 @@ services:
       dockerfile: Dockerfile
       target: test
       args:
+        APT_MIRROR_DEBIAN: ${APT_MIRROR_DEBIAN:-mirror.twds.com.tw}
         BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
         GPU_VARIANT: ${GPU_VARIANT:-false}
         USER: ${USER_NAME}

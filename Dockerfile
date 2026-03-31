@@ -67,7 +67,10 @@ RUN if getent group "${GID}" >/dev/null; then \
 ENV DEBIAN_FRONTEND="noninteractive"
 ENV TZ="Asia/Taipei"
 
-RUN apt-get update && \
+ARG APT_MIRROR_DEBIAN="mirror.twds.com.tw"
+RUN sed -i "s@deb.debian.org@${APT_MIRROR_DEBIAN}@g" /etc/apt/sources.list.d/*.sources 2>/dev/null || true; \
+    sed -i "s@deb.debian.org@${APT_MIRROR_DEBIAN}@g" /etc/apt/sources.list 2>/dev/null || true; \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
         tzdata \
         locales && \
