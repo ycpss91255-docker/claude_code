@@ -214,7 +214,8 @@ esac'
     write_env "${_env_file}" \
         "testuser" "testgroup" "1001" "1001" \
         "x86_64" "dockerhub" "false" \
-        "ros_noetic" "/workspace"
+        "ros_noetic" "/workspace" \
+        "tw.archive.ubuntu.com" "mirror.twds.com.tw"
 
     assert [ -f "${_env_file}" ]
     run grep "USER_NAME=testuser"        "${_env_file}"; assert_success
@@ -226,6 +227,24 @@ esac'
     run grep "GPU_ENABLED=false"         "${_env_file}"; assert_success
     run grep "IMAGE_NAME=ros_noetic"     "${_env_file}"; assert_success
     run grep "WS_PATH=/workspace"        "${_env_file}"; assert_success
+}
+
+@test "write_env includes APT_MIRROR_UBUNTU" {
+    local _env_file="${TEMP_DIR}/.env"
+    write_env "${_env_file}" \
+        "u" "g" "1000" "1000" "x86_64" "hub" "false" "img" "/ws" \
+        "tw.archive.ubuntu.com" "mirror.twds.com.tw"
+    run grep "APT_MIRROR_UBUNTU=tw.archive.ubuntu.com" "${_env_file}"
+    assert_success
+}
+
+@test "write_env includes APT_MIRROR_DEBIAN" {
+    local _env_file="${TEMP_DIR}/.env"
+    write_env "${_env_file}" \
+        "u" "g" "1000" "1000" "x86_64" "hub" "false" "img" "/ws" \
+        "tw.archive.ubuntu.com" "mirror.twds.com.tw"
+    run grep "APT_MIRROR_DEBIAN=mirror.twds.com.tw" "${_env_file}"
+    assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -275,13 +294,10 @@ EOF
     assert_success
 }
 
-@test "main reads IMAGE_NAME from .env.example when detection returns unknown" {
+@test "main warns when IMAGE_NAME is unknown" {
     local _ws="${TEMP_DIR}/test_ws"
     local _proj="${TEMP_DIR}/my_generic_project"
     mkdir -p "${_ws}" "${_proj}"
-
-    # Create .env.example with IMAGE_NAME
-    echo "IMAGE_NAME=my_custom_image" > "${_proj}/.env.example"
 
     run bash -c "
         source /source/script/setup.sh
@@ -289,7 +305,8 @@ EOF
         main --base-path '${_proj}'
     "
     assert_success
-    run grep 'IMAGE_NAME=my_custom_image' "${_proj}/.env"
+    assert_line --partial "WARNING"
+    run grep 'IMAGE_NAME=unknown' "${_proj}/.env"
     assert_success
 }
 
@@ -336,6 +353,40 @@ EOF
 @test "main returns error when --base-path value is missing" {
     run bash -c "source /source/script/setup.sh; main --base-path"
     assert_failure
+}
+
+@test "main sets APT_MIRROR defaults in fresh .env" {
+    local _ws="${TEMP_DIR}/test_ws"
+    mkdir -p "${_ws}"
+    run bash -c "
+        source /source/script/setup.sh
+        detect_ws_path() { local -n _o=\$1; _o='${_ws}'; }
+        main --base-path '${TEMP_DIR}'
+    "
+    assert_success
+    run grep "APT_MIRROR_UBUNTU=tw.archive.ubuntu.com" "${TEMP_DIR}/.env"
+    assert_success
+    run grep "APT_MIRROR_DEBIAN=mirror.twds.com.tw" "${TEMP_DIR}/.env"
+    assert_success
+}
+
+@test "main preserves existing APT_MIRROR values from .env" {
+    local _ws="${TEMP_DIR}/existing_ws"
+    mkdir -p "${_ws}"
+    cat > "${TEMP_DIR}/.env" << EOF
+WS_PATH=${_ws}
+APT_MIRROR_UBUNTU=us.archive.ubuntu.com
+APT_MIRROR_DEBIAN=deb.debian.org
+EOF
+    run bash -c "
+        source /source/script/setup.sh
+        main --base-path '${TEMP_DIR}'
+    "
+    assert_success
+    run grep "APT_MIRROR_UBUNTU=us.archive.ubuntu.com" "${TEMP_DIR}/.env"
+    assert_success
+    run grep "APT_MIRROR_DEBIAN=deb.debian.org" "${TEMP_DIR}/.env"
+    assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════
