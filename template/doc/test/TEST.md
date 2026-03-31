@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **132 tests** total.
+Template self-tests: **136 tests** total.
 
 ## Test Files
 
-### test/setup_spec.bats (42)
+### test/setup_spec.bats (46)
 
 | Test | Description |
 |------|-------------|
@@ -30,13 +30,18 @@ Template self-tests: **132 tests** total.
 | `detect_ws_path strategy 2: finds _ws component in path` | Path traversal |
 | `detect_ws_path strategy 3: falls back to parent directory` | Parent fallback |
 | `write_env creates .env with all required variables` | .env generation |
+| `write_env includes APT_MIRROR_UBUNTU` | APT mirror in .env |
+| `write_env includes APT_MIRROR_DEBIAN` | APT mirror in .env |
 | `main creates .env when it does not exist` | Fresh .env |
 | `main sources existing .env and reuses valid WS_PATH` | WS_PATH reuse |
 | `main re-detects WS_PATH when path in .env no longer exists` | Stale WS_PATH |
+| `main warns when IMAGE_NAME is unknown` | Unknown IMAGE_NAME warning |
 | `main uses BASH_SOURCE fallback when --base-path not given` | Fallback path |
 | `default _base_path resolves to repo root, not script dir` | Regression test |
 | `main returns error on unknown argument` | Error handling |
 | `main returns error when --base-path value is missing` | Missing value |
+| `main sets APT_MIRROR defaults in fresh .env` | Default mirrors |
+| `main preserves existing APT_MIRROR values from .env` | Mirror preservation |
 | `_msg returns English messages by default` | i18n English |
 | `_msg returns Chinese messages when _LANG=zh` | i18n Chinese |
 | `_msg returns Simplified Chinese messages when _LANG=zh-CN` | i18n Simplified Chinese |
