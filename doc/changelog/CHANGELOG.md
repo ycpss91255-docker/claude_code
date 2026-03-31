@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.5.0] - 2026-03-31
+
+### Added
+- `setup.sh`: add `APT_MIRROR_UBUNTU` and `APT_MIRROR_DEBIAN` to `.env`
+  - Default: `tw.archive.ubuntu.com` (Ubuntu), `mirror.twds.com.tw` (Debian)
+  - Preserves existing values from `.env` on re-run
+- `setup.sh`: warn when `IMAGE_NAME` cannot be detected (prints WARNING, uses `unknown`)
+- 4 new tests (136 total)
+
+### Removed
+- `setup.sh`: remove `.env.example` fallback for `IMAGE_NAME` (replaced by warning)
+
+## [v0.4.2] - 2026-03-30
+
+### Fixed
+- `run.sh`: set `--name "${IMAGE_NAME}"` in foreground mode (`docker compose run`) so container name matches `container_name` in compose.yaml
+
+### Removed
+- `script/migrate.sh`: all repos migrated, no longer needed
+- i18n translations for TEST.md and CHANGELOG.md (keep English only)
+
+## [v0.4.1] - 2026-03-29
+
+### Changed
+- Rename `test/smoke_test/` → `test/smoke/`
+- Fix README.md TOC anchor and add missing Tests section
+
 ## [v0.4.0] - 2026-03-29
 
 ### Changed
@@ -76,6 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dockerfile `CONFIG_SRC` path: `docker_setup_helper/src/config` → `template/config`
 - Shared smoke tests loaded via `COPY template/smoke_test/` in Dockerfile (not symlinks)
 
+[v0.4.2]: https://github.com/ycpss91255-docker/template/compare/v0.4.1...v0.4.2
+[v0.4.1]: https://github.com/ycpss91255-docker/template/compare/v0.4.0...v0.4.1
 [v0.4.0]: https://github.com/ycpss91255-docker/template/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/ycpss91255-docker/template/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/ycpss91255-docker/template/compare/v0.1.0...v0.2.0
