@@ -33,7 +33,7 @@ Shared template for Docker container repos in the [ycpss91255-docker](https://gi
 # New repo: add subtree + init
 git subtree add --prefix=template \
     git@github.com:ycpss91255-docker/template.git main --squash
-./template/script/init.sh
+./template/init.sh
 
 # Upgrade to latest
 make upgrade-check   # check
@@ -53,15 +53,15 @@ This repo consolidates shared scripts, tests, and CI workflows used across all D
 ```mermaid
 graph TB
     subgraph template["template (shared repo)"]
-        scripts["build.sh / run.sh / exec.sh / stop.sh<br/>.hadolint.yaml"]
+        scripts[".hadolint.yaml / Makefile.ci / compose.yaml"]
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
-        mgmt["script/<br/>setup.sh / init.sh / upgrade.sh / ci.sh"]
+        mgmt["script/docker/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
         workflows["Reusable Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
-        symlinks["build.sh → template/build.sh<br/>run.sh → template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        symlinks["build.sh → template/script/docker/build.sh<br/>run.sh → template/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>ros_env.bats (repo-specific)"]
         main_yaml["main.yaml<br/>→ calls reusable workflows"]
@@ -94,7 +94,7 @@ flowchart LR
     end
 
     build_test --> ci_container
-    make_test -->|"script/ci.sh"| ci_container
+    make_test -->|"script/ci/ci.sh"| ci_container
     shellcheck --> hadolint --> bats
 
     push["git push / PR"] --> build_worker
@@ -107,19 +107,19 @@ flowchart LR
 
 | File | Description |
 |------|-------------|
-| `build.sh` | Build containers (calls `script/setup.sh` for `.env` generation) |
+| `build.sh` | Build containers (calls `script/docker/setup.sh` for `.env` generation) |
 | `run.sh` | Run containers (X11/Wayland support) |
 | `exec.sh` | Exec into running containers |
 | `stop.sh` | Stop and remove containers |
-| `script/setup.sh` | Auto-detect system parameters and generate `.env` |
+| `script/docker/setup.sh` | Auto-detect system parameters and generate `.env` |
 | `config/` | Shell configs (bashrc, tmux, terminator, pip) |
 | `test/smoke/` | Shared smoke tests for repos |
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.) |
 | `Makefile.ci` | Template CI entry (`make test`, `make -f Makefile.ci lint`, etc.) |
-| `script/init.sh` | First-time symlink setup |
-| `script/upgrade.sh` | Subtree version upgrade |
-| `script/ci.sh` | CI pipeline (local + remote) |
+| `init.sh` | First-time symlink setup |
+| `upgrade.sh` | Subtree version upgrade |
+| `script/ci/ci.sh` | CI pipeline (local + remote) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
 
 ### What stays in each repo (not shared)
@@ -141,7 +141,7 @@ git subtree add --prefix=template \
     git@github.com:ycpss91255-docker/template.git main --squash
 
 # 2. Initialize symlinks (one command)
-./template/script/init.sh
+./template/init.sh
 ```
 
 ### Updating
@@ -154,7 +154,7 @@ make upgrade-check
 make upgrade
 
 # Or specify a version
-./template/script/upgrade.sh v0.3.0
+./template/upgrade.sh v0.3.0
 ```
 
 ## CI Reusable Workflows
@@ -209,14 +209,11 @@ make -f Makefile.ci help  # Show CI targets
 
 Or directly:
 ```bash
-./script/ci.sh          # Full CI via docker compose
-./script/ci.sh --ci     # Run inside container (used by compose)
+./script/ci/ci.sh          # Full CI via docker compose
+./script/ci/ci.sh --ci     # Run inside container (used by compose)
 ```
 
 ## Tests
-
-- **136** template self-tests (`test/unit/`)
-- **27** shared smoke tests (`test/smoke/`)
 
 See [TEST.md](doc/test/TEST.md) for details.
 
@@ -224,39 +221,45 @@ See [TEST.md](doc/test/TEST.md) for details.
 
 ```
 template/
-├── build.sh                          # Shared build script
-├── run.sh                            # Shared run script (X11/Wayland)
-├── exec.sh                           # Shared exec script
-├── stop.sh                           # Shared stop script
-├── config/                           # Shell/tool configs
+├── init.sh                           # Initialize repo (new or existing)
+├── upgrade.sh                        # Upgrade template subtree version
+├── script/
+│   ├── docker/                       # Docker operation scripts (symlinked by repos)
+│   │   ├── build.sh
+│   │   ├── run.sh
+│   │   ├── exec.sh
+│   │   ├── stop.sh
+│   │   ├── setup.sh                  # .env generator
+│   │   └── Makefile
+│   └── ci/
+│       └── ci.sh                     # CI pipeline (local + remote)
+├── dockerfile/
+│   ├── Dockerfile.test-tools         # Pre-built test tools image
+│   └── Dockerfile.example            # Dockerfile template for new repos
+├── config/                           # Shell/tool configs + IMAGE_NAME rules
+│   ├── image_name.conf               # Default IMAGE_NAME detection rules
 │   ├── pip/
 │   └── shell/
 │       ├── bashrc
 │       ├── terminator/
 │       └── tmux/
-├── script/
-│   ├── setup.sh                      # .env generator
-│   ├── init.sh                       # Symlink setup
-│   ├── upgrade.sh                    # Subtree version upgrade
-│   ├── ci.sh                         # CI pipeline (local + remote)
 ├── test/
-│   ├── smoke/                   # Shared tests for repos
+│   ├── smoke/                        # Shared tests for repos
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
-│   └── unit/                         # Template self-tests (132 tests)
-├── Makefile                          # Repo entry (make build/run/stop/...)
+│   └── unit/                         # Template self-tests
 ├── Makefile.ci                       # Template CI entry (make test/lint/...)
 ├── compose.yaml                      # Docker CI runner
 ├── .hadolint.yaml                    # Shared Hadolint rules
 ├── .github/workflows/
-│   ├── self-test.yaml                # Template CI (calls script/ci.sh)
+│   ├── self-test.yaml                # Template CI
 │   ├── build-worker.yaml             # Reusable build workflow
 │   └── release-worker.yaml           # Reusable release workflow
 ├── doc/
 │   ├── readme/                       # README translations
-│   ├── test/                         # TEST.md + translations
-│   └── changelog/                    # CHANGELOG.md + translations
+│   ├── test/                         # TEST.md
+│   └── changelog/                    # CHANGELOG.md
 ├── .codecov.yaml
 ├── .gitignore
 ├── LICENSE

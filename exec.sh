@@ -1,1 +1,1 @@
-template/exec.sh
+template/script/docker/exec.sh

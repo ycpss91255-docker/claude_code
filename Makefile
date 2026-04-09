@@ -1,1 +1,1 @@
-template/Makefile
+template/script/docker/Makefile
