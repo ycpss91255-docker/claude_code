@@ -70,3 +70,10 @@ teardown() {
     assert_success
     assert_output --partial "chown called:"
 }
+
+@test "script runs entry_point when executed directly" {
+    mock_cmd "terminator" 'exit 0'
+    mock_cmd "chown" 'exit 0'
+    run bash /source/config/shell/terminator/setup.sh
+    assert_success
+}

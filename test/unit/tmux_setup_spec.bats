@@ -105,3 +105,16 @@ exit 0'
     run main
     assert [ -f "${TEMP_DIR}/.config/tmux/tmux.conf" ]
 }
+
+@test "script runs entry_point when executed directly" {
+    mock_cmd "tmux" 'exit 0'
+    mock_cmd "git" '
+if [[ "$1" == "clone" ]]; then
+    mkdir -p "${@: -1}/scripts"
+    echo "exit 0" > "${@: -1}/scripts/install_plugins.sh"
+    chmod +x "${@: -1}/scripts/install_plugins.sh"
+fi
+exit 0'
+    run bash /source/config/shell/tmux/setup.sh
+    assert_success
+}

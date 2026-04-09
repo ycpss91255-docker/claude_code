@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run CI (ShellCheck + Bats + Kcov)
-        run: ./script/ci.sh
+        run: ./script/ci/ci.sh
 
       - name: Upload coverage to Codecov
         if: always()
@@ -26,8 +26,69 @@ jobs:
           directory: ./coverage
           fail_ci_if_error: false
 
+  integration-e2e:
+    name: Integration E2E (init.sh → build → run → exec → stop)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker  # use host docker daemon's image store so test-tools:local is visible
+
+      - name: Create temp repo and run init.sh
+        run: |
+          set -euo pipefail
+          TMP_ROOT="$(mktemp -d)"
+          REPO_NAME="e2e_test"
+          REPO_DIR="${TMP_ROOT}/${REPO_NAME}"
+          mkdir -p "${REPO_DIR}/template"
+
+          # Mirror current template into the synthetic repo
+          cp -a "${GITHUB_WORKSPACE}/." "${REPO_DIR}/template/"
+
+          cd "${REPO_DIR}"
+          bash template/init.sh
+
+          # Sanity: verify symlinks resolve and core files exist
+          test -L build.sh && test -L run.sh && test -L exec.sh && test -L stop.sh
+          test -f Dockerfile && test -f compose.yaml && test -f .env.example
+
+          echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
+
+      - name: Build test stage (build.sh test)
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          ./build.sh test
+
+      - name: Build devel stage
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          ./build.sh
+
+      - name: Run container in detach mode and exec into it
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          ./run.sh -d
+          # Verify the container is up and reachable via exec.sh
+          ./exec.sh echo "exec.sh OK from CI"
+          ./exec.sh whoami
+
+      - name: Stop and verify cleanup
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          ./stop.sh
+          # No project containers should remain
+          if docker ps --format '{{.Names}}' | grep -q '^e2e_test$'; then
+            echo "ERROR: container still running after stop.sh"
+            docker ps
+            exit 1
+          fi
+
   release:
-    needs: test
+    needs: [test, integration-e2e]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -42,19 +103,34 @@ jobs:
           ARCHIVE_NAME="template-${VERSION}"
 
           mkdir -p "${ARCHIVE_NAME}"
-          cp -r build.sh run.sh exec.sh stop.sh \
-                .hadolint.yaml Makefile Makefile.ci compose.yaml \
-                config/ test/ script/ doc/ \
+          cp -r init.sh upgrade.sh \
+                .hadolint.yaml Makefile.ci compose.yaml \
+                config/ dockerfile/ test/ script/ doc/ \
                 README.md LICENSE \
                 "${ARCHIVE_NAME}/"
 
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
           zip -r  "${ARCHIVE_NAME}.zip"    "${ARCHIVE_NAME}"
 
+      - name: Extract release notes for current tag
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          # Extract the section for current version from CHANGELOG.md
+          # Matches "## [vX.Y.Z]" or "## [vX.Y.Z-rcN]" until the next "## ["
+          awk -v ver="${VERSION}" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "[" ver "]")) { found=1; next }
+            }
+            found
+          ' doc/changelog/CHANGELOG.md > /tmp/release-notes.md
+          echo "--- Extracted release notes ---"
+          cat /tmp/release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: doc/changelog/CHANGELOG.md
+          body_path: /tmp/release-notes.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |

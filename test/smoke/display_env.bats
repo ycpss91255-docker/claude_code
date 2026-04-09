@@ -2,21 +2,31 @@
 
 setup() {
     load "${BATS_TEST_DIRNAME}/test_helper"
+
+    # Detect GUI support: check if compose.yaml has display-related config
+    if [[ -f /lint/compose.yaml ]] && grep -q "WAYLAND_DISPLAY" /lint/compose.yaml 2>/dev/null; then
+        HAS_GUI=true
+    else
+        HAS_GUI=false
+    fi
 }
 
 # -------------------- compose.yaml: Wayland env vars --------------------
 
 @test "compose.yaml contains WAYLAND_DISPLAY env" {
+    [[ "${HAS_GUI}" == false ]] && skip "No GUI config in compose.yaml"
     run grep "WAYLAND_DISPLAY" /lint/compose.yaml
     assert_success
 }
 
 @test "compose.yaml contains XDG_RUNTIME_DIR env" {
+    [[ "${HAS_GUI}" == false ]] && skip "No GUI config in compose.yaml"
     run grep "XDG_RUNTIME_DIR" /lint/compose.yaml
     assert_success
 }
 
 @test "compose.yaml contains XAUTHORITY env" {
+    [[ "${HAS_GUI}" == false ]] && skip "No GUI config in compose.yaml"
     run grep "XAUTHORITY" /lint/compose.yaml
     assert_success
 }
@@ -24,22 +34,26 @@ setup() {
 # -------------------- compose.yaml: display mounts --------------------
 
 @test "compose.yaml mounts XDG_RUNTIME_DIR as rw" {
+    [[ "${HAS_GUI}" == false ]] && skip "No GUI config in compose.yaml"
     run grep -E 'XDG_RUNTIME_DIR.*:.*XDG_RUNTIME_DIR.*:rw' /lint/compose.yaml
     assert_success
 }
 
 @test "compose.yaml mounts XAUTHORITY volume" {
+    [[ "${HAS_GUI}" == false ]] && skip "No GUI config in compose.yaml"
     run grep -E 'XAUTHORITY.*:.*XAUTHORITY' /lint/compose.yaml
     assert_success
 }
 
 @test "compose.yaml has no consecutive duplicate keys" {
+    [[ "${HAS_GUI}" == false ]] && skip "No GUI config in compose.yaml"
     # Adjacent duplicate keys like two tmpfs: blocks = YAML error in docker compose
     run bash -c "awk '/^ {4}[a-z]/{key=\$0} /^ {4}[a-z]/ && key==prev{print NR\": duplicate: \"\$0; found=1} {prev=key} END{exit found?1:0}' /lint/compose.yaml"
     assert_success
 }
 
 @test "compose.yaml mounts X11-unix volume" {
+    [[ "${HAS_GUI}" == false ]] && skip "No GUI config in compose.yaml"
     run grep "/tmp/.X11-unix" /lint/compose.yaml
     assert_success
 }
