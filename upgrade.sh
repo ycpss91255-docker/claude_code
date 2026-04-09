@@ -2,15 +2,15 @@
 # upgrade.sh - Upgrade template subtree to the latest version
 #
 # Run from the repo root:
-#   ./template/script/upgrade.sh              # upgrade to latest tag
-#   ./template/script/upgrade.sh v0.3.0       # upgrade to specific version
-#   ./template/script/upgrade.sh --check      # check if update available
+#   ./template/upgrade.sh              # upgrade to latest tag
+#   ./template/upgrade.sh v0.3.0       # upgrade to specific version
+#   ./template/upgrade.sh --check      # check if update available
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
-REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
 readonly REPO_ROOT
 TEMPLATE_REMOTE="git@github.com:ycpss91255-docker/template.git"
 readonly TEMPLATE_REMOTE
@@ -77,24 +77,28 @@ _upgrade() {
   _log "Upgrading: ${local_ver} → ${target_ver}"
 
   # Step 1: subtree pull
-  _log "Step 1/3: git subtree pull"
+  _log "Step 1/4: git subtree pull"
   git subtree pull --prefix=template \
     "${TEMPLATE_REMOTE}" "${target_ver}" --squash \
     -m "chore: upgrade template subtree to ${target_ver}"
 
-  # Step 2: update version file
-  _log "Step 2/3: update .template_version"
+  # Step 2: re-run init.sh to sync symlinks (in case template structure changed)
+  _log "Step 2/4: re-run init.sh to sync symlinks"
+  ./template/init.sh
+
+  # Step 3: update version file (override init.sh's latest-tag detection)
+  _log "Step 3/4: update .template_version"
   echo "${target_ver}" > "${VERSION_FILE}"
   git add "${VERSION_FILE}"
 
-  # Step 3: update main.yaml @tag references
-  _log "Step 3/3: update workflow @tag references"
+  # Step 4: update main.yaml @tag references
+  _log "Step 4/4: update workflow @tag references"
   local main_yaml="${REPO_ROOT}/.github/workflows/main.yaml"
   if [[ -f "${main_yaml}" ]]; then
-    # Replace @vX.Y.Z with new version in reusable workflow references
-    sed -i "s|template/\.github/workflows/.*@v[0-9.]*|template/.github/workflows/build-worker.yaml@${target_ver}|" "${main_yaml}"
-    sed -i "s|build-worker\.yaml@v[0-9.]*|build-worker.yaml@${target_ver}|" "${main_yaml}"
-    sed -i "s|release-worker\.yaml@v[0-9.]*|release-worker.yaml@${target_ver}|" "${main_yaml}"
+    # Replace @vX.Y.Z with new version in reusable workflow references.
+    # Match each worker file by name to avoid greedy patterns clobbering siblings.
+    sed -i "s|build-worker\.yaml@v[0-9.]*|build-worker.yaml@${target_ver}|g" "${main_yaml}"
+    sed -i "s|release-worker\.yaml@v[0-9.]*|release-worker.yaml@${target_ver}|g" "${main_yaml}"
     git add "${main_yaml}"
   fi
 
@@ -120,19 +124,23 @@ COMMIT
 
 _usage() {
   cat >&2 <<'EOF'
-Usage: ./template/script/upgrade.sh [VERSION|--check]
+Usage: ./template/upgrade.sh [VERSION|--check|--gen-image-conf]
 
 Upgrade template subtree to the latest (or specified) version.
 
 Arguments:
-  VERSION       Target version (e.g. v0.3.0). Defaults to latest tag.
-  --check       Check if an update is available (no changes made)
-  -h, --help    Show this help
+  VERSION            Target version (e.g. v0.5.0). Defaults to latest tag.
+  --check            Check if an update is available (no changes made)
+  --gen-image-conf   Copy template's image_name.conf to repo root for
+                     per-repo IMAGE_NAME detection customization
+                     (delegates to init.sh --gen-image-conf)
+  -h, --help         Show this help
 
 Examples:
-  ./template/script/upgrade.sh              # upgrade to latest
-  ./template/script/upgrade.sh v0.3.0       # upgrade to specific version
-  ./template/script/upgrade.sh --check      # check only
+  ./template/upgrade.sh                   # upgrade to latest
+  ./template/upgrade.sh v0.5.0            # upgrade to specific version
+  ./template/upgrade.sh --check           # check only
+  ./template/upgrade.sh --gen-image-conf  # copy image_name.conf to repo root
 EOF
   exit 0
 }
@@ -140,11 +148,15 @@ EOF
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
+  case "${1:-}" in
+    -h|--help) _usage ;;
+  esac
+
   [[ ! -d template ]] && _error "template/ not found. Run from repo root."
 
   case "${1:-}" in
-    -h|--help) _usage ;;
     --check) _check ;;
+    --gen-image-conf) ./template/init.sh --gen-image-conf ;;
     v*)
       _upgrade "$1"
       ;;

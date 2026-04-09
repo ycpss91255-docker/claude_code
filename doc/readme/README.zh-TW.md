@@ -33,7 +33,7 @@
 # 新 repo：加入 subtree + 初始化
 git subtree add --prefix=template \
     git@github.com:ycpss91255-docker/template.git main --squash
-./template/script/init.sh
+./template/init.sh
 
 # 升級到最新版
 make upgrade-check   # 檢查
@@ -53,15 +53,15 @@ make help            # 顯示所有指令
 ```mermaid
 graph TB
     subgraph template["template（共用 repo）"]
-        scripts["build.sh / run.sh / exec.sh / stop.sh<br/>.hadolint.yaml"]
+        scripts[".hadolint.yaml / Makefile.ci / compose.yaml"]
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
-        mgmt["script/<br/>setup.sh / init.sh / upgrade.sh / ci.sh"]
+        mgmt["script/docker/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
         workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
     subgraph consumer["Docker Repo（如 ros_noetic）"]
-        symlinks["build.sh → template/build.sh<br/>run.sh → template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        symlinks["build.sh → template/script/docker/build.sh<br/>run.sh → template/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>ros_env.bats（repo 專屬）"]
         main_yaml["main.yaml<br/>→ 呼叫可重用 workflows"]
@@ -94,7 +94,7 @@ flowchart LR
     end
 
     build_test --> ci_container
-    make_test -->|"script/ci.sh"| ci_container
+    make_test -->|"script/ci/ci.sh"| ci_container
     shellcheck --> hadolint --> bats
 
     push["git push / PR"] --> build_worker
@@ -107,19 +107,19 @@ flowchart LR
 
 | 檔案 | 說明 |
 |------|------|
-| `build.sh` | 建置容器（呼叫 `script/setup.sh` 產生 `.env`） |
+| `build.sh` | 建置容器（呼叫 `script/docker/setup.sh` 產生 `.env`） |
 | `run.sh` | 執行容器（支援 X11/Wayland） |
 | `exec.sh` | 進入執行中的容器 |
 | `stop.sh` | 停止並移除容器 |
-| `script/setup.sh` | 自動偵測系統參數並產生 `.env` |
+| `script/docker/setup.sh` | 自動偵測系統參數並產生 `.env` |
 | `config/` | Shell 設定檔（bashrc、tmux、terminator、pip） |
 | `test/smoke/` | 給各 Docker repo 使用的共用測試 |
 | `.hadolint.yaml` | 共用 Hadolint 規則 |
 | `Makefile` | Repo 指令入口（`make build`、`make run`、`make stop` 等） |
 | `Makefile.ci` | Template CI 指令入口（`make test`、`make lint` 等） |
-| `script/init.sh` | 首次初始化 symlinks |
-| `script/upgrade.sh` | Subtree 版本升級 |
-| `script/ci.sh` | CI pipeline（本地 + 遠端） |
+| `init.sh` | 首次初始化 symlinks |
+| `upgrade.sh` | Subtree 版本升級 |
+| `script/ci/ci.sh` | CI pipeline（本地 + 遠端） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
 ### 各 repo 自行維護的檔案（不共用）
@@ -141,7 +141,7 @@ git subtree add --prefix=template \
     git@github.com:ycpss91255-docker/template.git main --squash
 
 # 2. 初始化 symlinks（一個指令搞定）
-./template/script/init.sh
+./template/init.sh
 ```
 
 ### 升級
@@ -154,7 +154,7 @@ make upgrade-check
 make upgrade
 
 # 或指定版本
-./template/script/upgrade.sh v0.3.0
+./template/upgrade.sh v0.3.0
 ```
 
 ## CI Reusable Workflows
@@ -209,14 +209,11 @@ make -f Makefile.ci help  # 顯示 CI 指令
 
 或直接執行：
 ```bash
-./script/ci.sh          # 完整 CI（透過 docker compose）
-./script/ci.sh --ci     # 在容器內執行（由 compose 呼叫）
+./script/ci/ci.sh          # 完整 CI（透過 docker compose）
+./script/ci/ci.sh --ci     # 在容器內執行（由 compose 呼叫）
 ```
 
 ## 測試
-
-- **136** 個 template 自身測試（`test/unit/`）
-- **27** 個共用 smoke tests（`test/smoke/`）
 
 詳見 [TEST.md](../test/TEST.md)。
 
@@ -224,32 +221,39 @@ make -f Makefile.ci help  # 顯示 CI 指令
 
 ```
 template/
-├── build.sh                          # 共用建置腳本
-├── run.sh                            # 共用執行腳本（X11/Wayland）
-├── exec.sh                           # 共用 exec 腳本
-├── stop.sh                           # 共用停止腳本
-├── config/                           # Shell/工具設定
+├── init.sh                           # 初始化 repo（新建或既有）
+├── upgrade.sh                        # 升級 template subtree 版本
+├── script/
+│   ├── docker/                       # Docker 操作腳本（各 repo symlink）
+│   │   ├── build.sh
+│   │   ├── run.sh
+│   │   ├── exec.sh
+│   │   ├── stop.sh
+│   │   ├── setup.sh                  # .env 產生器
+│   │   └── Makefile
+│   └── ci/
+│       └── ci.sh                     # CI pipeline（本地 + 遠端）
+├── dockerfile/
+│   ├── Dockerfile.test-tools         # 預建置測試工具 image
+│   └── Dockerfile.example            # 新 repo 的 Dockerfile 範本
+├── config/                           # Shell/工具設定 + IMAGE_NAME 規則
+│   ├── image_name.conf               # 預設 IMAGE_NAME 偵測規則
 │   ├── pip/
 │   └── shell/
 │       ├── bashrc
 │       ├── terminator/
 │       └── tmux/
-├── script/
-│   ├── setup.sh                      # .env 產生器
-│   ├── init.sh                       # Symlink 設定
-│   ├── upgrade.sh                    # Subtree 版本升級
-│   ├── ci.sh                         # CI pipeline（本地 + 遠端）
 ├── test/
-│   ├── smoke/                   # 給各 repo 使用的共用測試
+│   ├── smoke/                        # 給各 repo 使用的共用測試
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
-│   └── unit/                         # 模板自身測試（132 個）
-├── Makefile                          # 統一指令入口（make test/lint/...）
+│   └── unit/                         # 模板自身測試
+├── Makefile.ci                       # 模板 CI 入口（make test/lint/...）
 ├── compose.yaml                      # Docker CI 執行器
 ├── .hadolint.yaml                    # 共用 Hadolint 規則
 ├── .github/workflows/
-│   ├── self-test.yaml                # 模板 CI（呼叫 script/ci.sh）
+│   ├── self-test.yaml                # 模板 CI
 │   ├── build-worker.yaml             # 可重用建置 workflow
 │   └── release-worker.yaml           # 可重用發布 workflow
 ├── doc/

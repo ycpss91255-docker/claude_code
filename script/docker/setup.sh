@@ -1,28 +1,21 @@
 #!/usr/bin/env bash
 # setup.sh - Auto-detect system parameters and generate .env before build
 #
-# Replaces get_param.sh with the following features:
+# Features:
 #   - User info detection (UID/GID/USER/GROUP)
 #   - Hardware architecture detection
 #   - Docker Hub username detection
 #   - GPU support detection
-#   - Image name inference (compatible with docker_* / *_ws naming conventions)
+#   - Image name detection via image_name.conf rule engine
 #   - Workspace path detection (sibling scan → path traversal → parent directory fallback)
+#   - APT mirror configuration
 #   - .env generation
 #
 # Usage: setup.sh [--base-path <path>] [--lang zh|zh-CN|ja]
 
 # ── i18n messages ──────────────────────────────────────────────
-_detect_lang() {
-  local _sys_lang="${LANG:-}"
-  case "${_sys_lang}" in
-    zh_TW*) echo "zh" ;;
-    zh_CN*|zh_SG*) echo "zh-CN" ;;
-    ja*) echo "ja" ;;
-    *) echo "en" ;;
-  esac
-}
-_LANG="${SETUP_LANG:-$(_detect_lang)}"
+# shellcheck disable=SC1091
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/i18n.sh"
 
 _msg() {
   local _key="${1}"
@@ -32,34 +25,32 @@ _msg() {
         env_done)      echo ".env 更新完成" ;;
         env_comment)   echo "自動偵測欄位請勿手動修改，如需變更 WS_PATH 可直接編輯此檔案" ;;
         unknown_arg)   echo "未知參數" ;;
-      esac ;; # LCOV_EXCL_LINE
-    zh-CN) # LCOV_EXCL_LINE
+      esac ;;
+    zh-CN)
       case "${_key}" in
         env_done)      echo ".env 更新完成" ;;
         env_comment)   echo "自动检测字段请勿手动修改，如需变更 WS_PATH 可直接编辑此文件" ;;
         unknown_arg)   echo "未知参数" ;;
-      esac ;; # LCOV_EXCL_LINE
-    ja) # LCOV_EXCL_LINE
+      esac ;;
+    ja)
       case "${_key}" in
         env_done)      echo ".env 更新完了" ;;
         env_comment)   echo "自動検出フィールドは手動で編集しないでください。WS_PATH の変更はこのファイルを直接編集してください" ;;
         unknown_arg)   echo "不明な引数" ;;
-      esac ;; # LCOV_EXCL_LINE
-    *) # LCOV_EXCL_LINE
+      esac ;;
+    *)
       case "${_key}" in
         env_done)      echo ".env updated" ;;
         env_comment)   echo "Auto-detected fields, do not edit manually. Edit WS_PATH if needed" ;;
         unknown_arg)   echo "Unknown argument" ;;
-      esac ;; # LCOV_EXCL_LINE
+      esac ;;
   esac
 }
 
 # Only set strict mode when running directly; when sourced, respect caller's settings
-# LCOV_EXCL_START
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   set -euo pipefail
 fi
-# LCOV_EXCL_STOP
 
 # ════════════════════════════════════════════════════════════════════
 # detect_user_info
@@ -121,12 +112,74 @@ detect_gpu() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Rule applicators (used by detect_image_name)
+#
+# Each takes the path and rule value, echoes the matched name or nothing.
+# ════════════════════════════════════════════════════════════════════
+
+_rule_prefix() {
+  local _path="$1" _value="$2"
+  local -a _parts=()
+  IFS='/' read -ra _parts <<< "${_path}"
+  local i _part _last=""
+  for (( i=${#_parts[@]}-1; i>=0; i-- )); do
+    _part="${_parts[i]}"
+    [[ -z "${_part}" ]] && continue
+    _last="${_part}"
+    break
+  done
+  if [[ "${_last}" == "${_value}"* ]]; then
+    echo "${_last#"${_value}"}"
+  fi
+}
+
+_rule_suffix() {
+  local _path="$1" _value="$2"
+  local -a _parts=()
+  IFS='/' read -ra _parts <<< "${_path}"
+  local i _part
+  for (( i=${#_parts[@]}-1; i>=0; i-- )); do
+    _part="${_parts[i]}"
+    [[ -z "${_part}" ]] && continue
+    if [[ "${_part}" == *"${_value}" ]]; then
+      echo "${_part%"${_value}"}"
+      return
+    fi
+  done
+}
+
+_rule_env_example() {
+  local _base="${BASE_PATH:-$1}"
+  # If $1 is a path, derive base; if BASE_PATH is set, use it
+  local _file="${_base}/.env.example"
+  if [[ -f "${_file}" ]]; then
+    grep -m1 '^IMAGE_NAME=' "${_file}" 2>/dev/null | cut -d= -f2-
+  fi
+}
+
+_rule_basename() {
+  local _path="$1"
+  local -a _parts=()
+  IFS='/' read -ra _parts <<< "${_path}"
+  local i _part
+  for (( i=${#_parts[@]}-1; i>=0; i-- )); do
+    _part="${_parts[i]}"
+    [[ -z "${_part}" ]] && continue
+    echo "${_part}"
+    return
+  done
+}
+
+# ════════════════════════════════════════════════════════════════════
 # detect_image_name
 #
-# Detection priority:
-#   1. Check last directory only for docker_* → strip prefix
-#   2. Scan entire path (right to left) for *_ws → use prefix
-#   3. Fallback to "unknown"
+# Reads rules from image_name.conf (per-repo override or template default).
+# Rules applied in order; first match wins.
+#
+# Conf path resolution:
+#   1. ${IMAGE_NAME_CONF} env var (test override)
+#   2. ${BASE_PATH}/image_name.conf (repo-level override)
+#   3. <template>/config/image_name.conf (default)
 #
 # Usage: detect_image_name <outvar> <path>
 # ════════════════════════════════════════════════════════════════════
@@ -134,38 +187,55 @@ detect_image_name() {
   local -n _outvar="${1:?"${FUNCNAME[0]}: missing outvar"}"; shift
   local _path="${1:?"${FUNCNAME[0]}: missing path"}"
 
-  local -a _parts=()
-  local _found="" _last=""
-
-  IFS='/' read -ra _parts <<< "${_path}"
-
-  # 1. Check last directory for docker_* prefix
-  local i _part
-  for (( i=${#_parts[@]}-1; i>=0; i-- )); do
-    _part="${_parts[i]}"
-    [[ -z "${_part}" ]] && continue
-    _last="${_part}"
-    break
-  done
-  if [[ "${_last}" == docker_* ]]; then
-    _found="${_last#docker_}"
+  # Resolve conf file
+  local _conf="${IMAGE_NAME_CONF:-}"
+  if [[ -z "${_conf}" ]]; then
+    local _base="${BASE_PATH:-${_path}}"
+    if [[ -f "${_base}/image_name.conf" ]]; then
+      _conf="${_base}/image_name.conf"
+    else
+      # Default: template/config/image_name.conf
+      local _self_dir
+      _self_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+      _conf="${_self_dir}/../../config/image_name.conf"
+    fi
   fi
 
-  # 2. Scan entire path for *_ws (right to left)
-  if [[ -z "${_found}" ]]; then
-    for (( i=${#_parts[@]}-1; i>=0; i-- )); do
-      _part="${_parts[i]}"
-      [[ -z "${_part}" ]] && continue
-      if [[ "${_part}" == *_ws ]]; then
-        _found="${_part%_ws}"
-        break
+  local _found=""
+  if [[ -f "${_conf}" ]]; then
+    local _line _type _value
+    while IFS= read -r _line || [[ -n "${_line}" ]]; do
+      # Skip comments and empty lines
+      [[ -z "${_line}" || "${_line}" =~ ^[[:space:]]*# ]] && continue
+      # Trim whitespace
+      _line="${_line#"${_line%%[![:space:]]*}"}"
+      _line="${_line%"${_line##*[![:space:]]}"}"
+      [[ -z "${_line}" ]] && continue
+
+      if [[ "${_line}" == prefix:* ]]; then
+        _value="${_line#prefix:}"
+        _found="$(_rule_prefix "${_path}" "${_value}")"
+      elif [[ "${_line}" == suffix:* ]]; then
+        _value="${_line#suffix:}"
+        _found="$(_rule_suffix "${_path}" "${_value}")"
+      elif [[ "${_line}" == "@env_example" ]]; then
+        _found="$(BASE_PATH="${BASE_PATH:-${_path}}" _rule_env_example "${_path}")"
+      elif [[ "${_line}" == "@basename" ]]; then
+        _found="$(_rule_basename "${_path}")"
+      elif [[ "${_line}" == @default:* ]]; then
+        _found="${_line#@default:}"
+        printf "[setup] INFO: IMAGE_NAME using @default:%s\n" "${_found}" >&2
       fi
-    done
+
+      [[ -n "${_found}" ]] && break
+    done < "${_conf}"
   fi
 
-  # 3. Fallback
-  _outvar="${_found:-unknown}"
-  _outvar="${_outvar,,}"
+  if [[ -z "${_found}" ]]; then
+    printf "[setup] WARNING: IMAGE_NAME could not be detected. Using 'unknown'.\n" >&2
+    _found="unknown"
+  fi
+  _outvar="${_found,,}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -175,8 +245,6 @@ detect_image_name() {
 #   1. If current directory is docker_*, use sibling *_ws (strip prefix)
 #   2. Traverse path upward looking for a *_ws component
 #   3. Fall back to parent directory
-#
-# Compatible with get_param.sh get_workdir behaviour.
 #
 # Usage: detect_ws_path <outvar> <base_path>
 # ════════════════════════════════════════════════════════════════════
@@ -285,8 +353,8 @@ main() {
   done
 
   if [[ -z "${_base_path}" ]]; then
-    # setup.sh is at template/script/setup.sh, repo root is ../../
-    _base_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/../.." && pwd -P)"
+    # setup.sh is at template/script/docker/setup.sh, repo root is ../../../
+    _base_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/../../.." && pwd -P)"
   fi
 
   local _env_file="${_base_path}/.env"
@@ -309,11 +377,7 @@ main() {
   detect_hardware        hardware
   detect_docker_hub_user docker_hub_user
   detect_gpu             gpu_enabled
-  detect_image_name      image_name "${_base_path}"
-
-  if [[ "${image_name}" == "unknown" ]]; then
-    printf "[setup] WARNING: IMAGE_NAME could not be detected. Using 'unknown'.\n" >&2
-  fi
+  BASE_PATH="${_base_path}" detect_image_name image_name "${_base_path}"
 
   if [[ -z "${ws_path}" ]] || [[ ! -d "${ws_path}" ]]; then
     detect_ws_path ws_path "${_base_path}"
@@ -333,8 +397,6 @@ main() {
 }
 
 # Guard: only run main when executed directly, not when sourced (for testing)
-# LCOV_EXCL_START
 if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
   main "$@"
 fi
-# LCOV_EXCL_STOP
