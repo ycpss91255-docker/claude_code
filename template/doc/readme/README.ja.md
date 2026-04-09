@@ -33,7 +33,7 @@
 # 新規 repo：subtree 追加 + 初期化
 git subtree add --prefix=template \
     git@github.com:ycpss91255-docker/template.git main --squash
-./template/script/init.sh
+./template/init.sh
 
 # 最新版にアップグレード
 make upgrade-check   # 確認
@@ -53,15 +53,15 @@ make help            # 全コマンド表示
 ```mermaid
 graph TB
     subgraph template["template（共有 repo）"]
-        scripts["build.sh / run.sh / exec.sh / stop.sh<br/>.hadolint.yaml"]
+        scripts[".hadolint.yaml / Makefile.ci / compose.yaml"]
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
-        mgmt["script/<br/>setup.sh / init.sh / upgrade.sh / ci.sh"]
+        mgmt["script/docker/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
         workflows["再利用可能な Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
     subgraph consumer["Docker Repo（例: ros_noetic）"]
-        symlinks["build.sh → template/build.sh<br/>run.sh → template/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        symlinks["build.sh → template/script/docker/build.sh<br/>run.sh → template/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>ros_env.bats（repo 固有）"]
         main_yaml["main.yaml<br/>→ 再利用可能な workflows を呼び出し"]
@@ -94,7 +94,7 @@ flowchart LR
     end
 
     build_test --> ci_container
-    make_test -->|"script/ci.sh"| ci_container
+    make_test -->|"script/ci/ci.sh"| ci_container
     shellcheck --> hadolint --> bats
 
     push["git push / PR"] --> build_worker
@@ -107,19 +107,19 @@ flowchart LR
 
 | ファイル | 説明 |
 |----------|------|
-| `build.sh` | コンテナビルド（`script/setup.sh` を呼び出して `.env` を生成） |
+| `build.sh` | コンテナビルド（`script/docker/setup.sh` を呼び出して `.env` を生成） |
 | `run.sh` | コンテナ実行（X11/Wayland 対応） |
 | `exec.sh` | 実行中のコンテナに入る |
 | `stop.sh` | コンテナの停止・削除 |
-| `script/setup.sh` | システムパラメータの自動検出と `.env` 生成 |
+| `script/docker/setup.sh` | システムパラメータの自動検出と `.env` 生成 |
 | `config/` | シェル設定ファイル（bashrc、tmux、terminator、pip） |
 | `test/smoke/` | 各 Docker repo 用の共有テスト |
 | `.hadolint.yaml` | 共有 Hadolint ルール |
 | `Makefile` | Repo コマンドエントリ（`make build`、`make run`、`make stop` 等） |
 | `Makefile.ci` | Template CI コマンドエントリ（`make test`、`make lint` 等） |
-| `script/init.sh` | 初回 symlink セットアップ |
-| `script/upgrade.sh` | Subtree バージョンアップグレード |
-| `script/ci.sh` | CI パイプライン（ローカル + リモート） |
+| `init.sh` | 初回 symlink セットアップ |
+| `upgrade.sh` | Subtree バージョンアップグレード |
+| `script/ci/ci.sh` | CI パイプライン（ローカル + リモート） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
 
 ### 各 repo で個別管理するファイル（共有しない）
@@ -141,7 +141,7 @@ git subtree add --prefix=template \
     git@github.com:ycpss91255-docker/template.git main --squash
 
 # 2. symlink 初期化（ワンコマンド）
-./template/script/init.sh
+./template/init.sh
 ```
 
 ### アップグレード
@@ -154,7 +154,7 @@ make upgrade-check
 make upgrade
 
 # バージョン指定
-./template/script/upgrade.sh v0.3.0
+./template/upgrade.sh v0.3.0
 ```
 
 ## CI Reusable Workflows
@@ -209,14 +209,11 @@ make -f Makefile.ci help  # CI ターゲット表示
 
 直接実行：
 ```bash
-./script/ci.sh          # フル CI（docker compose 経由）
-./script/ci.sh --ci     # コンテナ内で実行（compose から呼び出し）
+./script/ci/ci.sh          # フル CI（docker compose 経由）
+./script/ci/ci.sh --ci     # コンテナ内で実行（compose から呼び出し）
 ```
 
 ## テスト
-
-- **136** テンプレート自身のテスト（`test/unit/`）
-- **27** 共有 smoke tests（`test/smoke/`）
 
 詳細は [TEST.md](../test/TEST.md) を参照。
 
@@ -224,38 +221,45 @@ make -f Makefile.ci help  # CI ターゲット表示
 
 ```
 template/
-├── build.sh                          # 共有ビルドスクリプト
-├── run.sh                            # 共有実行スクリプト（X11/Wayland）
-├── exec.sh                           # 共有 exec スクリプト
-├── stop.sh                           # 共有停止スクリプト
-├── config/                           # シェル/ツール設定
+├── init.sh                           # repo 初期化（新規または既存）
+├── upgrade.sh                        # template subtree バージョンアップグレード
+├── script/
+│   ├── docker/                       # Docker 操作スクリプト（各 repo symlink）
+│   │   ├── build.sh
+│   │   ├── run.sh
+│   │   ├── exec.sh
+│   │   ├── stop.sh
+│   │   ├── setup.sh                  # .env ジェネレータ
+│   │   └── Makefile
+│   └── ci/
+│       └── ci.sh                     # CI パイプライン（ローカル + リモート）
+├── dockerfile/
+│   ├── Dockerfile.test-tools         # プリビルドテストツール image
+│   └── Dockerfile.example            # 新 repo の Dockerfile テンプレート
+├── config/                           # シェル/ツール設定 + IMAGE_NAME ルール
+│   ├── image_name.conf               # デフォルト IMAGE_NAME 検出ルール
 │   ├── pip/
 │   └── shell/
 │       ├── bashrc
 │       ├── terminator/
 │       └── tmux/
-├── script/
-│   ├── setup.sh                      # .env ジェネレータ
-│   ├── init.sh                       # Symlink セットアップ
-│   ├── upgrade.sh                    # Subtree バージョンアップグレード
-│   ├── ci.sh                         # CI パイプライン（ローカル + リモート）
 ├── test/
-│   ├── smoke/                   # 各 repo 用の共有テスト
+│   ├── smoke/                        # 各 repo 用の共有テスト
 │   │   ├── test_helper.bash
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
-│   └── unit/                         # テンプレート自身のテスト（132 件）
-├── Makefile                          # 統一コマンドエントリ（make test/lint/...）
+│   └── unit/                         # テンプレート自身のテスト
+├── Makefile.ci                       # テンプレート CI エントリ（make test/lint/...）
 ├── compose.yaml                      # Docker CI ランナー
 ├── .hadolint.yaml                    # 共有 Hadolint ルール
 ├── .github/workflows/
-│   ├── self-test.yaml                # テンプレート CI（script/ci.sh を呼び出し）
+│   ├── self-test.yaml                # テンプレート CI
 │   ├── build-worker.yaml             # 再利用可能なビルド workflow
 │   └── release-worker.yaml           # 再利用可能なリリース workflow
 ├── doc/
 │   ├── readme/                       # README 翻訳
-│   ├── test/                         # TEST.md + 翻訳
-│   └── changelog/                    # CHANGELOG.md + 翻訳
+│   ├── test/                         # TEST.md
+│   └── changelog/                    # CHANGELOG.md
 ├── .codecov.yaml
 ├── .gitignore
 ├── LICENSE
