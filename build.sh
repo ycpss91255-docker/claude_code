@@ -1,1 +1,1 @@
-template/build.sh
+template/script/docker/build.sh
