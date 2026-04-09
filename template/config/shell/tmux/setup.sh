@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 
 # Only set strict mode when running directly
-# LCOV_EXCL_START
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   set -x -eu -o pipefail
 fi
-# LCOV_EXCL_STOP
 
 check_deps() {
   local -r _deps=("tmux" "git")
@@ -45,8 +43,6 @@ _entry_point() {
   fi
 }
 
-# LCOV_EXCL_START
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   _entry_point "$@" || exit $?
 fi
-# LCOV_EXCL_STOP

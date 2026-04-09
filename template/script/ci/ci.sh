@@ -12,7 +12,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
-REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 readonly REPO_ROOT
 
 # ── Help ─────────────────────────────────────────────────────────────────────
@@ -56,8 +56,10 @@ _install_deps() {
 
 _run_shellcheck() {
   echo "--- Running ShellCheck ---"
-  find "${REPO_ROOT}" -maxdepth 1 -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${SCRIPT_DIR}" -maxdepth 1 -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/script/docker" -maxdepth 1 -name "*.sh" -print0 | xargs -0 shellcheck -x
+  shellcheck -x "${REPO_ROOT}/script/ci/ci.sh"
+  shellcheck -x "${REPO_ROOT}/init.sh"
+  shellcheck -x "${REPO_ROOT}/upgrade.sh"
   shellcheck -x "${REPO_ROOT}/config/pip/setup.sh"
   shellcheck -x "${REPO_ROOT}/config/shell/terminator/setup.sh"
   shellcheck -x "${REPO_ROOT}/config/shell/tmux/setup.sh"
@@ -76,7 +78,7 @@ _run_coverage() {
   echo "--- Running Tests with Kcov Coverage ---"
   kcov \
     --include-path="${REPO_ROOT}" \
-    --exclude-path="${REPO_ROOT}/test/,${REPO_ROOT}/script/ci.sh,${REPO_ROOT}/script/init.sh,${REPO_ROOT}/script/upgrade.sh,${REPO_ROOT}/config/shell/bashrc,${REPO_ROOT}/config/shell/terminator/config,${REPO_ROOT}/config/shell/tmux/tmux.conf,${REPO_ROOT}/.github/" \
+    --exclude-path="${REPO_ROOT}/test/,${REPO_ROOT}/script/ci/,${REPO_ROOT}/init.sh,${REPO_ROOT}/upgrade.sh,${REPO_ROOT}/config/shell/bashrc,${REPO_ROOT}/config/shell/terminator/config,${REPO_ROOT}/config/shell/tmux/tmux.conf,${REPO_ROOT}/.github/" \
     "${REPO_ROOT}/coverage" \
     bats "${REPO_ROOT}/test/unit/"
 }

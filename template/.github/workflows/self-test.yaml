@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run CI (ShellCheck + Bats + Kcov)
-        run: ./script/ci.sh
+        run: ./script/ci/ci.sh
 
       - name: Upload coverage to Codecov
         if: always()
@@ -42,19 +42,34 @@ jobs:
           ARCHIVE_NAME="template-${VERSION}"
 
           mkdir -p "${ARCHIVE_NAME}"
-          cp -r build.sh run.sh exec.sh stop.sh \
-                .hadolint.yaml Makefile Makefile.ci compose.yaml \
-                config/ test/ script/ doc/ \
+          cp -r init.sh upgrade.sh \
+                .hadolint.yaml Makefile.ci compose.yaml \
+                config/ dockerfile/ test/ script/ doc/ \
                 README.md LICENSE \
                 "${ARCHIVE_NAME}/"
 
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
           zip -r  "${ARCHIVE_NAME}.zip"    "${ARCHIVE_NAME}"
 
+      - name: Extract release notes for current tag
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          # Extract the section for current version from CHANGELOG.md
+          # Matches "## [vX.Y.Z]" or "## [vX.Y.Z-rcN]" until the next "## ["
+          awk -v ver="${VERSION}" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "[" ver "]")) { found=1; next }
+            }
+            found
+          ' doc/changelog/CHANGELOG.md > /tmp/release-notes.md
+          echo "--- Extracted release notes ---"
+          cat /tmp/release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: doc/changelog/CHANGELOG.md
+          body_path: /tmp/release-notes.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
