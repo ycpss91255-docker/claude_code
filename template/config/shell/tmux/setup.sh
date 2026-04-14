@@ -2,7 +2,7 @@
 
 # Only set strict mode when running directly
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
-  set -x -eu -o pipefail
+  set -euo pipefail
 fi
 
 check_deps() {

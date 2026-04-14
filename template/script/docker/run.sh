@@ -95,77 +95,6 @@ EOF
   exit 0
 }
 
-# Parse arguments
-SKIP_ENV=false
-DETACH=false
-DRY_RUN=false
-TARGET="devel"
-INSTANCE=""
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -h|--help)
-      usage
-      ;;
-    -d|--detach)
-      DETACH=true
-      shift
-      ;;
-    --no-env)
-      SKIP_ENV=true
-      shift
-      ;;
-    --dry-run)
-      DRY_RUN=true
-      shift
-      ;;
-    --instance)
-      INSTANCE="${2:?"--instance requires a value"}"
-      shift 2
-      ;;
-    --lang)
-      _LANG="${2:?"--lang requires a value (en|zh|zh-CN|ja)"}"
-      shift 2
-      ;;
-    *)
-      TARGET="$1"
-      shift
-      ;;
-  esac
-done
-export DRY_RUN
-
-# Generate / refresh .env
-if [[ "${SKIP_ENV}" == false ]]; then
-  "${FILE_PATH}/template/script/docker/setup.sh" --base-path "${FILE_PATH}" --lang "${_LANG}"
-fi
-
-# Load .env, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
-_load_env "${FILE_PATH}/.env"
-_compute_project_name "${INSTANCE}"
-
-# Allow X11 forwarding (X11 or XWayland)
-if [[ "${XDG_SESSION_TYPE:-x11}" == "wayland" ]]; then
-  xhost "+SI:localuser:${USER_NAME}" >/dev/null 2>&1 || true
-else
-  xhost +local: >/dev/null 2>&1 || true
-fi
-
-# Container name mirrors compose.yaml's `container_name:`.
-CONTAINER_NAME="${IMAGE_NAME}${INSTANCE_SUFFIX}"
-
-# Refuse to start if the target container is already running and user did not
-# explicitly opt into a parallel instance via --instance.
-# (For -d mode, the existing `down` step handles restart, so collision is OK.)
-if [[ "${DETACH}" != true && "${TARGET}" == "devel" && "${DRY_RUN}" != true ]]; then
-  if docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
-    printf "[run] ERROR: Container '%s' is already running.\n" "${CONTAINER_NAME}" >&2
-    printf "[run] Either stop it with './stop.sh%s' or start a parallel instance with './run.sh --instance NAME'.\n" \
-      "$([[ -n "${INSTANCE}" ]] && printf ' --instance %s' "${INSTANCE}")" >&2
-    exit 1
-  fi
-fi
-
 # _devel_cleanup tears down the project on shell exit so the container does
 # not outlive the foreground `./run.sh` session.
 #
@@ -176,17 +105,95 @@ _devel_cleanup() {
   _compose_project down -t 0 >/dev/null 2>&1 || true
 }
 
-if [[ "${DETACH}" == true ]]; then
-  _compose_project down 2>/dev/null || true
-  _compose_project up -d "${TARGET}"
-elif [[ "${TARGET}" == "devel" ]]; then
-  # Foreground devel: `up -d` + `exec` so a second terminal can join via
-  # `./exec.sh`. Trap auto-`down` on exit to preserve the
-  # "exit shell = container gone" semantic of the previous `compose run`.
-  trap _devel_cleanup EXIT
-  _compose_project up -d "${TARGET}"
-  _compose_project exec "${TARGET}" bash
-else
-  # Other one-shot stages (test, runtime, ...): keep `compose run --rm`.
-  _compose_project run --rm "${TARGET}"
-fi
+main() {
+  local SKIP_ENV=false
+  local DETACH=false
+  local TARGET="devel"
+  local INSTANCE=""
+  DRY_RUN=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        ;;
+      -d|--detach)
+        DETACH=true
+        shift
+        ;;
+      --no-env)
+        SKIP_ENV=true
+        shift
+        ;;
+      --dry-run)
+        DRY_RUN=true
+        shift
+        ;;
+      --instance)
+        INSTANCE="${2:?"--instance requires a value"}"
+        shift 2
+        ;;
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh|zh-CN|ja)"}"
+        shift 2
+        ;;
+      *)
+        TARGET="$1"
+        shift
+        ;;
+    esac
+  done
+  export DRY_RUN
+
+  # Generate / refresh .env
+  if [[ "${SKIP_ENV}" == false ]]; then
+    "${FILE_PATH}/template/script/docker/setup.sh" \
+      --base-path "${FILE_PATH}" --lang "${_LANG}"
+  fi
+
+  # Load .env, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
+  _load_env "${FILE_PATH}/.env"
+  _compute_project_name "${INSTANCE}"
+
+  # Allow X11 forwarding (X11 or XWayland)
+  if [[ "${XDG_SESSION_TYPE:-x11}" == "wayland" ]]; then
+    xhost "+SI:localuser:${USER_NAME}" >/dev/null 2>&1 || true
+  else
+    xhost +local: >/dev/null 2>&1 || true
+  fi
+
+  # Container name mirrors compose.yaml's `container_name:`.
+  local CONTAINER_NAME="${IMAGE_NAME}${INSTANCE_SUFFIX}"
+
+  # Refuse to start if the target container is already running and user did
+  # not explicitly opt into a parallel instance via --instance.
+  # (For -d mode, the existing `down` step handles restart, so collision is OK.)
+  if [[ "${DETACH}" != true && "${TARGET}" == "devel" \
+      && "${DRY_RUN}" != true ]]; then
+    if docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
+      printf "[run] ERROR: Container '%s' is already running.\n" \
+        "${CONTAINER_NAME}" >&2
+      printf "[run] Either stop it with './stop.sh%s'\n" \
+        "$([[ -n "${INSTANCE}" ]] && printf ' --instance %s' "${INSTANCE}")" >&2
+      printf "[run] or start a parallel instance with './run.sh --instance NAME'.\n" >&2
+      exit 1
+    fi
+  fi
+
+  if [[ "${DETACH}" == true ]]; then
+    _compose_project down 2>/dev/null || true
+    _compose_project up -d "${TARGET}"
+  elif [[ "${TARGET}" == "devel" ]]; then
+    # Foreground devel: `up -d` + `exec` so a second terminal can join via
+    # `./exec.sh`. Trap auto-`down` on exit to preserve the
+    # "exit shell = container gone" semantic of the previous `compose run`.
+    trap _devel_cleanup EXIT
+    _compose_project up -d "${TARGET}"
+    _compose_project exec "${TARGET}" bash
+  else
+    # Other one-shot stages (test, runtime, ...): keep `compose run --rm`.
+    _compose_project run --rm "${TARGET}"
+  fi
+}
+
+main "$@"

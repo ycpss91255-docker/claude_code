@@ -79,38 +79,7 @@ EOF
   exit 0
 }
 
-INSTANCE=""
-ALL_INSTANCES=false
-DRY_RUN=false
 PASSTHROUGH=()
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -h|--help)
-      usage
-      ;;
-    --instance)
-      INSTANCE="${2:?"--instance requires a value"}"
-      shift 2
-      ;;
-    --all)
-      ALL_INSTANCES=true
-      shift
-      ;;
-    --dry-run)
-      DRY_RUN=true
-      shift
-      ;;
-    *)
-      PASSTHROUGH+=("$1")
-      shift
-      ;;
-  esac
-done
-export DRY_RUN
-
-# Load .env so DOCKER_HUB_USER / IMAGE_NAME are available below.
-_load_env "${FILE_PATH}/.env"
 
 # _down_one tears down a single instance. _compute_project_name sets and
 # exports INSTANCE_SUFFIX so compose.yaml resolves the matching container_name.
@@ -123,24 +92,62 @@ _down_one() {
   _compose_project down "${PASSTHROUGH[@]}"
 }
 
-if [[ "${ALL_INSTANCES}" == true ]]; then
-  # Find all docker compose projects whose name starts with our prefix.
-  _prefix="${DOCKER_HUB_USER}-${IMAGE_NAME}"
-  mapfile -t _projects < <(
-    docker ps -a --format '{{.Label "com.docker.compose.project"}}' \
-      | sort -u | grep -E "^${_prefix}(\$|-)" || true
-  )
-  if [[ ${#_projects[@]} -eq 0 ]]; then
-    printf "[stop] No instances found for %s\n" "${IMAGE_NAME}" >&2
-    exit 0
-  fi
-  for _proj in "${_projects[@]}"; do
-    _suffix="${_proj#"${_prefix}"}"
-    # _suffix is "" or "-name"; _down_one expects bare instance, strip the dash.
-    _down_one "${_suffix#-}"
+main() {
+  local INSTANCE=""
+  local ALL_INSTANCES=false
+  DRY_RUN=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        ;;
+      --instance)
+        INSTANCE="${2:?"--instance requires a value"}"
+        shift 2
+        ;;
+      --all)
+        ALL_INSTANCES=true
+        shift
+        ;;
+      --dry-run)
+        DRY_RUN=true
+        shift
+        ;;
+      *)
+        PASSTHROUGH+=("$1")
+        shift
+        ;;
+    esac
   done
-elif [[ -n "${INSTANCE}" ]]; then
-  _down_one "${INSTANCE}"
-else
-  _down_one ""
-fi
+  export DRY_RUN
+
+  # Load .env so DOCKER_HUB_USER / IMAGE_NAME are available below.
+  _load_env "${FILE_PATH}/.env"
+
+  if [[ "${ALL_INSTANCES}" == true ]]; then
+    # Find all docker compose projects whose name starts with our prefix.
+    local _prefix="${DOCKER_HUB_USER}-${IMAGE_NAME}"
+    local _projects
+    mapfile -t _projects < <(
+      docker ps -a --format '{{.Label "com.docker.compose.project"}}' \
+        | sort -u | grep -E "^${_prefix}(\$|-)" || true
+    )
+    if [[ ${#_projects[@]} -eq 0 ]]; then
+      printf "[stop] No instances found for %s\n" "${IMAGE_NAME}" >&2
+      exit 0
+    fi
+    local _proj _suffix
+    for _proj in "${_projects[@]}"; do
+      _suffix="${_proj#"${_prefix}"}"
+      # _suffix is "" or "-name"; _down_one expects bare instance, strip dash.
+      _down_one "${_suffix#-}"
+    done
+  elif [[ -n "${INSTANCE}" ]]; then
+    _down_one "${INSTANCE}"
+  else
+    _down_one ""
+  fi
+}
+
+main "$@"

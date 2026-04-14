@@ -101,74 +101,83 @@ EOF
   exit 0
 }
 
-SKIP_ENV=false
-NO_CACHE=false
-CLEAN_TOOLS=false
-DRY_RUN=false
-TARGET="devel"
+main() {
+  local SKIP_ENV=false
+  local NO_CACHE=false
+  local CLEAN_TOOLS=false
+  local TARGET="devel"
+  DRY_RUN=false
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -h|--help)
-      usage
-      ;;
-    --no-env)
-      SKIP_ENV=true
-      shift
-      ;;
-    --no-cache)
-      NO_CACHE=true
-      shift
-      ;;
-    --clean-tools)
-      CLEAN_TOOLS=true
-      shift
-      ;;
-    --dry-run)
-      DRY_RUN=true
-      shift
-      ;;
-    --lang)
-      _LANG="${2:?"--lang requires a value (en|zh|zh-CN|ja)"}"
-      shift 2
-      ;;
-    *)
-      TARGET="$1"
-      shift
-      ;;
-  esac
-done
-export DRY_RUN
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        ;;
+      --no-env)
+        SKIP_ENV=true
+        shift
+        ;;
+      --no-cache)
+        NO_CACHE=true
+        shift
+        ;;
+      --clean-tools)
+        CLEAN_TOOLS=true
+        shift
+        ;;
+      --dry-run)
+        DRY_RUN=true
+        shift
+        ;;
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh|zh-CN|ja)"}"
+        shift 2
+        ;;
+      *)
+        TARGET="$1"
+        shift
+        ;;
+    esac
+  done
+  export DRY_RUN
 
-# Generate / refresh .env
-if [[ "${SKIP_ENV}" == false ]]; then
-  "${FILE_PATH}/template/script/docker/setup.sh" --base-path "${FILE_PATH}" --lang "${_LANG}"
-fi
-
-# Load .env for project name
-_load_env "${FILE_PATH}/.env"
-_compute_project_name ""
-
-# Build test-tools image if Dockerfile exists
-_tools_dockerfile="${FILE_PATH}/template/dockerfile/Dockerfile.test-tools"
-_tools_args=()
-[[ "${NO_CACHE}" == true ]] && _tools_args+=(--no-cache)
-if [[ -f "${_tools_dockerfile}" ]]; then
-  if [[ "${DRY_RUN}" == true ]]; then
-    printf '[dry-run] docker build'
-    printf ' %q' "${_tools_args[@]}" -t test-tools:local -f "${_tools_dockerfile}" "${FILE_PATH}" -q
-    printf '\n'
-  else
-    docker build "${_tools_args[@]}" -t test-tools:local -f "${_tools_dockerfile}" "${FILE_PATH}" -q >/dev/null
+  # Generate / refresh .env
+  if [[ "${SKIP_ENV}" == false ]]; then
+    "${FILE_PATH}/template/script/docker/setup.sh" \
+      --base-path "${FILE_PATH}" --lang "${_LANG}"
   fi
-fi
 
-if [[ "${CLEAN_TOOLS}" == true ]]; then
-  _cleanup() { docker rmi test-tools:local 2>/dev/null || true; }
-  trap _cleanup EXIT
-fi
+  # Load .env for project name
+  _load_env "${FILE_PATH}/.env"
+  _compute_project_name ""
 
-_compose_args=()
-[[ "${NO_CACHE}" == true ]] && _compose_args+=(--no-cache)
+  # Build test-tools image if Dockerfile exists
+  local _tools_dockerfile="${FILE_PATH}/template/dockerfile/Dockerfile.test-tools"
+  local _tools_args=()
+  [[ "${NO_CACHE}" == true ]] && _tools_args+=(--no-cache)
+  if [[ -f "${_tools_dockerfile}" ]]; then
+    if [[ "${DRY_RUN}" == true ]]; then
+      printf '[dry-run] docker build'
+      printf ' %q' "${_tools_args[@]}" -t test-tools:local \
+        -f "${_tools_dockerfile}" "${FILE_PATH}" -q
+      printf '\n'
+    else
+      docker build "${_tools_args[@]}" \
+        -t test-tools:local \
+        -f "${_tools_dockerfile}" \
+        "${FILE_PATH}" -q >/dev/null
+    fi
+  fi
 
-_compose_project build "${_compose_args[@]}" "${TARGET}"
+  if [[ "${CLEAN_TOOLS}" == true ]]; then
+    _cleanup() { docker rmi test-tools:local 2>/dev/null || true; }
+    trap _cleanup EXIT
+  fi
+
+  local _compose_args=()
+  [[ "${NO_CACHE}" == true ]] && _compose_args+=(--no-cache)
+
+  _compose_project build "${_compose_args[@]}" "${TARGET}"
+}
+
+main "$@"

@@ -77,10 +77,23 @@ _run_tests() {
 # ── Kcov coverage ────────────────────────────────────────────────────────────
 
 _run_coverage() {
+  local _excludes=(
+    "${REPO_ROOT}/test/"
+    "${REPO_ROOT}/script/ci/"
+    "${REPO_ROOT}/init.sh"
+    "${REPO_ROOT}/upgrade.sh"
+    "${REPO_ROOT}/config/shell/bashrc"
+    "${REPO_ROOT}/config/shell/terminator/config"
+    "${REPO_ROOT}/config/shell/tmux/tmux.conf"
+    "${REPO_ROOT}/.github/"
+  )
+  local _exclude_path
+  _exclude_path="$(IFS=,; printf '%s' "${_excludes[*]}")"
+
   echo "--- Running Tests with Kcov Coverage ---"
   kcov \
     --include-path="${REPO_ROOT}" \
-    --exclude-path="${REPO_ROOT}/test/,${REPO_ROOT}/script/ci/,${REPO_ROOT}/init.sh,${REPO_ROOT}/upgrade.sh,${REPO_ROOT}/config/shell/bashrc,${REPO_ROOT}/config/shell/terminator/config,${REPO_ROOT}/config/shell/tmux/tmux.conf,${REPO_ROOT}/.github/" \
+    --exclude-path="${_exclude_path}" \
     "${REPO_ROOT}/coverage" \
     bats "${REPO_ROOT}/test/unit/" "${REPO_ROOT}/test/integration/"
 }

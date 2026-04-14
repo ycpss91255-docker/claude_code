@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -eux -o pipefail
+set -euo pipefail
 
 file_dir=$(dirname "$(readlink -f "${0}")")
 

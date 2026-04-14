@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [v0.7.2] - 2026-04-14
+
+### Changed
+- Align `build.sh` / `run.sh` / `exec.sh` / `stop.sh` with Google Shell Style
+  Guide: wrap top-level logic in a `main()` function with `local` variables,
+  fix `case` indentation. Behavior unchanged.
+- `config/pip/setup.sh`, `config/shell/tmux/setup.sh`,
+  `config/shell/terminator/setup.sh`: drop `-x` from strict mode
+  (`set -eux` → `set -euo pipefail`) so docker build logs stay quieter.
+  Tracing can still be enabled on demand via `bash -x`.
+- `script/ci/ci.sh`: refactor kcov `--exclude-path` into a readable array
+  instead of one long comma-joined string. Behavior unchanged.
+- Re-indent all `.bats` files under `test/smoke/`, `test/unit/`, and
+  `test/integration/` from 4-space to 2-space per Google Shell Style Guide.
+  Heredoc bodies untouched. Behavior unchanged; all 247 tests still pass.
+
 ## [v0.7.1] - 2026-04-10
 
 ### Fixed

@@ -1,18 +1,18 @@
 #!/usr/bin/env bats
 
 setup() {
-    load "${BATS_TEST_DIRNAME}/test_helper"
-    create_mock_dir
-    TEMP_DIR="$(mktemp -d)"
-    export HOME="${TEMP_DIR}"
+  load "${BATS_TEST_DIRNAME}/test_helper"
+  create_mock_dir
+  TEMP_DIR="$(mktemp -d)"
+  export HOME="${TEMP_DIR}"
 
-    # shellcheck disable=SC1091
-    source /source/config/shell/tmux/setup.sh
+  # shellcheck disable=SC1091
+  source /source/config/shell/tmux/setup.sh
 }
 
 teardown() {
-    cleanup_mock_dir
-    rm -rf "${TEMP_DIR}"
+  cleanup_mock_dir
+  rm -rf "${TEMP_DIR}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -20,24 +20,24 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "check_deps returns 0 when tmux and git are installed" {
-    mock_cmd "tmux" 'exit 0'
-    mock_cmd "git" 'exit 0'
-    run check_deps
-    assert_success
+  mock_cmd "tmux" 'exit 0'
+  mock_cmd "git" 'exit 0'
+  run check_deps
+  assert_success
 }
 
 @test "check_deps fails when tmux is not installed" {
-    mock_cmd "git" 'exit 0'
-    PATH="${MOCK_DIR}" run check_deps
-    assert_failure
-    assert_output --partial "Error:"
+  mock_cmd "git" 'exit 0'
+  PATH="${MOCK_DIR}" run check_deps
+  assert_failure
+  assert_output --partial "Error:"
 }
 
 @test "check_deps fails when git is not installed" {
-    mock_cmd "tmux" 'exit 0'
-    PATH="${MOCK_DIR}" run check_deps
-    assert_failure
-    assert_output --partial "Error:"
+  mock_cmd "tmux" 'exit 0'
+  PATH="${MOCK_DIR}" run check_deps
+  assert_failure
+  assert_output --partial "Error:"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -45,22 +45,22 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_entry_point calls main when deps pass" {
-    mock_cmd "tmux" 'exit 0'
-    mock_cmd "git" '
+  mock_cmd "tmux" 'exit 0'
+  mock_cmd "git" '
 if [[ "$1" == "clone" ]]; then
-    mkdir -p "${@: -1}/scripts"
-    echo "exit 0" > "${@: -1}/scripts/install_plugins.sh"
-    chmod +x "${@: -1}/scripts/install_plugins.sh"
+  mkdir -p "${@: -1}/scripts"
+  echo "exit 0" > "${@: -1}/scripts/install_plugins.sh"
+  chmod +x "${@: -1}/scripts/install_plugins.sh"
 fi
 exit 0'
-    run _entry_point
-    assert_success
+  run _entry_point
+  assert_success
 }
 
 @test "_entry_point fails when deps missing" {
-    PATH="${MOCK_DIR}" run _entry_point
-    assert_failure
-    assert_output --partial "Missing dependencies"
+  PATH="${MOCK_DIR}" run _entry_point
+  assert_failure
+  assert_output --partial "Missing dependencies"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -68,53 +68,53 @@ exit 0'
 # ════════════════════════════════════════════════════════════════════
 
 @test "main clones tpm repository" {
-    mock_cmd "tmux" 'exit 0'
-    mock_cmd "git" '
+  mock_cmd "tmux" 'exit 0'
+  mock_cmd "git" '
 if [[ "$1" == "clone" ]]; then
-    mkdir -p "${@: -1}/scripts"
-    echo "exit 0" > "${@: -1}/scripts/install_plugins.sh"
-    chmod +x "${@: -1}/scripts/install_plugins.sh"
+  mkdir -p "${@: -1}/scripts"
+  echo "exit 0" > "${@: -1}/scripts/install_plugins.sh"
+  chmod +x "${@: -1}/scripts/install_plugins.sh"
 fi
 exit 0'
-    run main
-    assert [ -d "${TEMP_DIR}/.tmux/plugins/tpm" ]
+  run main
+  assert [ -d "${TEMP_DIR}/.tmux/plugins/tpm" ]
 }
 
 @test "main creates tmux config directory" {
-    mock_cmd "tmux" 'exit 0'
-    mock_cmd "git" '
+  mock_cmd "tmux" 'exit 0'
+  mock_cmd "git" '
 if [[ "$1" == "clone" ]]; then
-    mkdir -p "${@: -1}/scripts"
-    echo "exit 0" > "${@: -1}/scripts/install_plugins.sh"
-    chmod +x "${@: -1}/scripts/install_plugins.sh"
+  mkdir -p "${@: -1}/scripts"
+  echo "exit 0" > "${@: -1}/scripts/install_plugins.sh"
+  chmod +x "${@: -1}/scripts/install_plugins.sh"
 fi
 exit 0'
-    run main
-    assert [ -d "${TEMP_DIR}/.config/tmux" ]
+  run main
+  assert [ -d "${TEMP_DIR}/.config/tmux" ]
 }
 
 @test "main copies tmux.conf to config directory" {
-    mock_cmd "tmux" 'exit 0'
-    mock_cmd "git" '
+  mock_cmd "tmux" 'exit 0'
+  mock_cmd "git" '
 if [[ "$1" == "clone" ]]; then
-    mkdir -p "${@: -1}/scripts"
-    echo "exit 0" > "${@: -1}/scripts/install_plugins.sh"
-    chmod +x "${@: -1}/scripts/install_plugins.sh"
+  mkdir -p "${@: -1}/scripts"
+  echo "exit 0" > "${@: -1}/scripts/install_plugins.sh"
+  chmod +x "${@: -1}/scripts/install_plugins.sh"
 fi
 exit 0'
-    run main
-    assert [ -f "${TEMP_DIR}/.config/tmux/tmux.conf" ]
+  run main
+  assert [ -f "${TEMP_DIR}/.config/tmux/tmux.conf" ]
 }
 
 @test "script runs entry_point when executed directly" {
-    mock_cmd "tmux" 'exit 0'
-    mock_cmd "git" '
+  mock_cmd "tmux" 'exit 0'
+  mock_cmd "git" '
 if [[ "$1" == "clone" ]]; then
-    mkdir -p "${@: -1}/scripts"
-    echo "exit 0" > "${@: -1}/scripts/install_plugins.sh"
-    chmod +x "${@: -1}/scripts/install_plugins.sh"
+  mkdir -p "${@: -1}/scripts"
+  echo "exit 0" > "${@: -1}/scripts/install_plugins.sh"
+  chmod +x "${@: -1}/scripts/install_plugins.sh"
 fi
 exit 0'
-    run bash /source/config/shell/tmux/setup.sh
-    assert_success
+  run bash /source/config/shell/tmux/setup.sh
+  assert_success
 }

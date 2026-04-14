@@ -107,56 +107,62 @@ EOF
   exit 0
 }
 
-TARGET="devel"
-INSTANCE=""
-DRY_RUN=false
+main() {
+  local TARGET="devel"
+  local INSTANCE=""
+  DRY_RUN=false
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -h|--help)
-      usage
-      ;;
-    -t|--target)
-      TARGET="${2:?"--target requires a value"}"
-      shift 2
-      ;;
-    --instance)
-      INSTANCE="${2:?"--instance requires a value"}"
-      shift 2
-      ;;
-    --dry-run)
-      DRY_RUN=true
-      shift
-      ;;
-    *)
-      break
-      ;;
-  esac
-done
-export DRY_RUN
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        ;;
+      -t|--target)
+        TARGET="${2:?"--target requires a value"}"
+        shift 2
+        ;;
+      --instance)
+        INSTANCE="${2:?"--instance requires a value"}"
+        shift 2
+        ;;
+      --dry-run)
+        DRY_RUN=true
+        shift
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+  export DRY_RUN
 
-# Default to bash when no command is supplied. Using an array preserves
-# arguments containing whitespace, unlike the previous `${CMD}` splitting.
-if [[ $# -eq 0 ]]; then
-  set -- bash
-fi
-
-# Load .env, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
-_load_env "${FILE_PATH}/.env"
-_compute_project_name "${INSTANCE}"
-
-# Precheck: refuse with a friendly hint if the target container is not running.
-# Skipped under --dry-run since the user is asking what *would* run.
-_container_name="${IMAGE_NAME}${INSTANCE_SUFFIX}"
-if [[ "${DRY_RUN}" != true ]] \
-   && ! docker ps --format '{{.Names}}' | grep -qx "${_container_name}"; then
-  printf "[exec] ERROR: Container '%s' is not running.\n" "${_container_name}" >&2
-  if [[ -n "${INSTANCE}" ]]; then
-    printf "[exec] Start it first with './run.sh --instance %s'.\n" "${INSTANCE}" >&2
-  else
-    printf "[exec] Start it first with './run.sh' (or use './run.sh --instance NAME' for a parallel one).\n" >&2
+  # Default to bash when no command is supplied. Using an array preserves
+  # arguments containing whitespace, unlike the previous `${CMD}` splitting.
+  if [[ $# -eq 0 ]]; then
+    set -- bash
   fi
-  exit 1
-fi
 
-_compose_project exec "${TARGET}" "$@"
+  # Load .env, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
+  _load_env "${FILE_PATH}/.env"
+  _compute_project_name "${INSTANCE}"
+
+  # Precheck: refuse with a friendly hint if the target container is not
+  # running. Skipped under --dry-run since the user is asking what *would* run.
+  local _container_name="${IMAGE_NAME}${INSTANCE_SUFFIX}"
+  if [[ "${DRY_RUN}" != true ]] \
+      && ! docker ps --format '{{.Names}}' | grep -qx "${_container_name}"; then
+    printf "[exec] ERROR: Container '%s' is not running.\n" \
+      "${_container_name}" >&2
+    if [[ -n "${INSTANCE}" ]]; then
+      printf "[exec] Start it first with './run.sh --instance %s'.\n" \
+        "${INSTANCE}" >&2
+    else
+      printf "[exec] Start it first with './run.sh' (or use './run.sh --instance NAME' for a parallel one).\n" >&2
+    fi
+    exit 1
+  fi
+
+  _compose_project exec "${TARGET}" "$@"
+}
+
+main "$@"
