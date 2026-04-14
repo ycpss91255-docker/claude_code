@@ -1,3 +1,8 @@
+coverage/
 .env
-.env.gpg
-data/
+multi_run/
+*.swp
+*.swo
+.DS_Store
+.vscode/
+.idea/

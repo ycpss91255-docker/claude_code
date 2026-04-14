@@ -1,364 +1,267 @@
-**English** | **[繁體中文](doc/README.zh-TW.md)** | **[简体中文](doc/README.zh-CN.md)** | **[日本語](doc/README.ja.md)**
+# template
 
-# Claude Code Docker Environment
+[![Self Test](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml)
+[![codecov](https://codecov.io/gh/ycpss91255-docker/template/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/template)
 
-Docker-in-Docker (DinD) development container for Claude Code, with Anthropic's Claude Code CLI pre-installed. Available in CPU and NVIDIA GPU variants. Runs as non-root user with host UID/GID matching.
+![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
+![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
+![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
+![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+[![License](https://img.shields.io/badge/License-GPL--3.0-yellow?style=flat-square)](./LICENSE)
+
+Shared template for Docker container repos in the [ycpss91255-docker](https://github.com/ycpss91255-docker) organization.
+
+**[English](README.md)** | **[繁體中文](doc/readme/README.zh-TW.md)** | **[简体中文](doc/readme/README.zh-CN.md)** | **[日本語](doc/readme/README.ja.md)**
+
+---
 
 ## Table of Contents
 
 - [TL;DR](#tldr)
 - [Overview](#overview)
-- [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
-- [Conversation Persistence](#conversation-persistence)
-- [Running Multiple Instances](#running-multiple-instances)
-- [Authentication](#authentication)
-  - [OAuth (Interactive Login)](#oauth-interactive-login)
-  - [API Key (Encrypted)](#api-key-encrypted)
-- [Usage as Subtree](#usage-as-subtree)
-- [Configuration](#configuration)
-- [Smoke Tests](#smoke-tests)
-- [Architecture](#architecture)
-  - [Dockerfile Stages](#dockerfile-stages)
-  - [Compose Services](#compose-services)
-  - [Entrypoint Flow](#entrypoint-flow)
-  - [Pre-installed Tools](#pre-installed-tools)
-  - [Container Capabilities](#container-capabilities)
+- [CI Reusable Workflows](#ci-reusable-workflows)
+- [Running Template Tests](#running-template-tests)
+- [Tests](#tests)
+- [Directory Structure](#directory-structure)
+
+---
 
 ## TL;DR
 
 ```bash
-./build.sh && ./run.sh    # Build and run (CPU, default)
-```
+# New repo: add subtree + init
+git subtree add --prefix=template \
+    git@github.com:ycpss91255-docker/template.git main --squash
+./template/init.sh
 
-- Isolated Docker-in-Docker container with Claude Code pre-installed
-- Non-root user, auto-detected UID/GID from host
-- OAuth credentials auto-copied on first run, conversations persisted locally
-- Optionally encrypted API keys (GPG AES-256)
-- CPU default, GPU via `./run.sh devel-gpu`
+# Upgrade to latest
+make upgrade-check   # check
+make upgrade         # pull + update version + workflow tag
+
+# Run CI
+make test            # ShellCheck + Bats + Kcov
+make help            # show all commands
+```
 
 ## Overview
 
+This repo consolidates shared scripts, tests, and CI workflows used across all Docker container repos. Instead of maintaining identical files in 15+ repos, each repo pulls this template as a **git subtree** and uses symlinks.
+
+### Architecture
+
 ```mermaid
 graph TB
-    subgraph Host
-        H_OAuth["~/.claude<br/>(OAuth credentials)"]
-        H_WS["Workspace<br/>(WS_PATH)"]
-        H_Data["Data Directory<br/>(agent_* or ./data/)"]
+    subgraph template["template (shared repo)"]
+        scripts[".hadolint.yaml / Makefile.ci / compose.yaml"]
+        smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
+        config["config/<br/>bashrc / tmux / terminator / pip"]
+        mgmt["script/docker/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
+        workflows["Reusable Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
-    subgraph "Container (DinD)"
-        EP["entrypoint.sh"]
-        DinD["dockerd<br/>(isolated)"]
-        Claude["Claude Code"]
-        Tools["git, python3, jq,<br/>ripgrep, make, cmake..."]
-
-        EP -->|"1. start"| DinD
-        EP -->|"2. copy credentials<br/>(first run)"| Claude
-        EP -->|"3. decrypt API keys<br/>(if .env.gpg)"| Tools
+    subgraph consumer["Docker Repo (e.g. ros_noetic)"]
+        symlinks["build.sh → template/script/docker/build.sh<br/>run.sh → template/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
+        repo_test["test/smoke/<br/>ros_env.bats (repo-specific)"]
+        main_yaml["main.yaml<br/>→ calls reusable workflows"]
     end
 
-    H_OAuth -->|"read-only mount"| EP
-    H_WS -->|"bind mount<br/>~/work"| Tools
-    H_Data -->|"bind mount<br/>~/.claude"| Claude
-
+    template -- "git subtree" --> consumer
+    scripts -. symlink .-> symlinks
+    smoke -. "Dockerfile COPY" .-> repo_test
+    workflows -. "@tag reference" .-> main_yaml
 ```
 
-```mermaid
-graph LR
-    subgraph "Dockerfile Stages"
-        sys["sys<br/>user, locale, tz"]
-        base["base<br/>dev tools, docker"]
-        devel["devel<br/>claude code"]
-        test["test<br/>bats smoke test"]
-    end
-
-    sys --> base --> devel --> test
-
-    subgraph "Compose Services"
-        S_CPU["devel<br/>(CPU, default)"]
-        S_GPU["devel-gpu<br/>(NVIDIA GPU)"]
-        S_Test["test<br/>(ephemeral)"]
-    end
-
-    devel -.-> S_CPU
-    devel -.-> S_GPU
-    test -.-> S_Test
-
-```
+### CI/CD Flow
 
 ```mermaid
 flowchart LR
-    subgraph "run.sh"
-        A["Generate .env<br/>(template)"] --> B["Derive BASE_IMAGE<br/>(post_setup.sh)"]
-        B --> C{"--data-dir?"}
-        C -->|yes| D["Use specified dir"]
-        C -->|no| E{"agent_* found?"}
-        E -->|yes| F["Use agent_* dir"]
-        E -->|no| G["Use ./data/"]
-        D --> H["docker compose run"]
-        F --> H
-        G --> H
+    subgraph local["Local"]
+        build_test["./build.sh test"]
+        make_test["make test"]
     end
+
+    subgraph ci_container["CI Container (kcov/kcov)"]
+        shellcheck["ShellCheck"]
+        hadolint["Hadolint"]
+        bats["Bats smoke tests"]
+    end
+
+    subgraph github["GitHub Actions"]
+        build_worker["build-worker.yaml<br/>(from template)"]
+        release_worker["release-worker.yaml<br/>(from template)"]
+    end
+
+    build_test --> ci_container
+    make_test -->|"script/ci/ci.sh"| ci_container
+    shellcheck --> hadolint --> bats
+
+    push["git push / PR"] --> build_worker
+    build_worker -->|"docker build test"| ci_container
+    tag["git tag v*"] --> release_worker
+    release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-## Prerequisites
+### What's included
 
-- Docker with Compose V2
-- GPU variant requires [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
-- Host-side OAuth login for Claude Code (`claude`)
+| File | Description |
+|------|-------------|
+| `build.sh` | Build containers (calls `script/docker/setup.sh` for `.env` generation) |
+| `run.sh` | Run containers (X11/Wayland support) |
+| `exec.sh` | Exec into running containers |
+| `stop.sh` | Stop and remove containers |
+| `script/docker/setup.sh` | Auto-detect system parameters and generate `.env` |
+| `config/` | Shell configs (bashrc, tmux, terminator, pip) |
+| `test/smoke/` | Shared smoke tests for repos |
+| `.hadolint.yaml` | Shared Hadolint rules |
+| `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.) |
+| `Makefile.ci` | Template CI entry (`make test`, `make -f Makefile.ci lint`, etc.) |
+| `init.sh` | First-time symlink setup |
+| `upgrade.sh` | Subtree version upgrade |
+| `script/ci/ci.sh` | CI pipeline (local + remote) |
+| `.github/workflows/` | Reusable CI workflows (build + release) |
+
+### What stays in each repo (not shared)
+
+- `Dockerfile`
+- `compose.yaml`
+- `.env.example`
+- `script/entrypoint.sh`
+- `doc/` and `README.md`
+- Repo-specific smoke tests
 
 ## Quick Start
 
-```bash
-# Build (auto-generates .env on every run)
-./build.sh              # CPU variant (default)
-./build.sh devel-gpu    # GPU variant
-./build.sh --no-env test  # Build without refreshing .env
-
-# Run
-./run.sh                          # CPU variant (default)
-./run.sh devel-gpu                # GPU variant
-./run.sh --data-dir ../agent_foo  # Specify data directory
-./run.sh --no-env -d              # Background start, skip .env refresh
-
-# Exec into running container
-./exec.sh
-```
-
-## Conversation Persistence
-
-Conversation history and session data are persisted via bind mount, surviving container restarts.
-
-`run.sh` automatically scans upward from the project directory for an `agent_*` directory. If found, data is stored there; otherwise it falls back to `./data/`.
-
-```
-# Example: if ../agent_myproject/ exists
-../agent_myproject/
-└── .claude/    # Claude Code conversations, settings, session
-
-# Fallback: no agent_* directory found
-./data/
-└── .claude/
-```
-
-- First startup: OAuth credentials are copied from the host into the data directory
-- Subsequent startups: data directory already has data and is used directly (no overwrite)
-- You can freely copy, backup, or move the data directory
-- Override manually: `./run.sh --data-dir /path/to/dir`
-
-## Running Multiple Instances
-
-Use `--project-name` (`-p`) to create fully isolated instances, each with its own named volumes:
+### Adding to a new repo
 
 ```bash
-# Instance 1
-docker compose -p cc1 --env-file .env run --rm devel
+# 1. Add subtree
+git subtree add --prefix=template \
+    git@github.com:ycpss91255-docker/template.git main --squash
 
-# Instance 2 (in another terminal)
-docker compose -p cc2 --env-file .env run --rm devel
-
-# Instance 3
-docker compose -p cc3 --env-file .env run --rm devel
+# 2. Initialize symlinks (one command)
+./template/init.sh
 ```
 
-For multiple instances, create separate `agent_*` directories:
+### Updating
 
 ```bash
-mkdir ../agent_proj1 ../agent_proj2
+# Check if update available
+make upgrade-check
 
-./run.sh --data-dir ../agent_proj1
-./run.sh --data-dir ../agent_proj2
+# Upgrade to latest (subtree pull + version file + workflow tag)
+make upgrade
+
+# Or specify a version
+./template/upgrade.sh v0.3.0
 ```
 
-Credentials, conversations, and session data are fully isolated. To clean up, simply delete the directory:
+## CI Reusable Workflows
 
+Repos replace local `build-worker.yaml` / `release-worker.yaml` with calls to this repo's reusable workflows:
+
+```yaml
+# .github/workflows/main.yaml
+jobs:
+  call-docker-build:
+    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v1
+    with:
+      image_name: ros_noetic
+      build_args: |
+        ROS_DISTRO=noetic
+        ROS_TAG=ros-base
+        UBUNTU_CODENAME=focal
+
+  call-release:
+    needs: call-docker-build
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v1
+    with:
+      archive_name_prefix: ros_noetic
+```
+
+### build-worker.yaml inputs
+
+| Input | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `image_name` | string | yes | - | Container image name |
+| `build_args` | string | no | `""` | Multi-line KEY=VALUE build args |
+| `build_runtime` | boolean | no | `true` | Whether to build runtime stage |
+
+### release-worker.yaml inputs
+
+| Input | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `archive_name_prefix` | string | yes | - | Archive name prefix |
+| `extra_files` | string | no | `""` | Space-separated extra files |
+
+## Running Template Tests
+
+Using `Makefile.ci` (from template root):
 ```bash
-rm -rf ../agent_proj1
+make -f Makefile.ci test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
+make -f Makefile.ci lint        # ShellCheck only
+make -f Makefile.ci clean       # Remove coverage reports
+make help        # Show repo targets
+make -f Makefile.ci help  # Show CI targets
 ```
 
-## Authentication
-
-Two methods are supported. Both can be used at the same time.
-
-### OAuth (Interactive Login)
-
-For interactive CLI usage. Log in on the host first:
-
+Or directly:
 ```bash
-claude   # Log in to Claude Code
+./script/ci/ci.sh          # Full CI via docker compose
+./script/ci/ci.sh --ci     # Run inside container (used by compose)
 ```
 
-Credentials (`~/.claude`) are mounted read-only into the container and copied into the data directory on first startup. Subsequent startups reuse the existing data.
-
-### API Key (Encrypted)
-
-For programmatic API access. Keys are stored encrypted with GPG (AES-256), never in plaintext.
-
-```bash
-# 1. Create plaintext .env
-cat <<EOF > .env.keys
-ANTHROPIC_API_KEY=sk-ant-xxxxx
-EOF
-
-# 2. Encrypt (you will be prompted to set a passphrase)
-encrypt_env.sh    # available inside container, or ./encrypt_env.sh on host
-
-# 3. Remove plaintext
-rm .env.keys
-```
-
-On container startup, if `.env.gpg` is detected in the workspace, you will be prompted for the passphrase. Decrypted keys are only held in memory as environment variables.
-
-> **Note:** `.env` and `.env.gpg` are already in `.gitignore`.
-
-## Usage as Subtree
-
-This repo can be embedded into another project via `git subtree`, letting the project carry its own Docker dev environment.
-
-### Adding to Your Project
-
-```bash
-git subtree add --prefix=docker/claude_code \
-    https://github.com/ycpss91255-docker/claude_code.git main --squash
-```
-
-Example directory structure after adding:
-
-```text
-my_project/
-├── src/                         # Project source code
-├── docker/claude_code/          # Subtree
-│   ├── build.sh
-│   ├── run.sh
-│   ├── compose.yaml
-│   ├── Dockerfile
-│   └── template/
-└── ...
-```
-
-### Building and Running
-
-```bash
-cd docker/claude_code
-./build.sh && ./run.sh
-```
-
-`build.sh` uses `--base-path` internally, so path detection works correctly regardless of where you run it from.
-
-### Workspace Detection
-
-<details>
-<summary>Click to expand detection behavior when used as subtree</summary>
-
-When the subtree sits at `my_project/docker/claude_code/`:
-
-- **IMAGE_NAME**: directory name is `claude_code` (not `docker_*`), so detection falls through to `.env.example` which has `IMAGE_NAME=claude_code` — works correctly.
-- **WS_PATH**: strategy 1 (sibling scan) and strategy 2 (path traversal) may not match, so strategy 3 (fallback) resolves to the parent directory (`my_project/docker/`).
-
-**Recommendation**: after the first build, edit `WS_PATH` in `.env` to point to your actual workspace. The value is preserved on subsequent builds.
-
-</details>
-
-### Syncing with Upstream
-
-```bash
-git subtree pull --prefix=docker/claude_code \
-    https://github.com/ycpss91255-docker/claude_code.git main --squash
-```
-
-> **Notes**:
-> - Local modifications are tracked by git normally.
-> - `subtree pull` may produce merge conflicts if upstream changed the same files you modified locally.
-> - Do **not** modify `template/` inside the subtree — it is managed by the env repo's own subtree.
-
-## Configuration
-
-`.env` is auto-generated on every `build.sh` / `run.sh` invocation (pass `--no-env` to skip). See [.env.example](.env.example) for details.
-
-| Variable | Description |
-|----------|-------------|
-| `USER_NAME` / `USER_UID` / `USER_GID` | Container user matching host (auto-detected) |
-| `GPU_ENABLED` | Auto-detected, drives `BASE_IMAGE` and `GPU_VARIANT` |
-| `BASE_IMAGE` | `node:20-slim` (CPU) or `nvidia/cuda:13.1.1-cudnn-devel-ubuntu24.04` (GPU) |
-| `WS_PATH` | Host path mounted to `~/work` inside container |
-| `IMAGE_NAME` | Docker image name (default: `claude_code`) |
-
-## Smoke Tests
+## Tests
 
 See [TEST.md](doc/test/TEST.md) for details.
 
-## Architecture
+## Directory Structure
 
 ```
-.
-├── Dockerfile                        # Multi-stage build (sys -> base -> devel -> test)
-├── compose.yaml                      # Services: devel (CPU), devel-gpu, test
-├── build.sh -> template/build.sh     # Build with auto .env generation (symlink)
-├── run.sh -> template/run.sh         # Run with auto .env generation (symlink)
-├── exec.sh -> template/exec.sh       # Exec into running container (symlink)
-├── stop.sh -> template/stop.sh       # Stop and remove containers (symlink)
-├── Makefile -> template/Makefile     # Build targets (symlink)
-├── .hadolint.yaml                    # Hadolint configuration
-├── encrypt_env.sh                    # Helper to encrypt API keys
-├── post_setup.sh                     # Derives BASE_IMAGE from GPU_ENABLED
-├── .env.example                      # Template for .env
-├── .template_version                 # Subtree version tracking
+template/
+├── init.sh                           # Initialize repo (new or existing)
+├── upgrade.sh                        # Upgrade template subtree version
 ├── script/
-│   └── entrypoint.sh                 # DinD startup, OAuth copy, API key decryption
+│   ├── docker/                       # Docker operation scripts (symlinked by repos)
+│   │   ├── build.sh
+│   │   ├── run.sh
+│   │   ├── exec.sh
+│   │   ├── stop.sh
+│   │   ├── setup.sh                  # .env generator
+│   │   └── Makefile
+│   └── ci/
+│       └── ci.sh                     # CI pipeline (local + remote)
+├── dockerfile/
+│   ├── Dockerfile.test-tools         # Pre-built test tools image
+│   └── Dockerfile.example            # Dockerfile template for new repos
+├── config/                           # Shell/tool configs + IMAGE_NAME rules
+│   ├── image_name.conf               # Default IMAGE_NAME detection rules
+│   ├── pip/
+│   └── shell/
+│       ├── bashrc
+│       ├── terminator/
+│       └── tmux/
 ├── test/
-│   └── smoke/
-│       └── claude_env.bats           # Bats smoke tests (repo-specific)
-├── doc/                              # Translated documentation
-│   ├── README.zh-TW.md
-│   ├── README.zh-CN.md
-│   └── README.ja.md
-├── .github/
-│   └── workflows/
-│       └── main.yaml                 # CI/CD (calls template reusable workflows)
-├── template/                         # Shared scripts and config (git subtree)
+│   ├── smoke/                        # Shared tests for repos
+│   │   ├── test_helper.bash
+│   │   ├── script_help.bats
+│   │   └── display_env.bats
+│   └── unit/                         # Template self-tests
+├── Makefile.ci                       # Template CI entry (make test/lint/...)
+├── compose.yaml                      # Docker CI runner
+├── .hadolint.yaml                    # Shared Hadolint rules
+├── .github/workflows/
+│   ├── self-test.yaml                # Template CI
+│   ├── build-worker.yaml             # Reusable build workflow
+│   └── release-worker.yaml           # Reusable release workflow
+├── doc/
+│   ├── readme/                       # README translations
+│   ├── test/                         # TEST.md
+│   └── changelog/                    # CHANGELOG.md
+├── .codecov.yaml
+├── .gitignore
+├── LICENSE
 └── README.md
 ```
-
-### Dockerfile Stages
-
-| Stage | Purpose |
-|-------|---------|
-| `sys` | User/group creation, locale, timezone, Node.js (GPU only) |
-| `base` | Dev tools, Python, build tools, Docker, jq, ripgrep |
-| `devel` | Claude Code, entrypoint, non-root user |
-| `test` | Bats smoke tests (ephemeral, discarded after verification) |
-
-### Compose Services
-
-| Service | Description |
-|---------|-------------|
-| `devel` | CPU variant (default) |
-| `devel-gpu` | GPU variant with NVIDIA device reservation |
-| `test` | Smoke test (profile-gated) |
-
-### Entrypoint Flow
-
-1. Start `dockerd` (DinD) via sudo, wait until ready (up to 30s)
-2. Copy OAuth credentials from read-only mount into `data/` directory (first run only)
-3. Decrypt `.env.gpg` and export API keys as environment variables (if present)
-4. Execute CMD (`bash`)
-
-### Pre-installed Tools
-
-| Tool | Purpose |
-|------|---------|
-| Claude Code | Anthropic AI CLI |
-| Docker (DinD) | Isolated Docker daemon inside container |
-| Node.js 20 | Runtime for CLI tools |
-| Python 3 | Scripting and development |
-| git, curl, wget | Version control and downloads |
-| jq, ripgrep | JSON processing and code search |
-| make, g++, cmake | Build toolchain |
-| tree | Directory visualization |
-
-GPU variant additionally includes: CUDA 13.1.1, cuDNN, OpenCL, Vulkan.
-
-### Container Capabilities
-
-Both services require `SYS_ADMIN`, `NET_ADMIN`, `MKNOD` capabilities with `seccomp:unconfined` for DinD to function. The inner Docker daemon is fully isolated from the host.

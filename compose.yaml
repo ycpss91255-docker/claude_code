@@ -1,61 +1,15 @@
 services:
-  # ── Development environment (CPU, default) ─────────────────────
-  devel:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: devel
-      args:
-        APT_MIRROR_DEBIAN: ${APT_MIRROR_DEBIAN:-mirror.twds.com.tw}
-        BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
-        GPU_VARIANT: ${GPU_VARIANT:-false}
-        USER: ${USER_NAME}
-        GROUP: ${USER_GROUP}
-        UID: ${USER_UID}
-        GID: ${USER_GID}
-    image: ${DOCKER_HUB_USER}/${IMAGE_NAME}:devel
-    container_name: ${IMAGE_NAME}
-    stdin_open: true
-    tty: true
-    cap_add:
-      - SYS_ADMIN
-      - NET_ADMIN
-      - MKNOD
+  ci:
+    image: kcov/kcov
     security_opt:
-      - seccomp:unconfined
+      - seccomp=unconfined
     volumes:
-      - ${WS_PATH}:/home/${USER_NAME}/work
-      # Credentials only (read-only, no history/memory/settings)
-      - ${CLAUDE_HOST_DIR:-~/.claude}/.credentials.json:/tmp/.claude-credentials.json:ro
-      # Session data (persisted on host)
-      - ${DATA_DIR:-./data}/.claude:/home/${USER_NAME}/.claude
-
-  # ── Development environment (GPU) ──────────────────────────────
-  devel-gpu:
-    extends:
-      service: devel
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [compute, utility, graphics]
-
-  # ── Smoke test (ephemeral) ─────────────────────────────────────
-  test:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: test
-      args:
-        APT_MIRROR_DEBIAN: ${APT_MIRROR_DEBIAN:-mirror.twds.com.tw}
-        BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
-        GPU_VARIANT: ${GPU_VARIANT:-false}
-        USER: ${USER_NAME}
-        GROUP: ${USER_GROUP}
-        UID: ${USER_UID}
-        GID: ${USER_GID}
-    image: ${DOCKER_HUB_USER}/${IMAGE_NAME}:test
-    profiles:
-      - test
+      - .:/source
+    working_dir: /source
+    environment:
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - ./script/ci/ci.sh --ci
