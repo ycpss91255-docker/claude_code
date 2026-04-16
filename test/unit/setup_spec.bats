@@ -323,6 +323,38 @@ EOF
   assert_equal "${_result}" "${TEMP_DIR}"
 }
 
+@test "detect_ws_path fails with ERROR when base_path does not exist" {
+  local _missing="${TEMP_DIR}/does_not_exist"
+  run bash -c "
+    source /source/script/docker/setup.sh
+    detect_ws_path _result '${_missing}'
+  "
+  assert_failure
+  assert_output --partial "ERROR"
+  assert_output --partial "${_missing}"
+}
+
+@test "detect_ws_path normalizes base_path containing .. (strategy 1)" {
+  # Ensure /foo/docker_myapp/../docker_myapp still resolves sibling myapp_ws
+  local _ws_dir="${TEMP_DIR}/myapp_ws"
+  local _proj_dir="${TEMP_DIR}/docker_myapp"
+  local _messy="${_proj_dir}/../docker_myapp"
+  mkdir -p "${_ws_dir}" "${_proj_dir}"
+  local _result
+  detect_ws_path _result "${_messy}"
+  assert_equal "${_result}" "${_ws_dir}"
+}
+
+@test "detect_ws_path normalizes base_path containing .. (strategy 3 fallback)" {
+  local _plain="${TEMP_DIR}/plain"
+  mkdir -p "${_plain}"
+  local _messy="${_plain}/../plain"
+  local _result
+  detect_ws_path _result "${_messy}"
+  # Expect normalized absolute parent of ${_plain}
+  assert_equal "${_result}" "${TEMP_DIR}"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # write_env
 # ════════════════════════════════════════════════════════════════════

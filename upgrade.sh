@@ -108,8 +108,6 @@ chore: update template references to ${target_ver}
 
 - .template_version: ${local_ver} → ${target_ver}
 - main.yaml: workflow @tag updated to ${target_ver}
-
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 COMMIT
 )" || _log "No additional changes to commit"
 

@@ -112,15 +112,63 @@ flowchart LR
 | `exec.sh` | Exec into running containers |
 | `stop.sh` | Stop and remove containers |
 | `script/docker/setup.sh` | Auto-detect system parameters and generate `.env` |
-| `config/` | Shell configs (bashrc, tmux, terminator, pip) |
-| `test/smoke/` | Shared smoke tests for repos |
+| `script/docker/_lib.sh` | Shared helpers (`_load_env`, `_compose`, `_compose_project`, ...) |
+| `script/docker/i18n.sh` | Shared language detection (`_detect_lang`, `_LANG`) |
+| `config/` | Shell configs (bashrc, tmux, terminator, pip) + IMAGE_NAME rules |
+| `test/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
+| `test/unit/` | Template self-tests (bats + kcov) |
+| `test/integration/` | Level-1 `init.sh` end-to-end tests |
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.) |
 | `Makefile.ci` | Template CI entry (`make test`, `make -f Makefile.ci lint`, etc.) |
-| `init.sh` | First-time symlink setup |
+| `init.sh` | First-time symlink setup + new-repo scaffolding |
 | `upgrade.sh` | Subtree version upgrade |
 | `script/ci/ci.sh` | CI pipeline (local + remote) |
+| `dockerfile/Dockerfile.example` | Multi-stage Dockerfile template for new repos |
+| `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, bats-mock) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
+
+### Dockerfile stages (convention)
+
+Downstream repos follow a standard multi-stage layout, defined in
+`dockerfile/Dockerfile.example`. All stages share a common base image
+parameterized by `ARG BASE_IMAGE`.
+
+| Stage | Parent | Purpose | Shipped? |
+|-------|--------|---------|----------|
+| `sys` | `${BASE_IMAGE}` | User/group, sudo, timezone, locale, APT mirror | intermediate |
+| `base` | `sys` | Development tools and language packages | intermediate |
+| `devel` | `base` | App-specific tools + `entrypoint.sh` + PlotJuggler (env repos) | **yes** (primary artifact) |
+| `test` | `devel` | Ephemeral: ShellCheck + Hadolint + Bats smoke (all from `test-tools:local`) | no (discarded) |
+| `runtime-base` (optional) | `sys` | Minimal runtime deps (sudo, tini) | intermediate |
+| `runtime` (optional) | `runtime-base` | Slim runtime image (application repos only) | yes, when enabled |
+
+Notes:
+- Repos that only ship a developer image (`env/*`) skip `runtime-base` /
+  `runtime` — the section stays commented in `Dockerfile.example`.
+- `test` is always built from `devel`, so runtime assertions inside
+  `test/smoke/<repo>_env.bats` see the same binaries / files a user would
+  find after `docker run ... <repo>:devel`.
+- `Dockerfile.test-tools` builds a separate `test-tools:local` image (not
+  part of the stage chain above) that the `test` stage copies bats /
+  shellcheck / hadolint binaries from via `COPY --from=test-tools:local`.
+
+### Smoke test helpers (for downstream repos)
+
+`test/smoke/test_helper.bash` (loaded by every smoke spec via
+`load "${BATS_TEST_DIRNAME}/test_helper"`) ships a small set of runtime
+assertion helpers. Downstream repos should prefer these over ad-hoc
+`[ -f ... ]` / `command -v` checks so failures produce decorated
+diagnostics pointing at the missing artifact.
+
+| Helper | Usage |
+|--------|-------|
+| `assert_cmd_installed <cmd>` | Fails unless `<cmd>` is on `PATH` |
+| `assert_cmd_runs <cmd> [flag]` | Fails unless `<cmd> <flag>` exits 0 (default flag: `--version`) |
+| `assert_file_exists <path>` | Fails unless `<path>` is a regular file |
+| `assert_dir_exists <path>` | Fails unless `<path>` is a directory |
+| `assert_file_owned_by <user> <path>` | Fails unless `<path>`'s owner is `<user>` |
+| `assert_pip_pkg <pkg>` | Fails unless `pip show <pkg>` returns 0 |
 
 ### What stays in each repo (not shared)
 
@@ -230,37 +278,59 @@ template/
 │   │   ├── exec.sh
 │   │   ├── stop.sh
 │   │   ├── setup.sh                  # .env generator
+│   │   ├── _lib.sh                   # Shared helpers (_load_env, _compose, _compose_project)
+│   │   ├── i18n.sh                   # Shared language detection (_detect_lang, _LANG)
 │   │   └── Makefile
 │   └── ci/
 │       └── ci.sh                     # CI pipeline (local + remote)
 ├── dockerfile/
-│   ├── Dockerfile.test-tools         # Pre-built test tools image
-│   └── Dockerfile.example            # Dockerfile template for new repos
+│   ├── Dockerfile.test-tools         # Pre-built lint/test tools image
+│   └── Dockerfile.example            # Dockerfile template for new repos (sys → base → devel → test → [runtime])
 ├── config/                           # Shell/tool configs + IMAGE_NAME rules
 │   ├── image_name.conf               # Default IMAGE_NAME detection rules
 │   ├── pip/
+│   │   ├── setup.sh
+│   │   └── requirements.txt
 │   └── shell/
 │       ├── bashrc
 │       ├── terminator/
+│       │   ├── setup.sh
+│       │   └── config
 │       └── tmux/
+│           ├── setup.sh
+│           └── tmux.conf
 ├── test/
-│   ├── smoke/                        # Shared tests for repos
-│   │   ├── test_helper.bash
+│   ├── smoke/                        # Shared smoke tests + runtime assertion helpers
+│   │   ├── test_helper.bash          #  → assert_cmd_installed / _runs / file / dir / owned_by / pip_pkg
 │   │   ├── script_help.bats
 │   │   └── display_env.bats
-│   └── unit/                         # Template self-tests
+│   ├── unit/                         # Template self-tests (bats + kcov)
+│   │   ├── test_helper.bash
+│   │   ├── bashrc_spec.bats
+│   │   ├── ci_spec.bats              # ci.sh _install_deps
+│   │   ├── lib_spec.bats             # _lib.sh
+│   │   ├── pip_setup_spec.bats
+│   │   ├── setup_spec.bats
+│   │   ├── smoke_helper_spec.bats    # Runtime assertion helpers
+│   │   ├── template_spec.bats
+│   │   ├── terminator_config_spec.bats
+│   │   ├── terminator_setup_spec.bats
+│   │   ├── tmux_conf_spec.bats
+│   │   └── tmux_setup_spec.bats
+│   └── integration/
+│       └── init_new_repo_spec.bats   # Level-1 init.sh end-to-end
 ├── Makefile.ci                       # Template CI entry (make test/lint/...)
 ├── compose.yaml                      # Docker CI runner
 ├── .hadolint.yaml                    # Shared Hadolint rules
+├── codecov.yml
 ├── .github/workflows/
 │   ├── self-test.yaml                # Template CI
 │   ├── build-worker.yaml             # Reusable build workflow
 │   └── release-worker.yaml           # Reusable release workflow
 ├── doc/
-│   ├── readme/                       # README translations
-│   ├── test/                         # TEST.md
-│   └── changelog/                    # CHANGELOG.md
-├── .codecov.yaml
+│   ├── readme/                       # README translations (zh-TW / zh-CN / ja)
+│   ├── test/TEST.md                  # Test catalog (spec tables)
+│   └── changelog/CHANGELOG.md        # Release notes
 ├── .gitignore
 ├── LICENSE
 └── README.md

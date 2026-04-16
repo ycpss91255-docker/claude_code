@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `upgrade.sh`: drop the auto-appended `Co-Authored-By: Claude ...`
+  trailer from the `chore: update template references` commit message.
+  AI-attribution lines are visual noise for reviewers and the project
+  convention is to omit them everywhere (PR body, commit message, code).
+
+## [v0.8.0] - 2026-04-15
+
+### Added
+- `test/smoke/test_helper.bash`: shared runtime assertion helpers for
+  downstream-repo smoke specs — `assert_cmd_installed`, `assert_cmd_runs`,
+  `assert_file_exists`, `assert_dir_exists`, `assert_file_owned_by`,
+  `assert_pip_pkg`. Each prints a decorated diagnostic on failure so the
+  bats log points at the exact missing artifact. Keeps downstream smoke
+  specs terse and self-documenting.
+- `init.sh` new-repo skeleton now emits two sample smoke assertions
+  (`entrypoint.sh is installed and executable`, `bash is available on
+  PATH`) demonstrating the shared helpers, instead of one bare
+  `[ -x /entrypoint.sh ]` assertion.
+- `test/unit/ci_spec.bats` (5 tests): covers `script/ci/ci.sh`
+  `_install_deps` — happy path plus the three explicit error branches
+  for `apt-get update` / `apt-get install` / `git clone bats-mock`.
+- `test/unit/smoke_helper_spec.bats` (19 tests): unit coverage for every
+  runtime assertion helper above, including failure paths.
+- `test/unit/setup_spec.bats`: 3 new `detect_ws_path` cases — explicit
+  ERROR on missing `base_path`, and path-normalization coverage for
+  strategies 1 and 3 when the input contains `..` segments.
+- `test/unit/init_spec.bats` (15 tests): unit coverage for `init.sh`
+  helpers previously reachable only through the Level-1 integration
+  test — `_detect_template_version` (git-remote parsing, failure
+  paths, rc-tag filtering), `_create_version_file` (parameterized
+  version, `unknown` fallback, overwrite), `_create_new_repo`
+  (workflow `@ref` threading including empty-ref → `@main` fallback),
+  and `_create_symlinks` (full symlink set, stale-file replacement,
+  custom `.hadolint.yaml` preservation).
+- `test/unit/ci_spec.bats`: 3 new `_run_shellcheck` tests — wired-file
+  regression guard, `script/docker/*.sh` discovery via `find`, and
+  strict-mode propagation on lint failure.
+
+### Fixed
+- `init.sh`: stop hard-coding `v0.5.0` as the fallback version in the
+  generated `main.yaml`. Workflow refs now fall back to the `main` branch
+  (a valid git ref) when no tag is detected, instead of an arbitrary old
+  tag. Version detection is done once up-front and shared between
+  `.template_version` and the reusable-workflow `@ref`.
+- `script/docker/setup.sh` `detect_ws_path`: normalize `base_path` with
+  `cd ... && pwd -P` before composing sibling/parent paths, so relative
+  or `..`-laden inputs do not produce surprising matches. Emits a clear
+  error when the base path does not exist.
+- `script/docker/setup.sh`: use `${0:-}` consistently in the
+  `BASH_SOURCE == $0` guard (line 400) for parity with line 51.
+- `script/ci/ci.sh` `_install_deps`: emit explicit error messages when
+  `apt-get update`, `apt-get install`, or `git clone bats-mock` fails,
+  instead of relying on `set -e` to exit silently.
+
+### Changed
+- `script/ci/ci.sh`: guard `main "$@"` and `set -euo pipefail` behind a
+  `BASH_SOURCE == $0` check so the helpers (`_install_deps`, `_die`) can
+  be sourced by unit tests without executing the CI pipeline. Matches
+  the pattern already used in `script/docker/setup.sh`.
+- `init.sh`: wrap top-level flow in `main()` + `BASH_SOURCE == $0` guard
+  so helpers (`_detect_template_version`, `_create_version_file`,
+  `_create_new_repo`, `_create_symlinks`) are sourceable from unit
+  tests without triggering a full `init.sh` run. Strict mode is also
+  gated so sourcing respects the caller's settings. Behaviour when
+  invoked directly is unchanged.
+
 ## [v0.7.2] - 2026-04-14
 
 ### Changed

@@ -8,7 +8,10 @@
 #   ./ci.sh --coverage   # Run tests + coverage (via docker compose)
 #   ./ci.sh -h, --help   # Show this help
 
-set -euo pipefail
+# Only set strict mode when running directly; when sourced, respect caller's settings
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  set -euo pipefail
+fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
@@ -41,15 +44,24 @@ EOF
 
 # ── CI container setup ───────────────────────────────────────────────────────
 
+_die() { printf "[ci] ERROR: %s\n" "$*" >&2; exit 1; }
+
 _install_deps() {
-  if ! command -v bats >/dev/null 2>&1; then
-    apt-get update -qq
-    apt-get install -y --no-install-recommends \
+  command -v bats >/dev/null 2>&1 && return 0
+
+  apt-get update -qq \
+    || _die "apt-get update failed. Check network / apt mirror reachability."
+
+  apt-get install -y --no-install-recommends \
       bats bats-support bats-assert \
-      shellcheck git ca-certificates
-    git clone --depth 1 -b v1.2.5 \
-      https://github.com/jasonkarns/bats-mock /usr/lib/bats/bats-mock
-  fi
+      shellcheck git ca-certificates \
+    || _die "apt-get install failed for bats/shellcheck deps."
+
+  # bats-mock is distro-packaged on newer distros but missing on bookworm,
+  # so we always pin to upstream v1.2.5 for reproducibility.
+  git clone --depth 1 -b v1.2.5 \
+      https://github.com/jasonkarns/bats-mock /usr/lib/bats/bats-mock \
+    || _die "git clone bats-mock failed. Check network / GitHub access."
 }
 
 # ── ShellCheck ───────────────────────────────────────────────────────────────
@@ -156,4 +168,7 @@ main() {
   esac
 }
 
-main "$@"
+# Guard: only run main when executed directly, not when sourced (for testing)
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  main "$@"
+fi

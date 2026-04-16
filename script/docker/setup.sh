@@ -252,13 +252,25 @@ detect_ws_path() {
   local -n _outvar="${1:?"${FUNCNAME[0]}: missing outvar"}"; shift
   local _base_path="${1:?"${FUNCNAME[0]}: missing base_path"}"
 
+  # Normalize base_path to an absolute, symlink-resolved path.
+  # Strategies below use _base_path/.. — relative or .. segments would
+  # produce surprising results without this step.
+  if [[ ! -d "${_base_path}" ]]; then
+    printf "[setup] ERROR: detect_ws_path: base_path does not exist: %s\n" \
+      "${_base_path}" >&2
+    return 1
+  fi
+  _base_path="$(cd "${_base_path}" && pwd -P)"
+
   local _dirname=""
   _dirname="$(basename "${_base_path}")"
 
   # Strategy 1: docker_* directory → look for sibling *_ws
   if [[ "${_dirname}" == docker_* ]]; then
     local _name="${_dirname#docker_}"
-    local _sibling="${_base_path}/../${_name}_ws"
+    local _parent=""
+    _parent="$(dirname "${_base_path}")"
+    local _sibling="${_parent}/${_name}_ws"
     if [[ -d "${_sibling}" ]]; then
       _outvar="$(cd "${_sibling}" && pwd -P)"
       return 0
@@ -276,7 +288,7 @@ detect_ws_path() {
   done
 
   # Strategy 3: fall back to parent directory
-  _outvar="$(cd "${_base_path}/.." && pwd -P)"
+  _outvar="$(dirname "${_base_path}")"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -397,6 +409,6 @@ main() {
 }
 
 # Guard: only run main when executed directly, not when sourced (for testing)
-if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   main "$@"
 fi

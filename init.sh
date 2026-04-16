@@ -8,7 +8,10 @@
 #   - Has Dockerfile → existing repo: create symlinks + .template_version
 #   - No Dockerfile → new repo: generate full project structure
 
-set -euo pipefail
+# Only set strict mode when running directly; when sourced, respect caller's settings
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  set -euo pipefail
+fi
 
 TEMPLATE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly TEMPLATE_DIR
@@ -16,8 +19,6 @@ REPO_ROOT="$(cd -- "${TEMPLATE_DIR}/.." && pwd -P)"
 readonly REPO_ROOT
 TEMPLATE_REL="template"
 readonly TEMPLATE_REL
-
-cd "${REPO_ROOT}"
 
 _log() { printf "[init] %s\n" "$*"; }
 
@@ -49,14 +50,16 @@ _create_symlinks() {
   fi
 }
 
-_create_version_file() {
-  local ver=""
-  ver=$(git ls-remote --tags --sort=-v:refname \
-    git@github.com:ycpss91255-docker/template.git \
+_detect_template_version() {
+  git ls-remote --tags --sort=-v:refname \
+    git@github.com:ycpss91255-docker/template.git 2>/dev/null \
     | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' \
     | head -1 \
-    | sed 's|refs/tags/||') || true
-  ver="${ver:-unknown}"
+    | sed 's|refs/tags/||' || true
+}
+
+_create_version_file() {
+  local ver="${1:-unknown}"
   echo "${ver}" > .template_version
   _log "Created .template_version (${ver})"
 }
@@ -68,6 +71,7 @@ _detect_repo_name() {
 }
 
 _create_new_repo() {
+  local ref="${1:-main}"
   local name=""
   name="$(_detect_repo_name)"
   _log "Creating new repo: ${name}"
@@ -120,13 +124,25 @@ ENTRY
   mkdir -p test/smoke
   cat > "test/smoke/${name}_env.bats" <<BATS
 #!/usr/bin/env bats
+#
+# Repo-specific runtime smoke tests. Exercise the \`devel\` image built
+# from this repo's Dockerfile, via the \`test\` stage. Use the shared
+# helpers in test_helper.bash (assert_cmd_installed, assert_file_exists,
+# assert_dir_exists, assert_file_owned_by, assert_pip_pkg, ...) to keep
+# assertions terse. Add one assertion per meaningful installation
+# artifact.
 
 setup() {
-    load "\${BATS_TEST_DIRNAME}/test_helper"
+  load "\${BATS_TEST_DIRNAME}/test_helper"
 }
 
-@test "entrypoint.sh exists and is executable" {
-    assert [ -x /entrypoint.sh ]
+@test "entrypoint.sh is installed and executable" {
+  assert_file_exists /entrypoint.sh
+  assert [ -x /entrypoint.sh ]
+}
+
+@test "bash is available on PATH" {
+  assert_cmd_installed bash
 }
 BATS
   _log "  Created test/smoke/${name}_env.bats"
@@ -137,8 +153,6 @@ BATS
 
   # .github/workflows/main.yaml
   mkdir -p .github/workflows
-  local ver=""
-  ver=$(cat .template_version 2>/dev/null || echo "v0.5.0")
   cat > .github/workflows/main.yaml <<YAML
 name: Main CI/CD
 
@@ -152,14 +166,14 @@ on:
 
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@${ver}
+    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@${ref}
     with:
       image_name: ${name}
 
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
-    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@${ver}
+    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@${ref}
     with:
       archive_name_prefix: ${name}
 YAML
@@ -251,8 +265,9 @@ _error() { printf "[init] ERROR: %s\n" "$*" >&2; exit 1; }
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
-if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
-  cat >&2 <<'EOF'
+main() {
+  if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
+    cat >&2 <<'EOF'
 Usage: ./template/init.sh [--gen-image-conf]
 
 Initialize a repo with template. Auto-detects:
@@ -267,22 +282,33 @@ Run from the repo root after:
   git subtree add --prefix=template \
       git@github.com:ycpss91255-docker/template.git <version> --squash
 EOF
-  exit 0
+    return 0
+  fi
+
+  cd "${REPO_ROOT}"
+
+  if [[ "${1:-}" == "--gen-image-conf" ]]; then
+    _gen_image_conf
+    return 0
+  fi
+
+  local template_version=""
+  template_version="$(_detect_template_version)"
+
+  if [[ -f Dockerfile ]]; then
+    _init_existing_repo
+  else
+    _create_new_repo "${template_version:-main}"
+    _create_symlinks
+  fi
+
+  _create_version_file "${template_version}"
+
+  _log ""
+  _log "Done!"
+}
+
+# Guard: only run main when executed directly, not when sourced (for testing)
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  main "$@"
 fi
-
-if [[ "${1:-}" == "--gen-image-conf" ]]; then
-  _gen_image_conf
-  exit 0
-fi
-
-if [[ -f Dockerfile ]]; then
-  _init_existing_repo
-else
-  _create_new_repo
-  _create_symlinks
-fi
-
-_create_version_file
-
-_log ""
-_log "Done!"

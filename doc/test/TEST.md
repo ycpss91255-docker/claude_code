@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **247 tests** total (226 unit + 21 integration).
+Template self-tests: **292 tests** total (271 unit + 21 integration).
 
 ## Test Files
 
@@ -24,7 +24,7 @@ Template self-tests: **247 tests** total (226 unit + 21 integration).
 | `_compose without DRY_RUN tries to invoke docker compose (sanity)` | Real-call branch |
 | `_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH` | Project wrapper |
 
-### test/unit/setup_spec.bats (58)
+### test/unit/setup_spec.bats (61)
 
 | Test | Description |
 |------|-------------|
@@ -59,6 +59,9 @@ Template self-tests: **247 tests** total (226 unit + 21 integration).
 | `detect_ws_path strategy 1: docker_* without sibling falls through` | No sibling |
 | `detect_ws_path strategy 2: finds _ws component in path` | Path traversal |
 | `detect_ws_path strategy 3: falls back to parent directory` | Parent fallback |
+| `detect_ws_path fails with ERROR when base_path does not exist` | Explicit error on missing base_path |
+| `detect_ws_path normalizes base_path containing .. (strategy 1)` | Path normalization in strategy 1 |
+| `detect_ws_path normalizes base_path containing .. (strategy 3 fallback)` | Path normalization in strategy 3 |
 | `write_env creates .env with all required variables` | .env generation |
 | `write_env includes APT_MIRROR_UBUNTU` | APT mirror in .env |
 | `write_env includes APT_MIRROR_DEBIAN` | APT mirror in .env |
@@ -215,6 +218,74 @@ Template self-tests: **247 tests** total (226 unit + 21 integration).
 | `pip setup.sh runs pip install with requirements.txt` | pip install |
 | `pip setup.sh sets PIP_BREAK_SYSTEM_PACKAGES=1` | Break system packages |
 | `pip setup.sh fails when pip is not available` | Missing pip error |
+
+### test/unit/ci_spec.bats (8)
+
+| Test | Description |
+|------|-------------|
+| `_install_deps: skips apt-get and git when bats is already installed` | No-op fast path |
+| `_install_deps: dies with clear error when apt-get update fails` | Explicit `apt-get update` error |
+| `_install_deps: dies with clear error when apt-get install fails` | Explicit `apt-get install` error |
+| `_install_deps: dies with clear error when git clone bats-mock fails` | Explicit `git clone` error |
+| `_install_deps: happy path succeeds when bats absent and all deps install cleanly` | Full install path |
+| `_run_shellcheck: invokes shellcheck against every expected script` | Wired-file regression guard |
+| `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
+| `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
+
+### test/unit/init_spec.bats (15)
+
+Unit coverage for `init.sh` helpers that previous rounds exercised only
+through the Level-1 integration test. Complements
+`test/integration/init_new_repo_spec.bats` by locking edge cases that
+are hard to trigger from a real `bash template/init.sh` invocation
+(network-down version detection, main.yaml `@ref` fallback,
+`_create_version_file` with no argument).
+
+| Test | Description |
+|------|-------------|
+| `_detect_template_version: parses newest vX.Y.Z tag from git ls-remote` | Happy path + head -1 |
+| `_detect_template_version: returns empty when git ls-remote fails` | Network-down fallback |
+| `_detect_template_version: returns empty when no v*.*.* tags exist` | Nothing to match |
+| `_detect_template_version: ignores non-semver tags (e.g. rc suffixes)` | Regex filters rc / pre-release |
+| `_create_version_file: writes given version to .template_version` | Happy path |
+| `_create_version_file: writes 'unknown' when no argument given` | Empty-string fallback |
+| `_create_version_file: writes 'unknown' when called with zero arguments` | No-arg fallback |
+| `_create_version_file: overwrites existing .template_version` | Re-init safety |
+| `_create_new_repo: main.yaml uses given ref in workflow @ref` | Ref threading |
+| `_create_new_repo: main.yaml falls back to @main when ref arg omitted` | Default ref |
+| `_create_new_repo: main.yaml falls back to @main when ref arg is empty` | Empty-string → `@main` |
+| `_create_new_repo: generates .env.example with IMAGE_NAME=<repo>` | Fallback image name |
+| `_create_symlinks: produces all five docker-script symlinks` | Symlink set |
+| `_create_symlinks: replaces a stale file at the symlink path` | Re-init over existing files |
+| `_create_symlinks: keeps custom .hadolint.yaml when it differs` | Custom-hadolint preservation |
+
+### test/unit/smoke_helper_spec.bats (19)
+
+Exercises the runtime assertion helpers shipped in
+`test/smoke/test_helper.bash` (used by downstream-repo smoke specs via
+`load "${BATS_TEST_DIRNAME}/test_helper"`).
+
+| Test | Description |
+|------|-------------|
+| `assert_cmd_installed passes when cmd is on PATH` | Happy path |
+| `assert_cmd_installed fails with descriptive message when cmd missing` | Missing cmd |
+| `assert_cmd_installed errors when cmd arg missing` | Required arg check |
+| `assert_cmd_runs passes when cmd exits 0` | Happy path |
+| `assert_cmd_runs uses custom version flag when given` | Custom flag |
+| `assert_cmd_runs fails when cmd exits non-zero` | Broken binary |
+| `assert_cmd_runs fails when cmd is not installed` | Missing cmd |
+| `assert_file_exists passes when file is a regular file` | Happy path |
+| `assert_file_exists fails when path is missing` | Missing path |
+| `assert_file_exists fails when path is a directory` | Type check |
+| `assert_dir_exists passes when path is a directory` | Happy path |
+| `assert_dir_exists fails when path is missing` | Missing path |
+| `assert_dir_exists fails when path is a file` | Type check |
+| `assert_file_owned_by passes when owner matches` | Happy path |
+| `assert_file_owned_by fails with owner diff when user mismatches` | Owner mismatch |
+| `assert_file_owned_by fails when path missing` | Missing path |
+| `assert_pip_pkg passes when pip show returns 0` | Package installed |
+| `assert_pip_pkg fails when pip show returns non-zero` | Package missing |
+| `assert_pip_pkg fails when pip is not installed` | pip itself missing |
 
 ### test/unit/terminator_config_spec.bats (10)
 
