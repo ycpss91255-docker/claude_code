@@ -73,7 +73,9 @@ teardown() {
 @test "new repo: .github/workflows/main.yaml exists with reusable workflow ref" {
   bash template/init.sh
   assert [ -f "${REPO_DIR}/.github/workflows/main.yaml" ]
-  run grep -E 'build-worker\.yaml@v' "${REPO_DIR}/.github/workflows/main.yaml"
+  # Accept semver tag or "main" branch fallback (when offline / no tags)
+  run grep -E 'build-worker\.yaml@(v[0-9]+\.[0-9]+\.[0-9]+|main)' \
+    "${REPO_DIR}/.github/workflows/main.yaml"
   assert_success
 }
 
