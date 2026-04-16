@@ -7,6 +7,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- Restore `.env.example` (removed inadvertently during the APT mirror
+  refactor) so `setup.sh`'s IMAGE_NAME detection has its documented
+  fallback. Without this, `IMAGE_NAME` would fall through to `unknown`
+  when the repo is checked out under a non-`docker_*` / non-`*_ws`
+  directory name.
+
 ## [v2.0.0] - 2026-03-28
 
 ### Added
