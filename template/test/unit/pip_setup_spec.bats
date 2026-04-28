@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   create_mock_dir
@@ -39,6 +41,5 @@ exit 0'
 
 @test "pip setup.sh fails when pip is not available" {
   mock_cmd "pip" 'exit 127'
-  run bash "${FAKE_SCRIPT_DIR}/setup.sh"
-  assert_failure
+  run -127 bash "${FAKE_SCRIPT_DIR}/setup.sh"
 }

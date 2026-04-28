@@ -13,14 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run CI (ShellCheck + Bats + Kcov)
         run: ./script/ci/ci.sh
 
       - name: Upload coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           directory: ./coverage
@@ -31,10 +31,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           driver: docker  # use host docker daemon's image store so test-tools:local is visible
 
@@ -54,7 +54,8 @@ jobs:
 
           # Sanity: verify symlinks resolve and core files exist
           test -L build.sh && test -L run.sh && test -L exec.sh && test -L stop.sh
-          test -f Dockerfile && test -f compose.yaml && test -f .env.example
+          test -L setup_tui.sh
+          test -f Dockerfile && test -f compose.yaml && test -f setup.conf
 
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
 
@@ -95,7 +96,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Create release archive
         run: |
@@ -128,7 +129,7 @@ jobs:
           cat /tmp/release-notes.md
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body_path: /tmp/release-notes.md
           generate_release_notes: true

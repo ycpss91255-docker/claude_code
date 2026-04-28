@@ -5,32 +5,50 @@ set -euo pipefail
 
 FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly FILE_PATH
+# _lib.sh lookup: template/script/docker/_lib.sh in consumer repos, or
+# sibling _lib.sh in /lint/ (Dockerfile test stage). See build.sh.
 if [[ -f "${FILE_PATH}/template/script/docker/_lib.sh" ]]; then
   # shellcheck disable=SC1091
   source "${FILE_PATH}/template/script/docker/_lib.sh"
+elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
+  # shellcheck disable=SC1091
+  source "${FILE_PATH}/_lib.sh"
 else
-  # Fallback for /lint stage. See build.sh for rationale.
-  _detect_lang() {
-    case "${LANG:-}" in
-      zh_TW*) echo "zh" ;;
-      zh_CN*|zh_SG*) echo "zh-CN" ;;
-      ja*) echo "ja" ;;
-      *) echo "en" ;;
-    esac
-  }
-  _LANG="${SETUP_LANG:-$(_detect_lang)}"
+  printf "[exec] ERROR: cannot find _lib.sh — expected one of:\n" >&2
+  printf "  %s\n" "${FILE_PATH}/template/script/docker/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
+  exit 1
 fi
+
+_msg() {
+  local _key="${1:?}"
+  case "${_LANG}:${_key}" in
+    zh-TW:err_not_running)     echo "[exec] 錯誤：容器 '%s' 未在執行中。" ;;
+    zh-CN:err_not_running)     echo "[exec] 错误：容器 '%s' 未在运行中。" ;;
+    ja:err_not_running)        echo "[exec] エラー: コンテナ '%s' は実行されていません。" ;;
+    *:err_not_running)         echo "[exec] ERROR: Container '%s' is not running." ;;
+    zh-TW:hint_start_instance) echo "[exec] 請先以 './run.sh --instance %s' 啟動。" ;;
+    zh-CN:hint_start_instance) echo "[exec] 请先以 './run.sh --instance %s' 启动。" ;;
+    ja:hint_start_instance)    echo "[exec] まず './run.sh --instance %s' で起動してください。" ;;
+    *:hint_start_instance)     echo "[exec] Start it first with './run.sh --instance %s'." ;;
+    zh-TW:hint_start_default)  echo "[exec] 請先以 './run.sh' 啟動（或使用 './run.sh --instance NAME' 啟動並行實例）。" ;;
+    zh-CN:hint_start_default)  echo "[exec] 请先以 './run.sh' 启动（或使用 './run.sh --instance NAME' 启动并行实例）。" ;;
+    ja:hint_start_default)     echo "[exec] まず './run.sh' で起動してください（または './run.sh --instance NAME' で並列インスタンスを起動）。" ;;
+    *:hint_start_default)      echo "[exec] Start it first with './run.sh' (or use './run.sh --instance NAME' for a parallel one)." ;;
+  esac
+}
 
 usage() {
   case "${_LANG}" in
-    zh)
+    zh-TW)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [CMD...]
+用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
 
 選項:
   -h, --help        顯示此說明
   -t, --target T    服務名稱（預設: devel）
   --instance NAME   進入命名 instance（預設為 default instance）
+  --lang LANG       設定訊息語言（預設: en）
   --dry-run         只印出將執行的 docker 指令，不實際執行
 
 參數:
@@ -45,12 +63,13 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [CMD...]
+用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
 
 选项:
   -h, --help        显示此说明
   -t, --target T    服务名称（默认: devel）
   --instance NAME   进入命名 instance（默认为 default instance）
+  --lang LANG       设置消息语言（默认: en）
   --dry-run         只打印将执行的 docker 命令，不实际执行
 
 参数:
@@ -65,12 +84,13 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [CMD...]
+使用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
 
 オプション:
   -h, --help        このヘルプを表示
   -t, --target T    サービス名（デフォルト: devel）
   --instance NAME   名前付き instance に入る（デフォルトは default instance）
+  --lang LANG       メッセージ言語を設定（デフォルト: en）
   --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
 
 引数:
@@ -85,12 +105,13 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [CMD...]
+Usage: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
 
 Options:
   -h, --help        Show this help
   -t, --target T    Service name (default: devel)
   --instance NAME   Enter a named instance (default: default instance)
+  --lang LANG       Set message language (default: en)
   --dry-run         Print the docker commands that would run, but do not execute
 
 Arguments:
@@ -129,6 +150,11 @@ main() {
         DRY_RUN=true
         shift
         ;;
+      --lang)
+        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        _sanitize_lang _LANG "exec"
+        shift 2
+        ;;
       *)
         break
         ;;
@@ -151,13 +177,13 @@ main() {
   local _container_name="${IMAGE_NAME}${INSTANCE_SUFFIX}"
   if [[ "${DRY_RUN}" != true ]] \
       && ! docker ps --format '{{.Names}}' | grep -qx "${_container_name}"; then
-    printf "[exec] ERROR: Container '%s' is not running.\n" \
-      "${_container_name}" >&2
+    # shellcheck disable=SC2059
+    printf "$(_msg err_not_running)\n" "${_container_name}" >&2
     if [[ -n "${INSTANCE}" ]]; then
-      printf "[exec] Start it first with './run.sh --instance %s'.\n" \
-        "${INSTANCE}" >&2
+      # shellcheck disable=SC2059
+      printf "$(_msg hint_start_instance)\n" "${INSTANCE}" >&2
     else
-      printf "[exec] Start it first with './run.sh' (or use './run.sh --instance NAME' for a parallel one).\n" >&2
+      printf "%s\n" "$(_msg hint_start_default)" >&2
     fi
     exit 1
   fi

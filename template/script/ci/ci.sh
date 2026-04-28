@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# ci.sh - Run CI pipeline (ShellCheck + Bats + Kcov)
+# ci.sh - Run CI pipeline (ShellCheck + Bats [+ Kcov])
 #
 # Usage:
-#   ./ci.sh              # Run full CI via docker compose (default)
+#   ./ci.sh              # Run ShellCheck + Bats (fast dev loop)
 #   ./ci.sh --ci         # Run inside CI container (called by compose)
 #   ./ci.sh --lint-only  # Run ShellCheck only (via docker compose)
-#   ./ci.sh --coverage   # Run tests + coverage (via docker compose)
+#   ./ci.sh --coverage   # Run ShellCheck + Bats + Kcov coverage
 #   ./ci.sh -h, --help   # Show this help
+#
+# Kcov instrumentation wraps every bats command and slows the suite
+# 2-5x, so the default no longer runs it. Run `--coverage` (or
+# `make coverage`) when you need the HTML report before releasing.
 
 # Only set strict mode when running directly; when sourced, respect caller's settings
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
@@ -24,19 +28,24 @@ usage() {
   cat >&2 <<'EOF'
 Usage: ./ci.sh [OPTIONS]
 
-Run CI pipeline: ShellCheck + Bats unit tests + Kcov coverage.
+Run CI pipeline: ShellCheck + Bats [+ Kcov coverage].
 
 Options:
-  --ci          Run directly inside CI container (called by compose)
+  --ci          Run directly inside CI container (called by compose);
+                honors $COVERAGE=1 to include kcov (else bats only)
   --lint-only   Run ShellCheck only
-  --coverage    Run tests with Kcov coverage
+  --coverage    Run tests with Kcov coverage (slow; CI / release check)
   -h, --help    Show this help
 
-Without options, runs the full CI via docker compose.
+Default (no flag): ShellCheck + bats via docker compose, no kcov.
+Kcov wraps every bats command and slows the suite 2-5x, so the
+dev-loop default skips it.
 
 Examples:
-  ./ci.sh                # Full CI (docker compose)
-  make test              # Same as above (via Makefile)
+  ./ci.sh                # Fast: ShellCheck + Bats (no kcov)
+  make test              # Same as above
+  ./ci.sh --coverage     # Full: ShellCheck + Bats + Kcov
+  make coverage          # Same as above
   make lint              # ShellCheck only
 EOF
   exit 0
@@ -55,6 +64,7 @@ _install_deps() {
   apt-get install -y --no-install-recommends \
       bats bats-support bats-assert \
       shellcheck git ca-certificates \
+      parallel \
     || _die "apt-get install failed for bats/shellcheck deps."
 
   # bats-mock is distro-packaged on newer distros but missing on bookworm,
@@ -80,10 +90,16 @@ _run_shellcheck() {
 # ── Bats tests ───────────────────────────────────────────────────────────────
 
 _run_tests() {
-  echo "--- Running Bats Unit Tests ---"
-  bats "${REPO_ROOT}/test/unit/"
-  echo "--- Running Bats Integration Tests ---"
-  bats "${REPO_ROOT}/test/integration/"
+  # --jobs N uses GNU parallel under the hood; bats parallelizes both
+  # across files and within files by default. All specs use per-test
+  # mktemp dirs (BATS_TEST_TMPDIR / TEMP_DIR) so there's no shared
+  # filesystem state between tests — safe to run concurrently.
+  local _jobs
+  _jobs="$(nproc 2>/dev/null || echo 4)"
+  echo "--- Running Bats Unit Tests (jobs=${_jobs}) ---"
+  bats --jobs "${_jobs}" "${REPO_ROOT}/test/unit/"
+  echo "--- Running Bats Integration Tests (jobs=${_jobs}) ---"
+  bats --jobs "${_jobs}" "${REPO_ROOT}/test/integration/"
 }
 
 # ── Kcov coverage ────────────────────────────────────────────────────────────
@@ -123,9 +139,11 @@ _fix_permissions() {
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
 _run_via_compose() {
+  local _coverage="${1:-0}"
   docker compose -f "${REPO_ROOT}/compose.yaml" run --rm \
     -e HOST_UID="$(id -u)" \
     -e HOST_GID="$(id -g)" \
+    -e COVERAGE="${_coverage}" \
     ci
 }
 
@@ -146,24 +164,30 @@ main() {
 
   case "${mode}" in
     ci)
-      # Running inside container
+      # Running inside container. Default path skips kcov for speed
+      # (the dev loop is far more frequent than the coverage check).
+      # Pass COVERAGE=1 via the outer `--coverage` flag to include it.
       _install_deps
       _run_shellcheck
-      _run_coverage
-      _fix_permissions
-      echo "Coverage report: ${REPO_ROOT}/coverage/index.html"
+      if [[ "${COVERAGE:-0}" == "1" ]]; then
+        _run_coverage
+        _fix_permissions
+        echo "Coverage report: ${REPO_ROOT}/coverage/index.html"
+      else
+        _run_tests
+      fi
       ;;
     lint)
       # ShellCheck only — requires shellcheck installed locally
       _run_shellcheck
       ;;
     coverage)
-      # Full CI via docker compose (same as default)
-      _run_via_compose
+      # Full CI + kcov via docker compose
+      _run_via_compose 1
       ;;
     compose)
-      # Default: full CI via docker compose
-      _run_via_compose
+      # Default: fast CI (shellcheck + bats, no kcov) via docker compose
+      _run_via_compose 0
       ;;
   esac
 }

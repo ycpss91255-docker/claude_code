@@ -30,9 +30,12 @@
 ## TL;DR
 
 ```bash
-# 新規 repo：subtree 追加 + 初期化
+# ゼロからの新規 repo：init + 初回コミット + subtree + init.sh
+mkdir <repo_name> && cd <repo_name>
+git init
+git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=template \
-    git@github.com:ycpss91255-docker/template.git main --squash
+    https://github.com/ycpss91255-docker/template.git main --squash
 ./template/init.sh
 
 # 最新版にアップグレード
@@ -107,14 +110,18 @@ flowchart LR
 
 | ファイル | 説明 |
 |----------|------|
-| `build.sh` | コンテナビルド（`script/docker/setup.sh` を呼び出して `.env` を生成） |
-| `run.sh` | コンテナ実行（X11/Wayland 対応） |
+| `build.sh` | コンテナビルド（`--setup` は TTY がある場合 `setup_tui.sh` を起動、無ければ `setup.sh` を実行） |
+| `run.sh` | コンテナ実行（X11/Wayland 対応；`--setup` の意味は `build.sh` と同じ） |
 | `exec.sh` | 実行中のコンテナに入る |
 | `stop.sh` | コンテナの停止・削除 |
-| `script/docker/setup.sh` | システムパラメータの自動検出と `.env` 生成 |
+| `setup_tui.sh` | インタラクティブな setup.conf エディタ（dialog / whiptail フロントエンド） |
+| `script/docker/setup.sh` | システムパラメータの自動検出と `.env` + `compose.yaml` 生成 |
+| `script/docker/_tui_backend.sh` | `setup_tui.sh` が使用する dialog / whiptail ラッパ関数 |
+| `script/docker/_tui_conf.sh` | INI バリデータ + 読み書き（`setup_tui.sh` と `setup.sh` の書き戻し用） |
 | `script/docker/_lib.sh` | 共有 helper（`_load_env`、`_compose`、`_compose_project` など） |
 | `script/docker/i18n.sh` | 共有言語検出（`_detect_lang`、`_LANG`） |
-| `config/` | シェル設定ファイル（bashrc、tmux、terminator、pip）+ IMAGE_NAME ルール |
+| `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |
+| `setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
 | `test/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
 | `test/unit/` | Template 自身のテスト（bats + kcov） |
 | `test/integration/` | Level-1 `init.sh` 統合テスト |
@@ -149,10 +156,7 @@ flowchart LR
 - `test` は常に `devel` を継承するため、`test/smoke/<repo>_env.bats` の
   runtime assertion が確認するバイナリやファイルは、ユーザーが
   `docker run ... <repo>:devel` で目にするものと一致します。
-- `Dockerfile.test-tools` は別途 `test-tools:local` image をビルドし
-  （上記ステージ連鎖には含まれません）、`test` ステージが
-  `COPY --from=test-tools:local` で bats / shellcheck / hadolint
-  バイナリを取り込みます。
+- `Dockerfile.test-tools` は lint/test ツールセット（bats + shellcheck + hadolint）をビルドします。ダウンストリームの `test` ステージは `ARG TEST_TOOLS_IMAGE` build arg で参照します — デフォルト `test-tools:local`（ローカル `./build.sh` フロー、`Dockerfile.test-tools` を host Docker daemon に load）。CI では `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（`.github/workflows/release-test-tools.yaml` がタグ push ごとに publish するマルチアーキ image）で override し、buildx が registry からアーキ対応の bats / shellcheck / hadolint binary を直接 pull します。`docker-container` buildx driver の step 間 image store 分離問題を回避。
 
 ### Smoke test ヘルパー（ダウンストリーム repo 用）
 
@@ -181,18 +185,132 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 - `doc/` と `README.md`
 - Repo 固有の smoke test
 
+## repo ごとのランタイム設定
+
+各下流 repo は 1 つの `setup.conf` INI ファイルで自身のランタイム設定
+（GPU 予約 / GUI env/volumes / network mode / 追加 volume mounts）を
+駆動します。`setup.sh` がこれ + システム検出結果を読み、`.env` と
+`compose.yaml` を再生成します — この 2 つの生成物をユーザが手動編集
+する必要はありません。
+
+### 単一 conf、6 つの section
+
+```
+[image]    rules = prefix:docker_, suffix:_ws, @default:unknown
+[build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
+[deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
+[gui]      mode (auto|force|off)
+[network]  mode (host|bridge|none)、ipc、privileged
+[volumes]  mount_1（workspace、初回 setup.sh 実行時に自動記入）
+           mount_2..mount_N（ユーザ定義の追加 host mount；/dev デバイスは path 指定）
+```
+
+テンプレート既定値は `template/setup.conf`；repo ごとの上書きは
+`<repo>/setup.conf`。セクションレベル **replace** 戦略：repo ファイルに
+section があれば template の section を全置換；無ければ template 既定値を継承。
+
+初回の `setup.sh` 実行時（repo 側の setup.conf がまだ無い状態）、
+template ファイルが repo にコピーされ、検出された workspace が
+`[volumes] mount_1` に書き込まれます。以降の実行は `mount_1` を
+真のソースとして扱います — 空にすれば workspace マウントを
+オプトアウトできます。編集方法：
+
+```bash
+./setup_tui.sh                      # インタラクティブな dialog/whiptail エディタ
+./setup_tui.sh volumes              # 特定 section に直接ジャンプ
+./build.sh --setup            # TTY 下では setup_tui.sh を起動、それ以外は setup.sh を実行
+./template/init.sh --gen-conf # template/setup.conf を repo ルートに単純コピー
+```
+
+### インタラクティブ TUI
+
+`./setup_tui.sh` はメインメニューを開き、6 つの section すべての値を
+編集できます。バックエンドは `dialog` または `whiptail`（どちらも
+無い場合は `sudo apt install dialog` のヒントを表示して終了）。
+Cancel / Esc で保存せず退出；保存後は自動的に `setup.sh` を呼び
+出して `.env` + `compose.yaml` を再生成します。
+
+### setup.sh の実行タイミング
+
+`setup.sh` は明示的にトリガーされた時のみ実行されます — build / run
+の度に再実行されることはありません：
+
+- **`./template/init.sh`** がスケルトン生成後に 1 回自動実行
+- **`./build.sh --setup` / `./run.sh --setup`**（または `-s`）— ユーザが
+  明示的に再実行。TTY がある場合は先に `setup_tui.sh` を起動して `setup.conf`
+  を編集させ、TTY が無い場合は直接 `setup.sh` を呼び出します
+- **初回 bootstrap**：`./build.sh` / `./run.sh` は `.env` が無い初回実行
+  （CI の新規 clone 等）では、同じ TTY-aware フローを自動で通ります。
+  `--setup` 指定は不要
+
+### ドリフト検出
+
+`setup.sh` は `.env` に `SETUP_CONF_HASH` / `SETUP_GUI_DETECTED` /
+`SETUP_TIMESTAMP` を書き込みます。`./build.sh` / `./run.sh` は毎回
+エントリ時点で現行の `setup.conf` ハッシュ + システム検出値と比較し、
+以下のいずれかが変化した場合に `[WARNING]` を出力（実行は継続）：
+
+- `setup.conf` の内容（conf hash）
+- GPU / GUI の検出結果
+- `USER_UID`（ユーザ ID の変化）
+
+`--setup` を付けて再実行すれば `.env` + `compose.yaml` を再生成できます。
+
+### setup.sh のサブコマンド（v0.11.0+）
+
+`setup.sh` は git スタイルのバックエンドで、明示的なサブコマンドを提供します。build / run / TUI スクリプトが内部で呼び出してくれるので、直接呼び出すのはスクリプト化 / 非対話シナリオでの利用が想定されています：
+
+| サブコマンド | 用途 |
+|---|---|
+| `apply` | setup.conf + システム検出から `.env` + `compose.yaml` を再生成 |
+| `check-drift` | 同期なら 0、ドリフトしていれば 1（ドリフト内容は stderr） |
+| `set <section>.<key> <value>` | 単一キーを書き込む |
+| `show <section>[.<key>]` | 単一キーまたは section 全体を読み取る |
+| `list [<section>]` | INI スタイルでダンプ |
+| `add <section>.<list> <value>` | リスト型 section（`mount_*` / `env_*` / `port_*` …）に追加；空きスロット優先、無ければ `max+1` |
+| `remove <section>.<key>` / `<section>.<list> <value>` | キー指定または値マッチで削除 |
+| `reset [-y\|--yes]` | テンプレートのデフォルトに戻す；旧 `setup.conf` → `setup.conf.bak`、旧 `.env` → `.env.bak` |
+
+型付きキーは `_tui_conf.sh` のバリデータ（TUI と同じもの）を経由します。`set` / `add` / `remove` / `reset` は **`.env` を自動再生成しません** — 必要に応じて `apply` を続けて呼ぶか、次回 `build.sh` / `run.sh` の drift 検出で自動再生成されます。
+
+#### v0.10.x からの移行（BREAKING）
+
+`setup.sh`（引数なし）と `setup.sh --base-path X --lang Y`（サブコマンドなし）は従来サイレントに `apply` にフォールスルーしていました。v0.11.0 でこのフォールスルーを廃止：
+
+| 呼び出し方 | v0.11 以前 | v0.11+ |
+|---|---|---|
+| `setup.sh` | apply 実行 | help を表示して exit 0 |
+| `setup.sh --base-path X --lang Y` | apply 実行 | exit 1「Unknown subcommand」 |
+| `setup.sh apply [...]` | apply 実行 | apply 実行（変更なし） |
+
+下流 repo にカスタムスクリプトが `setup.sh` を直接呼び出している場合、先頭に `apply` を付けてください。template 同梱の `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` はすでに更新済みです。
+
+### 生成物（gitignored）
+
+- `.env` — ランタイム変数 + `SETUP_*` drift metadata
+- `compose.yaml` — baseline + 条件ブロック込みの完全な compose
+
+いつでも `compose.yaml` を開けば現在の完全なランタイム設定を確認できます。
+
 ## クイックスタート
 
 ### 新規 repo への追加
 
 ```bash
-# 1. subtree 追加
-git subtree add --prefix=template \
-    git@github.com:ycpss91255-docker/template.git main --squash
+# 1. 空の repo を初期化（既存の repo でコミットが 1 つ以上ある場合はスキップ）
+mkdir <repo_name> && cd <repo_name>
+git init
+git commit --allow-empty -m "chore: initial commit"
 
-# 2. symlink 初期化（ワンコマンド）
+# 2. subtree 追加
+git subtree add --prefix=template \
+    https://github.com/ycpss91255-docker/template.git main --squash
+
+# 3. symlink 初期化（ワンコマンド）
 ./template/init.sh
 ```
+
+> `git subtree add` は `HEAD` の存在を前提とします。`git init` 直後でコミットが無い repo では `ambiguous argument 'HEAD'` と `working tree has modifications` で失敗します。空コミットで `HEAD` を作成しておけば subtree がマージできます。
 
 ### アップグレード
 
@@ -204,8 +322,28 @@ make upgrade-check
 make upgrade
 
 # バージョン指定
+make upgrade VERSION=v0.3.0
+
+# make が使えない場合のフォールバック
 ./template/upgrade.sh v0.3.0
 ```
+
+`upgrade.sh` は一度に完結します：`git subtree pull --squash`、post-pull 整合性チェック（destructive FF を検出したら自動 rollback）、`./template/init.sh` による root symlinks の再同期、そして `.github/workflows/main.yaml` 内の `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` を sed で更新します。手動で `git subtree pull` しないでください — sed と init の手順を忘れがちです。
+
+#### 自動バージョン更新（任意）
+
+ダウンストリーム repo は、`template` の新しい tag が出るたびに Dependabot が PR を立てるよう設定できます。`.github/dependabot.yml` を追加します：
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+```
+
+Dependabot は `main.yaml` 内の `uses: ycpss91255-docker/template/...@vX.Y.Z` ref を見て、template の最新 tag と照合して PR を出します。subtree 自体は引き続きローカルで `make upgrade VERSION=vX.Y.Z` を実行する必要があります — Dependabot が扱うのは workflow ref のみです。
 
 ## CI Reusable Workflows
 
@@ -238,6 +376,8 @@ jobs:
 | `image_name` | string | はい | - | コンテナイメージ名 |
 | `build_args` | string | いいえ | `""` | 複数行 KEY=VALUE ビルド引数 |
 | `build_runtime` | boolean | いいえ | `true` | runtime stage をビルドするか |
+| `platforms` | string | いいえ | `"linux/amd64"` | カンマ区切りのターゲットプラットフォーム；各プラットフォームがネイティブ runner 上で並列実行（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
+| `test_tools_version` | string | いいえ | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` のタグ。下流側は採用した template release にピン留めすると再現性が確保できる |
 
 ### release-worker.yaml パラメータ
 
@@ -279,7 +419,10 @@ template/
 │   │   ├── run.sh
 │   │   ├── exec.sh
 │   │   ├── stop.sh
-│   │   ├── setup.sh                  # .env ジェネレータ
+│   │   ├── setup_tui.sh                    # インタラクティブな setup.conf エディタ（dialog/whiptail）
+│   │   ├── setup.sh                  # .env + compose.yaml ジェネレータ
+│   │   ├── _tui_backend.sh           # dialog / whiptail ラッパ関数
+│   │   ├── _tui_conf.sh              # INI バリデータ + 読み書き
 │   │   ├── _lib.sh                   # 共有 helper（_load_env、_compose、_compose_project）
 │   │   ├── i18n.sh                   # 共有言語検出（_detect_lang、_LANG）
 │   │   └── Makefile
@@ -288,7 +431,8 @@ template/
 ├── dockerfile/
 │   ├── Dockerfile.test-tools         # プリビルド lint/test ツール image
 │   └── Dockerfile.example            # 新 repo の Dockerfile テンプレート（sys → base → devel → test → [runtime]）
-├── config/                           # シェル/ツール設定 + IMAGE_NAME ルール
+├── setup.conf                        # 単一ランタイム設定（repo 上書き: <repo>/setup.conf）
+├── config/                           # コンテナ内部のシェル / ツール設定
 │   ├── image_name.conf               # デフォルト IMAGE_NAME 検出ルール
 │   ├── pip/
 │   │   ├── setup.sh
