@@ -27,7 +27,7 @@ EOF
 
   # Stub scripts referenced by _create_symlinks — empty files are fine
   # because symlinks only need a valid target path, not a valid payload.
-  for _f in build.sh run.sh exec.sh stop.sh Makefile; do
+  for _f in build.sh run.sh exec.sh stop.sh setup.sh setup_tui.sh Makefile; do
     : > "${TMP_REPO}/template/script/docker/${_f}"
   done
   : > "${TMP_REPO}/template/.hadolint.yaml"
@@ -117,37 +117,33 @@ REMOTE
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _create_version_file
+# _detect_template_version: reads .version file
 # ════════════════════════════════════════════════════════════════════
 
-@test "_create_version_file: writes given version to .template_version" {
+@test "_detect_template_version: reads .version file when present (no network)" {
+  echo "v1.5.0" > "${TMP_REPO}/template/.version"
+  # Mock git to fail (simulate offline)
+  mock_cmd "git" 'exit 128'
   _source_init
-  _create_version_file "v1.2.3"
-  assert [ -f "${TMP_REPO}/.template_version" ]
-  run cat "${TMP_REPO}/.template_version"
-  assert_output "v1.2.3"
+  local result
+  result="$(_detect_template_version)"
+  assert_equal "${result}" "v1.5.0"
 }
 
-@test "_create_version_file: writes 'unknown' when no argument given" {
+@test "_detect_template_version: .version file takes priority over git ls-remote" {
+  echo "v1.5.0" > "${TMP_REPO}/template/.version"
+  mock_cmd "git" '
+    if [[ "$1" == "ls-remote" ]]; then
+      cat <<REMOTE
+abc123  refs/tags/v2.0.0
+REMOTE
+      exit 0
+    fi
+    exit 0'
   _source_init
-  _create_version_file ""
-  run cat "${TMP_REPO}/.template_version"
-  assert_output "unknown"
-}
-
-@test "_create_version_file: writes 'unknown' when called with zero arguments" {
-  _source_init
-  _create_version_file
-  run cat "${TMP_REPO}/.template_version"
-  assert_output "unknown"
-}
-
-@test "_create_version_file: overwrites existing .template_version" {
-  echo "v0.1.0" > "${TMP_REPO}/.template_version"
-  _source_init
-  _create_version_file "v2.0.0"
-  run cat "${TMP_REPO}/.template_version"
-  assert_output "v2.0.0"
+  local result
+  result="$(_detect_template_version)"
+  assert_equal "${result}" "v1.5.0"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -185,25 +181,20 @@ REMOTE
   assert_success
 }
 
-@test "_create_new_repo: generates .env.example with IMAGE_NAME=<repo>" {
+@test "_create_new_repo: does NOT generate .env.example (image name via setup.conf)" {
   _source_init
   _create_new_repo "main"
-  run cat "${TMP_REPO}/.env.example"
-  assert_output --partial "IMAGE_NAME="
-  # TMP_REPO's basename is random; the entry should reference it.
-  local _expected
-  _expected="$(basename "${TMP_REPO}")"
-  assert_output "IMAGE_NAME=${_expected}"
+  [[ ! -f "${TMP_REPO}/.env.example" ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
 # _create_symlinks
 # ════════════════════════════════════════════════════════════════════
 
-@test "_create_symlinks: produces all five docker-script symlinks" {
+@test "_create_symlinks: produces all seven docker-script symlinks" {
   _source_init
   _create_symlinks
-  for _f in build.sh run.sh exec.sh stop.sh Makefile; do
+  for _f in build.sh run.sh exec.sh stop.sh setup.sh setup_tui.sh Makefile; do
     assert [ -L "${TMP_REPO}/${_f}" ]
     run readlink "${TMP_REPO}/${_f}"
     assert_output "template/script/docker/${_f}"
@@ -227,4 +218,68 @@ REMOTE
   assert_output --partial "Keeping custom .hadolint.yaml"
   # Custom file should still be a regular file, not a symlink
   assert [ ! -L "${TMP_REPO}/.hadolint.yaml" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _gen_setup_conf --force (reset path, issue #124 / #60)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_gen_setup_conf default refuses to overwrite existing setup.conf" {
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/template/setup.conf"
+  echo "existing user config" > "${TMP_REPO}/setup.conf"
+  _source_init
+  run _gen_setup_conf "false"
+  assert_failure
+  assert_output --partial "already exists"
+}
+
+@test "_gen_setup_conf --force overwrites and backs up existing setup.conf" {
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/template/setup.conf"
+  echo "old user conf" > "${TMP_REPO}/setup.conf"
+  _source_init
+  run _gen_setup_conf "true"
+  assert_success
+  # new setup.conf must come from template
+  run cat "${TMP_REPO}/setup.conf"
+  assert_output --partial "rules = @basename"
+  # backup must contain the pre-overwrite user content
+  assert [ -f "${TMP_REPO}/setup.conf.bak" ]
+  run cat "${TMP_REPO}/setup.conf.bak"
+  assert_output "old user conf"
+}
+
+@test "_gen_setup_conf --force also backs up .env to .env.bak" {
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/template/setup.conf"
+  echo "user conf" > "${TMP_REPO}/setup.conf"
+  echo "USER_NAME=existing" > "${TMP_REPO}/.env"
+  _source_init
+  run _gen_setup_conf "true"
+  assert_success
+  assert [ -f "${TMP_REPO}/.env.bak" ]
+  run cat "${TMP_REPO}/.env.bak"
+  assert_output "USER_NAME=existing"
+}
+
+@test "_gen_setup_conf --force on clean repo does not create spurious .bak" {
+  # No pre-existing setup.conf → first-time provision, nothing to back up.
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/template/setup.conf"
+  rm -f "${TMP_REPO}/setup.conf" "${TMP_REPO}/.env"
+  _source_init
+  run _gen_setup_conf "true"
+  assert_success
+  assert [ ! -f "${TMP_REPO}/setup.conf.bak" ]
+  assert [ ! -f "${TMP_REPO}/.env.bak" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _create_new_repo .gitignore covers the *.bak siblings
+# ════════════════════════════════════════════════════════════════════
+
+@test "_create_new_repo: .gitignore includes setup.conf.bak and .env.bak" {
+  _source_init
+  _create_new_repo "main"
+  run grep -Fxq setup.conf.bak "${TMP_REPO}/.gitignore"
+  assert_success
+  run grep -Fxq .env.bak "${TMP_REPO}/.gitignore"
+  assert_success
 }

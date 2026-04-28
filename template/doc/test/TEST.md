@@ -1,15 +1,15 @@
 # TEST.md
 
-Template self-tests: **292 tests** total (271 unit + 21 integration).
+Template self-tests: **784 tests** total (740 unit + 44 integration).
 
 ## Test Files
 
-### test/unit/lib_spec.bats (15)
+### test/unit/lib_spec.bats (39)
 
 | Test | Description |
 |------|-------------|
 | `_lib.sh sets _LANG to 'en' when LANG is unset` | Default language |
-| `_lib.sh sets _LANG to 'zh' for zh_TW.UTF-8` | Traditional Chinese |
+| `_lib.sh sets _LANG to 'zh-TW' for zh_TW.UTF-8` | Traditional Chinese |
 | `_lib.sh sets _LANG to 'zh-CN' for zh_CN.UTF-8` | Simplified Chinese |
 | `_lib.sh sets _LANG to 'zh-CN' for zh_SG (Singapore)` | Singapore variant |
 | `_lib.sh sets _LANG to 'ja' for ja_JP.UTF-8` | Japanese |
@@ -23,74 +23,180 @@ Template self-tests: **292 tests** total (271 unit + 21 integration).
 | `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
 | `_compose without DRY_RUN tries to invoke docker compose (sanity)` | Real-call branch |
 | `_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH` | Project wrapper |
+| `_sanitize_lang accepts en / zh-TW / zh-CN / ja unchanged` | Lang validator pass-through |
+| `_sanitize_lang warns and falls back to 'en' for unsupported values` | Unknown lang fallback |
+| `_sanitize_lang warns for the old bare 'zh' code (post zh→zh-TW rename)` | Legacy lang rejection |
+| `_dump_conf_section extracts keys from the named section` | INI section dump |
+| `_dump_conf_section stops at the next section header` | Section boundary |
+| `_dump_conf_section returns silent empty for missing file` | Missing file |
+| `_dump_conf_section returns silent empty for unknown section` | Missing section |
+| `_print_config_summary prints files, identity, all populated sections, resolved` | Full config dump |
+| `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
+| `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
+| `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
 
-### test/unit/setup_spec.bats (61)
+### test/unit/setup_spec.bats (174)
+
+Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
+(`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
+with replace strategy), image_name rule engine via `[image] rules`,
+resolvers (`_resolve_gpu`, `_resolve_gui`), workspace path detection,
+conf hash computation, drift detection, `write_env` (now including
+runtime values + SETUP_* metadata), the `main()` CLI, and workspace
+writeback (first-time bootstrap / user-edit respect / opt-out).
+
+| Category | Tests |
+|----------|-------|
+| `detect_user_info` / `detect_hardware` / `detect_docker_hub_user` / `detect_gpu` / `detect_gui` | 11 |
+| `_parse_ini_section` (section isolation, comments, trim, missing) | 6 |
+| `_load_setup_conf` (SETUP_CONF env, per-repo, template, replace) | 4 |
+| `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-value skip) | 5 |
+| `_resolve_gpu` / `_resolve_gui` | 7 |
+| `detect_image_name` (template default, per-repo rules, @default, order) | 7 |
+| `detect_ws_path` (strategies 1/2/3 + missing base_path) | 5 |
+| `_compute_conf_hash` | 2 |
+| `write_env` (all fields + SETUP_* metadata) | 1 |
+| `_check_setup_drift` (no-op, silent, conf drift, GPU drift) | 4 |
+| `main` (unknown arg, --base-path / --lang missing value) | 3 |
+| Subcommand dispatch (#49 Phase B-1: apply default / explicit, unknown subcmd, check-drift no-op / clean / drift / bad flag, end-to-end subprocess) | 9 |
+| Subcommand `set` / `show` / `list` (#49 Phase B-2: round-trip, validators reject gpu_count / mount / cgroup / env_kv / port, no .env regen, missing key/section, unknown section, list dump, end-to-end subprocess) | 22 |
+| Subcommand `add` / `remove` (#49 Phase B-3: empty-slot reuse, max+1 after gap, bootstrap on missing setup.conf, validator rejection, remove by key, remove by value, missing key, comment preservation, round-trip) | 17 |
+| Subcommand `reset` + BREAKING no-arg → help (#49 Phase B-4: --yes write, .bak archives, no .env regen, non-tty refusal, unknown flag, first-time bootstrap, no-arg prints help, legacy flag-only errors) | 8 |
+| `_msg` / `_detect_lang` i18n | 6 |
+| `[build]` apt_mirror (empty fallback, override) | 2 |
+| Workspace writeback (first-time, respect user edit, opt-out) | 3 |
+| Per-repo setup.conf missing / empty INFO (#150: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
+| Per-repo setup.conf INFO on check-drift path (#157: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
+
+### test/unit/tui_spec.bats (82)
+
+Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
+No dialog/whiptail invocations here — strictly validators, mount-string
+parsers, and setup.conf round-trip.
+
+| Category | Tests |
+|----------|-------|
+| `_validate_mount` (valid forms, env-var expansion, reject missing/extra colons, invalid mode) | 8 |
+| `_validate_gpu_count` ('all', positive int, reject 0/negative/non-numeric/empty) | 6 |
+| `_validate_enum` (match, non-match, empty) | 3 |
+| `_mount_host_path` (plain, with mode, with env-var host) | 3 |
+| `_load_setup_conf_full` + `_write_setup_conf` (section order, kv, comment preservation, untouched keys, round-trip) | 5 |
+| `_upsert_conf_value` (updates existing, leaves other sections untouched) | 2 |
+
+### test/unit/tui_backend_spec.bats (30)
+
+Backend detection and wrapper-level arg forwarding. Uses a stub
+`dialog` / `whiptail` binary installed on PATH that logs argv and echoes
+a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
+
+| Category | Tests |
+|----------|-------|
+| `_backend_detect` (prefers dialog, falls back to whiptail, prints install hint when neither) | 3 |
+| `_tui_guard` (rejects empty backend) | 1 |
+| `_tui_inputbox` (forwards title/prompt/initial, returns canned response, propagates non-zero on cancel) | 2 |
+| `_tui_menu` (computes item count, forwards tag/label pairs) | 1 |
+| `_tui_radiolist` (forwards tag/label/state triples) | 1 |
+| `_tui_checklist` (passes `--separate-output`) | 1 |
+| `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
+| whiptail flag-spelling translation (#136: `--ok-button` / `--cancel-button` instead of `--*-label`, no `--extra-button`; dialog spelling preserved) | 7 |
+
+### test/unit/build_sh_spec.bats (35)
+
+Unit tests for `build.sh` argument handling and control flow. Uses a
+sandbox tree mirroring the expected layout (build.sh + `template/` subtree
+with real `_lib.sh` / `i18n.sh`, mock `setup.sh`). `docker` is PATH-shimmed
+so the stub captures argv; `build.sh` is symlinked (not copied) so kcov
+attributes coverage to the real source file.
+
+Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, auto-bootstrap on
+missing `.env` / `setup.conf` / `compose.yaml`, drift-check path when
+all three are present, bootstrap staying non-interactive (setup.sh
+direct, not `setup_tui.sh`), defensive guard when setup produces no
+`.env`, TARGETARCH build-arg forwarding, `--no-cache`, `--clean-tools`,
+positional `TARGET`, `--lang` argument validation, fallback
+`_detect_lang` branches (zh_TW/zh_CN/ja), real (non-dry-run) docker
+build invocation, and **runtime log-line i18n** (bootstrap /
+drift-regen / err_no_env messages translate in all four languages via
+the local `_msg()` table; English remains the default).
+
+### test/unit/run_sh_spec.bats (33)
+
+Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
+`docker ps` reads from a controllable stub file so tests can simulate
+"container already running" scenarios.
+
+Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, bootstrap on
+missing `.env` / `setup.conf` / `compose.yaml`, drift-check path,
+bootstrap staying non-interactive (setup.sh, not TUI), defensive guard
+when setup produces no `.env`, `--detach`, devel vs non-devel TARGET
+routing, `--instance`, already-running guard, Wayland xhost path,
+`--lang` / `--instance` argument validation, fallback `_detect_lang`
+branches, and **runtime log-line i18n** (bootstrap + already-running
+error translate in all four languages via the local `_msg()` table).
+
+### test/unit/exec_sh_spec.bats (18)
+
+Unit tests for `exec.sh` argument parsing, the container-running
+precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
+`docker ps` reads from a controllable stub file so tests can toggle
+"container running" state without a real docker daemon. `.env` is
+pre-seeded so `_load_env` / `_compute_project_name` succeed without a
+bootstrap step.
+
+Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--target` / `--instance`
+value validation, English-default not-running error, Chinese /
+Simplified Chinese / Japanese not-running error text, instance-specific
+vs default start hints, `--dry-run` bypassing the guard, compose exec
+routing when container is running, and fallback `_detect_lang`
+branches when `template/` is absent.
+
+### test/unit/stop_sh_spec.bats (16)
+
+Unit tests for `stop.sh` argument parsing, the `--all` multi-instance
+teardown, and i18n. `docker ps -a` output is PATH-shimmed via
+`${DOCKER_PS_A_FILE}` so tests can seed the project list for the `--all`
+branch.
+
+Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--instance` value
+validation, default teardown via `docker compose down`, named-instance
+suffix in project name, `--all` no-instances English message,
+Chinese / Simplified Chinese / Japanese translations of the
+no-instances message, `--all` multi-project teardown loop, and
+fallback `_detect_lang` branches.
+
+### test/unit/compose_gen_spec.bats (45)
+
+Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
+header, baseline workspace volume, network/ipc/privileged env-var
+references, `test` service presence, image name threading, and
+conditional GPU deploy block + GUI env/volumes + extra volumes from
+`[volumes]` section.
 
 | Test | Description |
 |------|-------------|
-| `detect_user_info uses USER env when set` | Uses USER env var |
-| `detect_user_info falls back to id -un when USER unset` | Falls back to id command |
-| `detect_user_info sets group uid gid correctly` | All fields populated |
-| `detect_hardware returns uname -m output` | Returns architecture |
-| `detect_docker_hub_user uses docker info username when logged in` | Docker Hub detection |
-| `detect_docker_hub_user falls back to USER when docker returns empty` | USER fallback |
-| `detect_docker_hub_user falls back to id -un when USER also unset` | id fallback |
-| `detect_gpu returns true when nvidia-container-toolkit is installed` | GPU detected |
-| `detect_gpu returns false when nvidia-container-toolkit is not installed` | No GPU |
-| `detect_image_name finds *_ws in path` | Workspace naming |
-| `detect_image_name finds *_ws at end of path` | Workspace at end |
-| `detect_image_name prefers docker_* over *_ws in path` | Priority check |
-| `detect_image_name strips docker_ prefix from last dir` | Prefix stripping |
-| `detect_image_name strips docker_ from absolute root` | Root path |
-| `detect_image_name returns unknown for plain directory (default conf)` | Unknown fallback |
-| `detect_image_name returns unknown for generic path (default conf)` | Unknown fallback |
-| `detect_image_name lowercases the result` | Lowercase |
-| `detect_image_name uses repo-level image_name.conf when present` | Per-repo override (env var) |
-| `detect_image_name auto-discovers image_name.conf via BASE_PATH` | Per-repo auto-discover |
-| `detect_image_name reads env_example rule from conf` | env_example rule |
-| `detect_image_name applies rules in order (first match wins)` | Rule order |
-| `detect_image_name skips comments and empty lines in conf` | Conf parsing |
-| `detect_image_name skips whitespace-only lines in conf` | Conf parsing |
-| `detect_image_name returns unknown when no rule matches and no basename` | Unknown fallback |
-| `detect_image_name uses @basename when no other rule matches` | @basename rule |
-| `detect_image_name applies @default:<value> as fallback` | @default rule |
-| `detect_image_name @default:<value> is skipped if earlier rule matches` | @default skip |
-| `detect_ws_path strategy 1: docker_* finds sibling *_ws` | Sibling scan |
-| `detect_ws_path strategy 1: docker_* without sibling falls through` | No sibling |
-| `detect_ws_path strategy 2: finds _ws component in path` | Path traversal |
-| `detect_ws_path strategy 3: falls back to parent directory` | Parent fallback |
-| `detect_ws_path fails with ERROR when base_path does not exist` | Explicit error on missing base_path |
-| `detect_ws_path normalizes base_path containing .. (strategy 1)` | Path normalization in strategy 1 |
-| `detect_ws_path normalizes base_path containing .. (strategy 3 fallback)` | Path normalization in strategy 3 |
-| `write_env creates .env with all required variables` | .env generation |
-| `write_env includes APT_MIRROR_UBUNTU` | APT mirror in .env |
-| `write_env includes APT_MIRROR_DEBIAN` | APT mirror in .env |
-| `main creates .env when it does not exist` | Fresh .env |
-| `main sources existing .env and reuses valid WS_PATH` | WS_PATH reuse |
-| `main re-detects WS_PATH when path in .env no longer exists` | Stale WS_PATH |
-| `main: env_example rule reads IMAGE_NAME from .env.example` | env_example rule via main |
-| `main warns when conf has no fallback and detection fails` | WARNING when no rule matches |
-| `main: default conf @default:unknown applies for repo without docker_/_ws naming` | @default:unknown INFO |
-| `main uses BASH_SOURCE fallback when --base-path not given` | Fallback path |
-| `default _base_path resolves to repo root, not script dir` | Regression test |
-| `main returns error on unknown argument` | Error handling |
-| `main returns error when --base-path value is missing` | Missing value |
-| `main sets APT_MIRROR defaults in fresh .env` | Default mirrors |
-| `main preserves existing APT_MIRROR values from .env` | Mirror preservation |
-| `_msg returns English messages by default` | i18n English |
-| `_msg returns Chinese messages when _LANG=zh` | i18n Chinese |
-| `_msg returns Simplified Chinese messages when _LANG=zh-CN` | i18n Simplified Chinese |
-| `_msg returns Japanese messages when _LANG=ja` | i18n Japanese |
-| `_detect_lang returns zh for zh_TW.UTF-8` | Language detection zh |
-| `_detect_lang returns zh-CN for zh_CN.UTF-8` | Language detection zh-CN |
-| `_detect_lang returns ja for ja_JP.UTF-8` | Language detection ja |
-| `_detect_lang returns en for en_US.UTF-8` | Language detection en |
-| `_detect_lang returns en when LANG is unset` | Unset LANG |
-| `_detect_lang is overridden by SETUP_LANG` | SETUP_LANG override |
-| `main --lang zh sets Chinese messages` | --lang flag |
-| `main --lang requires a value` | Missing --lang value |
+| `outputs AUTO-GENERATED header` | Header check |
+| `always emits workspace volume` | Baseline |
+| `emits network_mode/ipc/privileged via env var` | env-var baked |
+| `emits test service with profiles: [test]` | test service |
+| `image field contains repo name` | Image name |
+| `does NOT emit /dev:/dev by default (not in baseline)` | Baseline scope |
+| `GPU enabled => deploy block present` | GPU on |
+| `GPU disabled => no deploy block` | GPU off |
+| `GPU with specific count and capabilities` | GPU args |
+| `GUI enabled => DISPLAY env + X11 volumes present` | GUI on |
+| `GUI disabled => no DISPLAY env + no X11 volumes` | GUI off |
+| `extra volumes appended after baseline` | volumes list |
+| `empty extras => no extra mount lines` | empty list |
+| `with GUI+GPU+extras => all sections present` | fully loaded |
+| `emits runtime service when Dockerfile has AS runtime` | #108 auto-emit |
+| `skips runtime service when Dockerfile lacks AS runtime` | opt-out by absence |
+| `skips runtime service when Dockerfile is absent` | no-Dockerfile guard |
+| `runtime service extends devel and overrides target/image/tty/profile` | compose extends shape |
+| `runtime service appears between devel and test blocks` | ordering |
+| `runtime detection is robust against weird whitespace` | regex tolerance |
+| `runtime detection ignores non-runtime stage names` | strict match |
 
-### test/unit/template_spec.bats (97)
+### test/unit/template_spec.bats (130)
 
 | Test | Description |
 |------|-------------|
@@ -106,6 +212,9 @@ Template self-tests: **292 tests** total (271 unit + 21 integration).
 | `Makefile.ci exists (template CI)` | File check |
 | `Makefile.ci has test target` | Makefile target |
 | `Makefile.ci has lint target` | Makefile target |
+| `Makefile.ci has upgrade target` | Makefile target |
+| `Makefile.ci upgrade target forwards optional VERSION variable` | VERSION arg passthrough |
+| `Makefile upgrade target uses ./template/upgrade.sh (not ./template/script/upgrade.sh)` | Regression: bad path in script/docker/Makefile |
 | `test/smoke/test_helper.bash exists` | Directory structure |
 | `test/smoke/script_help.bats exists` | Directory structure |
 | `test/smoke/display_env.bats exists` | Directory structure |
@@ -168,6 +277,7 @@ Template self-tests: **292 tests** total (271 unit + 21 integration).
 | `exec.sh --dry-run skips precheck and prints compose command` | dry-run e2e |
 | `script/docker/i18n.sh exists` | i18n module exists |
 | `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
+| `Dockerfile.test-tools ARG TARGETARCH has no default value (must not shadow BuildKit auto-inject)` | multi-arch build regression |
 | `i18n.sh defines _detect_lang function` | _detect_lang in i18n.sh |
 | `build.sh sources _lib.sh` | build.sh uses shared lib |
 | `run.sh sources _lib.sh` | run.sh uses shared lib |
@@ -180,19 +290,41 @@ Template self-tests: **292 tests** total (271 unit + 21 integration).
 | `exec.sh -h works when i18n.sh is missing` | i18n fallback |
 | `stop.sh -h works when i18n.sh is missing` | i18n fallback |
 | `setup.sh does not redefine _detect_lang` | No duplication |
+| `VERSION file exists in template root` | Version file check |
+| `upgrade.sh reads version from template/VERSION` | VERSION path |
+| `upgrade.sh does not write .template_version` | No legacy write |
 | `upgrade.sh runs init.sh after subtree pull` | Sync symlinks |
-| `upgrade.sh writes target_ver after init.sh (to override init's latest detection)` | Version override |
-| `upgrade.sh supports --gen-image-conf flag` | Flag exists |
-| `upgrade.sh --gen-image-conf delegates to init.sh --gen-image-conf` | Delegation |
-| `upgrade.sh --help mentions --gen-image-conf` | Help text |
+| `upgrade.sh cleans up legacy .template_version` | Legacy cleanup |
+| `upgrade.sh supports --gen-conf flag` | Flag exists |
+| `upgrade.sh --gen-conf delegates to init.sh --gen-conf` | Delegation |
+| `upgrade.sh --help mentions --gen-conf` | Help text |
 | `upgrade.sh updates main.yaml @tag without clobbering release-worker.yaml` | sed regression |
+| `upgrade.sh main.yaml sed handles semver pre-release tags (RC → RC)` | `-rcN-rcN` regression |
+| `upgrade.sh main.yaml sed handles stable → stable + RC → stable transitions` | RC → stable cleanup |
+| `build-worker.yaml: no legacy in-job test-tools build step` | v0.9.13 GHCR migration |
+| `build-worker.yaml: declares test_tools_version input` | v0.10.1 input replaces GITHUB_WORKFLOW_REF parse |
+| `build-worker.yaml: does not resurrect the GITHUB_WORKFLOW_REF parse step` | regression guard |
+| `build-worker.yaml: test build passes TEST_TOOLS_IMAGE from inputs` | build-arg wiring |
+| `Dockerfile.example has ARG TEST_TOOLS_IMAGE with test-tools:local default` | ARG default |
+| `Dockerfile.example FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` | named stage alias |
+| `Dockerfile.example test stage copies from test-tools-stage, not test-tools:local` | stage rename migration |
+| `release-test-tools.yaml exists and pushes to ghcr.io/ycpss91255-docker/test-tools` | GHCR publisher |
+| `release-test-tools.yaml declares packages:write permission` | ghcr auth scope |
+| `release-test-tools.yaml builds multi-arch (amd64 + arm64)` | arch coverage |
+| `release-test-tools.yaml uses template-repo-local Dockerfile path` | no subtree path confusion |
+| `release-worker.yaml does not cp compose.yaml into the release archive` | v0.10.1 cp-list regression |
+| `release-worker.yaml cp-list still includes Dockerfile + scripts` | positive cp-list guard |
+| `build.sh does not source setup.sh (#49 Phase B-1)` | structural guard for #101 class |
+| `run.sh does not source setup.sh (#49 Phase B-1)` | structural guard for #101 class |
+| `build.sh uses subprocess check-drift (#49 Phase B-1)` | drift via subcommand |
+| `run.sh uses subprocess check-drift (#49 Phase B-1)` | drift via subcommand |
 | `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
 | `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
 | `run.sh contains xhost +local: for X11` | X11 xhost |
 | `setup.sh default _base_path uses /..` | Path resolution |
 | `setup.sh default _base_path uses double parent traversal` | Repo root traversal |
 
-### test/unit/bashrc_spec.bats (14)
+### test/unit/bashrc_spec.bats (18)
 
 | Test | Description |
 |------|-------------|
@@ -232,7 +364,7 @@ Template self-tests: **292 tests** total (271 unit + 21 integration).
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
 
-### test/unit/init_spec.bats (15)
+### test/unit/init_spec.bats (18)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -247,10 +379,10 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_detect_template_version: returns empty when git ls-remote fails` | Network-down fallback |
 | `_detect_template_version: returns empty when no v*.*.* tags exist` | Nothing to match |
 | `_detect_template_version: ignores non-semver tags (e.g. rc suffixes)` | Regex filters rc / pre-release |
-| `_create_version_file: writes given version to .template_version` | Happy path |
-| `_create_version_file: writes 'unknown' when no argument given` | Empty-string fallback |
-| `_create_version_file: writes 'unknown' when called with zero arguments` | No-arg fallback |
-| `_create_version_file: overwrites existing .template_version` | Re-init safety |
+| `_detect_template_version: reads VERSION file when present (no network)` | VERSION file priority |
+| `_detect_template_version: VERSION file takes priority over git ls-remote` | Local-first resolution |
+| `init.sh removes legacy .template_version when present` | Legacy cleanup |
+| `init.sh succeeds when no legacy .template_version exists` | Clean state |
 | `_create_new_repo: main.yaml uses given ref in workflow @ref` | Ref threading |
 | `_create_new_repo: main.yaml falls back to @main when ref arg omitted` | Default ref |
 | `_create_new_repo: main.yaml falls back to @main when ref arg is empty` | Empty-string → `@main` |
@@ -346,7 +478,61 @@ Exercises the runtime assertion helpers shipped in
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/integration/init_new_repo_spec.bats (21)
+### test/unit/upgrade_spec.bats (33)
+
+Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
+one function at a time into a minimal harness (with `_log` / `_error`
+stubs), so each helper runs in a sandboxed git repo without needing to
+source the full `upgrade.sh` (which would trigger its top-level
+`cd REPO_ROOT`).
+
+Covers: `_warn_config_drift` (silent / fires on drift / diff hint),
+the three safety guards added after the v0.9.7 Jetson incident
+(`_require_git_identity`, `_require_clean_merge_state`,
+`_verify_subtree_intact` with rollback), structural invariants that
+pin call-ordering in `_upgrade` (identity check runs before subtree
+pull, integrity verification runs after, pre-pull HEAD is snapshotted
+for rollback), and the SemVer §11-aware `_semver_cmp` + `_check`
+behavior added for issue #156 (prerelease ahead of latest stable
+must not be reported as "needing downgrade").
+
+| Test | Description |
+|------|-------------|
+| `_warn_config_drift silent when no template/config in HEAD` | Initial setup |
+| `_warn_config_drift silent when pre and post hashes match` | No drift |
+| `_warn_config_drift prints WARNING + diff hint when hashes differ` | Drift reported |
+| `upgrade.sh defines _warn_config_drift` | Helper present |
+| `upgrade.sh invokes _warn_config_drift after subtree pull` | Call site present |
+| `upgrade.sh captures pre-pull template/config tree hash` | Snapshot taken |
+| `_require_git_identity succeeds when name + email are set` | Happy path |
+| `_require_git_identity fails when user.email is unset` | Email guard |
+| `_require_git_identity fails when user.name is unset` | Name guard |
+| `_require_clean_merge_state succeeds in clean repo` | Happy path |
+| `_require_clean_merge_state fails when MERGE_HEAD exists` | Mid-merge guard |
+| `_require_clean_merge_state fails when rebase-merge dir exists` | Mid-rebase guard |
+| `_verify_subtree_intact succeeds when all markers present` | Happy path |
+| `_verify_subtree_intact rolls back when template/.version is missing` | Destructive-FF rollback |
+| `_verify_subtree_intact rolls back when template/script/docker/setup.sh is missing` | Marker rollback |
+| `upgrade.sh calls _require_git_identity before subtree pull` | Pre-flight ordering |
+| `upgrade.sh calls _verify_subtree_intact after subtree pull` | Post-flight ordering |
+| `upgrade.sh snapshots pre-pull HEAD for rollback` | Rollback anchor |
+| `_semver_cmp: equal versions return 0` | Equality |
+| `_semver_cmp: lower core returns 1` | Behind core |
+| `_semver_cmp: higher core returns 2` | Ahead core |
+| `_semver_cmp: pre-release < final at same core (rc1 < 0.12.0)` | SemVer §11 a |
+| `_semver_cmp: final > pre-release at same core (0.12.0 > rc1)` | SemVer §11 b |
+| `_semver_cmp: rc1 < rc2 (lex pre-release ordering)` | Pre-release order |
+| `_semver_cmp: rc2 > rc1` | Pre-release order |
+| `_semver_cmp: pre-release of newer beats older final (0.12.0-rc1 > 0.11.0)` | Cross-core |
+| `_semver_cmp: older final < pre-release of newer (0.11.0 < 0.12.0-rc1)` | Cross-core |
+| `_check: equal versions report up-to-date and exit 0` | Happy equal |
+| `_check: behind latest reports update available and exits 1` | Behind |
+| `_check: prerelease ahead of latest stable exits 0 (issue #156 case)` | Regression #156 |
+| `_check: stable later than latest stable exits 0 (defensive)` | Local-only tag |
+| `_check: prerelease behind latest stable proposes upgrade (rc1 → 0.12.0)` | Leave prerelease |
+| `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
+
+### test/integration/init_new_repo_spec.bats (36)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -369,11 +555,51 @@ which has access to a Docker daemon on the host runner.
 | `new repo: doc/changelog/CHANGELOG.md exists` | CHANGELOG gen |
 | `new repo: build.sh symlink → template/script/docker/build.sh` | symlink target |
 | `new repo: run.sh / exec.sh / stop.sh / Makefile symlinks correct` | symlink set |
-| `new repo: .template_version exists and matches a known tag format` | version file |
+| `new repo: template/VERSION exists (no legacy .template_version)` | version file |
 | `new repo: re-running init.sh on the result is idempotent` | idempotent |
+| `new repo: init.sh creates setup_tui.sh symlink (not legacy tui.sh)` | post-rename symlink |
+| `new repo: init.sh removes stale tui.sh symlink from earlier versions` | upgrade cleanup |
 | `new repo: build.sh -h works against the generated symlink` | smoke build.sh |
 | `new repo: run.sh -h works against the generated symlink` | smoke run.sh |
 | `new repo: exec.sh -h works against the generated symlink` | smoke exec.sh |
 | `new repo: stop.sh -h works against the generated symlink` | smoke stop.sh |
-| `init.sh --gen-image-conf copies image_name.conf to repo root` | conf gen |
-| `init.sh --gen-image-conf refuses to overwrite existing image_name.conf` | conf safety |
+| `init.sh --gen-conf copies setup.conf to repo root` | setup.conf gen |
+| `init.sh --gen-conf refuses to overwrite existing setup.conf` | overwrite safety |
+| `new repo: .gitignore contains compose.yaml (derived artifact)` | gitignore compose.yaml |
+| `new repo: .gitignore contains .env (derived artifact)` | gitignore .env |
+| `new repo: compose.yaml has AUTO-GENERATED header (produced by setup.sh)` | setup.sh generated compose.yaml |
+| `new repo: per-repo setup.conf not created by default` | template default usage |
+
+### test/integration/fresh_clone_portability_spec.bats (2)
+
+End-to-end verification for the fresh-clone-on-a-different-machine scenario:
+the consumer repo's `setup.conf` has already been committed by another
+contributor and carries either a stale absolute `mount_1` path (the Jetson
+bug) or the portable `${WS_PATH}` form. Runs the real `build.sh` +
+`setup.sh` (no mocks) and asserts the auto-migration / per-machine detection
+pipeline lands a valid `.env` + `compose.yaml`. **Level 1** (no Docker
+invocation — `build.sh --dry-run`).
+
+| Test | Description |
+|------|-------------|
+| `fresh clone with stale absolute mount_1: build.sh auto-migrates + generates local .env` | Stale-path auto-migrate |
+| `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
+
+### test/integration/upgrade_spec.bats (6)
+
+End-to-end verification for `upgrade.sh` driving a real subtree update
+against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
+on a minimal subtree layout) attached to a sandbox downstream repo.
+**Level 1** (no Docker). Exercises the happy path, the pre-flight
+guards, and — most importantly — the destructive-FF rollback path added
+after the Jetson v0.9.7 incident (stubs `git-subtree pull` via
+`GIT_EXEC_PATH` to simulate the bug and asserts the repo is restored).
+
+| Test | Description |
+|------|-------------|
+| `upgrade.sh v0.9.7: bumps template/.version, pulls new content, updates main.yaml` | Happy path |
+| `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
+| `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
+| `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
+| `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
+| `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
