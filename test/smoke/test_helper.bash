@@ -30,6 +30,7 @@ assert_cmd_installed() {
     batslib_print_kv_single 10 "cmd" "${_cmd}" \
       | batslib_decorate "command not found on PATH" \
       | fail
+    return 1
   fi
 }
 
@@ -41,7 +42,7 @@ assert_cmd_installed() {
 assert_cmd_runs() {
   local _cmd="${1:?assert_cmd_runs: missing cmd}"
   local _flag="${2:---version}"
-  assert_cmd_installed "${_cmd}"
+  assert_cmd_installed "${_cmd}" || return 1
   run "${_cmd}" "${_flag}"
   # shellcheck disable=SC2154  # 'status' and 'output' are populated by `run`
   if (( status != 0 )); then
@@ -107,7 +108,7 @@ assert_file_owned_by() {
 # Usage: assert_pip_pkg <pkg>
 assert_pip_pkg() {
   local _pkg="${1:?assert_pip_pkg: missing pkg}"
-  assert_cmd_installed pip
+  assert_cmd_installed pip || return 1
   run pip show "${_pkg}"
   # shellcheck disable=SC2154
   if (( status != 0 )); then

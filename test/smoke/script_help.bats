@@ -93,7 +93,7 @@ setup() {
 }
 
 @test "build.sh SETUP_LANG overrides LANG" {
-  run env LANG=ja_JP.UTF-8 SETUP_LANG=zh bash /lint/build.sh -h
+  run env LANG=ja_JP.UTF-8 SETUP_LANG=zh-TW bash /lint/build.sh -h
   assert_success
   assert_line --partial "用法:"
 }

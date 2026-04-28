@@ -22,10 +22,10 @@ stop: ## Stop and remove containers
 	./stop.sh
 
 upgrade: ## Upgrade template subtree
-	./template/script/upgrade.sh
+	./template/upgrade.sh
 
 upgrade-check: ## Check for template updates
-	./template/script/upgrade.sh --check
+	./template/upgrade.sh --check
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | \

@@ -30,9 +30,12 @@
 ## TL;DR
 
 ```bash
-# 新 repo：加入 subtree + 初始化
+# 從零開始的新 repo：init + 首個 commit + subtree + init.sh
+mkdir <repo_name> && cd <repo_name>
+git init
+git commit --allow-empty -m "chore: initial commit"
 git subtree add --prefix=template \
-    git@github.com:ycpss91255-docker/template.git main --squash
+    https://github.com/ycpss91255-docker/template.git main --squash
 ./template/init.sh
 
 # 升級到最新版
@@ -107,14 +110,18 @@ flowchart LR
 
 | 檔案 | 說明 |
 |------|------|
-| `build.sh` | 建置容器（呼叫 `script/docker/setup.sh` 產生 `.env`） |
-| `run.sh` | 執行容器（支援 X11/Wayland） |
+| `build.sh` | 建置容器（`--setup` 有 TTY 時啟動 `setup_tui.sh`，否則呼叫 `setup.sh`） |
+| `run.sh` | 執行容器（支援 X11/Wayland；`--setup` 語意與 `build.sh` 相同） |
 | `exec.sh` | 進入執行中的容器 |
 | `stop.sh` | 停止並移除容器 |
-| `script/docker/setup.sh` | 自動偵測系統參數並產生 `.env` |
+| `setup_tui.sh` | 互動式 setup.conf 編輯器（dialog / whiptail 前端） |
+| `script/docker/setup.sh` | 自動偵測系統參數並產生 `.env` + `compose.yaml` |
+| `script/docker/_tui_backend.sh` | `setup_tui.sh` 使用的 dialog / whiptail 包裝函式 |
+| `script/docker/_tui_conf.sh` | INI validator + 讀寫邏輯（供 `setup_tui.sh` 及 `setup.sh` 回寫使用） |
 | `script/docker/_lib.sh` | 共用 helper（`_load_env`、`_compose`、`_compose_project` 等） |
 | `script/docker/i18n.sh` | 共用語言偵測（`_detect_lang`、`_LANG`） |
-| `config/` | Shell 設定檔（bashrc、tmux、terminator、pip）+ IMAGE_NAME 規則 |
+| `config/` | Container 內部 shell 設定檔（bashrc、tmux、terminator、pip） |
+| `setup.conf` | 單一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
 | `test/smoke/` | 共用 smoke 測試 + runtime assertion helpers（見下方） |
 | `test/unit/` | Template 自身測試（bats + kcov） |
 | `test/integration/` | Level-1 `init.sh` 整合測試 |
@@ -148,9 +155,7 @@ flowchart LR
 - `test` 永遠從 `devel` 繼承，所以 `test/smoke/<repo>_env.bats` 裡的
   runtime assertion 所看到的二進位與檔案，就是使用者 `docker run ...
   <repo>:devel` 後會看到的內容。
-- `Dockerfile.test-tools` 另外建置一個 `test-tools:local` image（不在
-  上面的階段鏈中），`test` 階段透過 `COPY --from=test-tools:local`
-  把 bats / shellcheck / hadolint 二進位拉進來。
+- `Dockerfile.test-tools` 建置 lint/test 工具集（bats + shellcheck + hadolint）。下游 `test` 階段透過 `ARG TEST_TOOLS_IMAGE` build arg 引用 — 預設 `test-tools:local`（對應本地 `./build.sh` 流程,把 `Dockerfile.test-tools` 建到 host Docker daemon）。CI 則覆寫成 `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（由 `.github/workflows/release-test-tools.yaml` 在每次 tag 推的預建 multi-arch image）,buildx 直接從 registry 拉對應架構的 bats / shellcheck / hadolint binary,避開 `docker-container` buildx driver 跨 step 不共享 image store 的問題。
 
 ### Smoke test helpers（供下游 repo 使用）
 
@@ -178,18 +183,124 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 - `doc/` 和 `README.md`
 - Repo 專屬的 smoke test
 
+## 各 repo runtime 配置
+
+每個下游 repo 透過一個 `setup.conf` INI 檔驅動自己的 runtime 配置
+（GPU 保留、GUI env/volumes、network mode、額外 volume mounts）。
+`setup.sh` 讀它 + 系統偵測後重新產生 `.env` 跟 `compose.yaml`，這
+兩個衍生檔使用者不用動手編輯。
+
+### 單一 conf、6 個 section
+
+```
+[image]    rules = prefix:docker_, suffix:_ws, @default:unknown
+[build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
+[deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
+[gui]      mode (auto|force|off)
+[network]  mode (host|bridge|none)、ipc、privileged
+[volumes]  mount_1（workspace，首次 setup.sh 執行時自動填入）
+           mount_2..mount_N（使用者自訂額外 host mount；/dev 裝置走 path）
+```
+
+Template default 在 `template/setup.conf`；per-repo 覆蓋放 `<repo>/setup.conf`。
+Section-level **replace** 策略：per-repo 檔若有該 section 就整段取代
+template；沒寫的 section 則吃 template 預設。
+
+首次執行 `setup.sh`（尚無 per-repo setup.conf）時，template 檔會被
+複製到 repo，並把偵測到的 workspace 寫入 `[volumes] mount_1`。後續
+執行以 `mount_1` 為真實來源 — 清空該欄即可放棄掛 workspace。編輯方式：
+
+```bash
+./setup_tui.sh                      # 互動式 dialog/whiptail 編輯器
+./setup_tui.sh volumes              # 直接跳到指定 section
+./build.sh --setup            # 有 TTY 時啟動 setup_tui.sh；無 TTY 時執行 setup.sh
+./template/init.sh --gen-conf # 單純複製 template/setup.conf 到 repo 根目錄
+```
+
+### 互動式 TUI
+
+`./setup_tui.sh` 開啟主選單，可編輯 6 個 section 全部的值，底層是
+`dialog` 或 `whiptail`（兩者都缺時會印出 `sudo apt install dialog`
+提示並退出）。按 Cancel / Esc 不存檔離開；存檔後會自動呼叫
+`setup.sh` 重新產生 `.env` + `compose.yaml`。
+
+### setup.sh 什麼時候跑
+
+`setup.sh` 只在明確觸發時才執行 — 並不會在每次 build / run 都重跑：
+
+- **`./template/init.sh`** 建完骨架自動跑一次
+- **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 使用者手動觸發重跑；
+  有 TTY 時先啟動 `setup_tui.sh` 讓使用者修改 `setup.conf`，無 TTY 時直接呼叫 `setup.sh`
+- **首次 bootstrap**：`./build.sh` / `./run.sh` 首次執行（`.env` 尚未存在，
+  例如 CI 新 clone）會自動走相同的 TTY-aware 流程，不用帶 `--setup`
+
+### Drift 偵測
+
+`setup.sh` 把 `SETUP_CONF_HASH`、`SETUP_GUI_DETECTED`、`SETUP_TIMESTAMP`
+寫到 `.env`。每次 `./build.sh` / `./run.sh` 進入時會比對 `setup.conf`
+當前 hash + 系統偵測值，以下任一項改變時印 `[WARNING]`（但不阻擋執行）：
+
+- `setup.conf` 內容（conf hash）
+- GPU / GUI 偵測結果
+- `USER_UID`（使用者身份）
+
+帶 `--setup` 重跑以重新產 `.env` + `compose.yaml`。
+
+### setup.sh 子指令（v0.11.0+）
+
+`setup.sh` 是 git 風格的後端，提供明確的子指令。build / run / TUI 腳本會代為呼叫；直接呼叫適合腳本化／非互動情境：
+
+| 子指令 | 用途 |
+|---|---|
+| `apply` | 從 setup.conf + 系統偵測重新產生 `.env` + `compose.yaml` |
+| `check-drift` | 同步回 0、漂移回 1（漂移描述印到 stderr） |
+| `set <section>.<key> <value>` | 寫單一鍵值 |
+| `show <section>[.<key>]` | 讀單鍵或整 section |
+| `list [<section>]` | INI 風格 dump |
+| `add <section>.<list> <value>` | 加到清單型 section（`mount_*` / `env_*` / `port_*` …）；優先填空 slot，否則用 `max+1` |
+| `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值刪除 |
+| `reset [-y\|--yes]` | 回復 template 預設；舊 `setup.conf` → `setup.conf.bak`、舊 `.env` → `.env.bak` |
+
+有型別的鍵會走 `_tui_conf.sh` 的 validator（與 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**會自動重新產 `.env` — 需要時自行接 `apply`，或下次 `build.sh` / `run.sh` 偵測到 drift 也會自動重產。
+
+#### v0.10.x 升級（BREAKING）
+
+`setup.sh`（無參數）與 `setup.sh --base-path X --lang Y`（無子指令）以前會 silently 走到 `apply`。v0.11.0 拿掉這個 fall-through：
+
+| 呼叫方式 | v0.11 之前 | v0.11+ |
+|---|---|---|
+| `setup.sh` | 跑 apply | 印 help、exit 0 |
+| `setup.sh --base-path X --lang Y` | 跑 apply | exit 1「Unknown subcommand」 |
+| `setup.sh apply [...]` | 跑 apply | 跑 apply（不變） |
+
+下游 repo 若有自定 script 直接呼叫 `setup.sh`，前面加 `apply`。template 內附的 `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` 都已更新。
+
+### 衍生檔（gitignored）
+
+- `.env` — runtime 變數 + `SETUP_*` drift metadata
+- `compose.yaml` — 含 baseline 與條件區塊的完整 compose
+
+任何時候打開 `compose.yaml` 都能看到當下完整 runtime 配置。
+
 ## 快速開始
 
 ### 加入新 repo
 
 ```bash
-# 1. 加入 subtree
-git subtree add --prefix=template \
-    git@github.com:ycpss91255-docker/template.git main --squash
+# 1. 初始化空的 repo（若已有 repo 且至少一個 commit 則跳過）
+mkdir <repo_name> && cd <repo_name>
+git init
+git commit --allow-empty -m "chore: initial commit"
 
-# 2. 初始化 symlinks（一個指令搞定）
+# 2. 加入 subtree
+git subtree add --prefix=template \
+    https://github.com/ycpss91255-docker/template.git main --squash
+
+# 3. 初始化 symlinks（一個指令搞定）
 ./template/init.sh
 ```
+
+> `git subtree add` 需要 `HEAD` 存在。在剛 `git init` 且沒有任何 commit 的 repo 上會報錯 `ambiguous argument 'HEAD'` 與 `working tree has modifications`。用空 commit 建立 `HEAD`，subtree 才能 merge 進來。
 
 ### 升級
 
@@ -201,8 +312,28 @@ make upgrade-check
 make upgrade
 
 # 或指定版本
+make upgrade VERSION=v0.3.0
+
+# 沒有 make 時的 fallback
 ./template/upgrade.sh v0.3.0
 ```
+
+`upgrade.sh` 一次完成：`git subtree pull --squash`、post-pull 完整性檢查（偵測到 destructive FF 會自動 rollback）、`./template/init.sh` 重整 root symlinks、以及 sed `.github/workflows/main.yaml` 裡的 `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z`。不要手動 `git subtree pull` — sed 與 init 步驟很容易漏掉。
+
+#### 自動升版（選用）
+
+下游 repo 可以讓 Dependabot 在 `template` 出新 tag 時自動開 PR。加入 `.github/dependabot.yml`：
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+```
+
+Dependabot 會讀 `main.yaml` 裡的 `uses: ycpss91255-docker/template/...@vX.Y.Z` ref，比對 template 最新 tag 後開 PR。subtree 本身仍需在本地跑 `make upgrade VERSION=vX.Y.Z` — Dependabot 只負責 workflow ref。
 
 ## CI Reusable Workflows
 
@@ -235,6 +366,8 @@ jobs:
 | `image_name` | string | 是 | - | 容器映像名稱 |
 | `build_args` | string | 否 | `""` | 多行 KEY=VALUE 建置參數 |
 | `build_runtime` | boolean | 否 | `true` | 是否建置 runtime stage |
+| `platforms` | string | 否 | `"linux/amd64"` | 逗號分隔的目標平台；每個會在原生 runner 上平行跑（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
+| `test_tools_version` | string | 否 | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` 的 tag，下游可釘到所升級的 template release 以保證可重現 |
 
 ### release-worker.yaml 參數
 
@@ -276,7 +409,10 @@ template/
 │   │   ├── run.sh
 │   │   ├── exec.sh
 │   │   ├── stop.sh
-│   │   ├── setup.sh                  # .env 產生器
+│   │   ├── setup_tui.sh                    # 互動式 setup.conf 編輯器（dialog/whiptail）
+│   │   ├── setup.sh                  # .env + compose.yaml 產生器
+│   │   ├── _tui_backend.sh           # dialog / whiptail 包裝函式
+│   │   ├── _tui_conf.sh              # INI validator + 讀寫
 │   │   ├── _lib.sh                   # 共用 helper（_load_env、_compose、_compose_project）
 │   │   ├── i18n.sh                   # 共用語言偵測（_detect_lang、_LANG）
 │   │   └── Makefile
@@ -285,7 +421,8 @@ template/
 ├── dockerfile/
 │   ├── Dockerfile.test-tools         # 預建置 lint/測試工具 image
 │   └── Dockerfile.example            # 新 repo 的 Dockerfile 範本（sys → base → devel → test → [runtime]）
-├── config/                           # Shell/工具設定 + IMAGE_NAME 規則
+├── setup.conf                        # 單一 runtime 配置（per-repo override: <repo>/setup.conf）
+├── config/                           # Container 內部 shell / 工具設定
 │   ├── image_name.conf               # 預設 IMAGE_NAME 偵測規則
 │   ├── pip/
 │   │   ├── setup.sh

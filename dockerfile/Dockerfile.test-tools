@@ -19,13 +19,26 @@ RUN apk add --no-cache git && \
         https://github.com/jasonkarns/bats-mock   /bats/bats-mock
 
 FROM alpine:latest AS lint-tools
+# TARGETARCH is auto-populated by BuildKit (docker 23+) with "amd64" /
+# "arm64" / etc. Do NOT set a default — a default value shadows
+# BuildKit's auto-inject (moby/buildkit#3403), which caused every
+# multi-arch build of this file to fall back to amd64 and ship
+# x86_64 shellcheck / hadolint inside the arm64 image variant
+# (visible symptom: `shellcheck: Exec format error` on arm64 downstream
+# CI). If invoked outside BuildKit, pass `--build-arg TARGETARCH=<arch>`.
+ARG TARGETARCH
 RUN apk add --no-cache curl xz && \
+    case "${TARGETARCH}" in \
+      amd64)  sc_arch="x86_64";  hd_arch="x86_64" ;; \
+      arm64)  sc_arch="aarch64"; hd_arch="arm64"  ;; \
+      *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
     curl -fsSL \
-        https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz \
+        "https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.${sc_arch}.tar.xz" \
         | tar -xJ -C /tmp && \
-    mv /tmp/shellcheck-v0.10.0/shellcheck /usr/local/bin/shellcheck && \
+    mv "/tmp/shellcheck-v0.10.0/shellcheck" /usr/local/bin/shellcheck && \
     curl -fsSL -o /usr/local/bin/hadolint \
-        https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 && \
+        "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-${hd_arch}" && \
     chmod +x /usr/local/bin/hadolint
 
 FROM alpine:latest

@@ -1,7 +1,13 @@
 # Dockerfile.example - Template for new Docker container repos
 #
 # Copy this file to your repo root as "Dockerfile" and customize.
-# The test-tools image (ShellCheck, Hadolint, Bats) is pre-built by build.sh.
+# The test-tools image (ShellCheck, Hadolint, Bats) is consumed via the
+# TEST_TOOLS_IMAGE build arg. Default `test-tools:local` works for the
+# local `./build.sh` flow (builds Dockerfile.test-tools into the host
+# Docker daemon). CI overrides this to
+# `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z` so buildx can pull the
+# arch-correct pre-built image without the cross-step image-store
+# isolation that broke the old test-tools:local CI pattern.
 #
 # Stages:
 #   sys     - User/group, locale, timezone
@@ -11,6 +17,7 @@
 #   runtime - Minimal runtime image (optional)
 
 ARG BASE_IMAGE="ubuntu:24.04"
+ARG TEST_TOOLS_IMAGE="test-tools:local"
 
 ############################## sys ##############################
 FROM ${BASE_IMAGE} AS sys
@@ -84,7 +91,10 @@ ARG USER="${USER_NAME}"
 ARG GROUP="${USER_GROUP}"
 ARG ENTRYPOINT_FILE="script/entrypoint.sh"
 ARG CONFIG_DIR="/tmp/config"
-ARG CONFIG_SRC="template/config"
+# <repo>/config is a per-repo copy of template/config seeded by
+# init.sh. Edit files there freely; template upgrades do not touch
+# this directory (upgrade.sh prints a diff hint when upstream moves).
+ARG CONFIG_SRC="config"
 
 # Add your application-specific packages here
 # RUN apt-get update && \
@@ -117,25 +127,38 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
 
 ############################## test ##############################
+# Resolves to test-tools:local (local build.sh) or ghcr.io/.../test-tools:vX.Y.Z (CI).
+FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage
+
 FROM devel AS test
 
 USER root
 
-# Lint tools (from pre-built test-tools image)
-COPY --from=test-tools:local /usr/local/bin/shellcheck /usr/local/bin/shellcheck
-COPY --from=test-tools:local /usr/local/bin/hadolint /usr/local/bin/hadolint
+# Lint tools (from pre-built test-tools image; see TEST_TOOLS_IMAGE at top)
+COPY --from=test-tools-stage /usr/local/bin/shellcheck /usr/local/bin/shellcheck
+COPY --from=test-tools-stage /usr/local/bin/hadolint /usr/local/bin/hadolint
 
 # Lint: ShellCheck (.sh) + Hadolint (Dockerfile)
 COPY .hadolint.yaml /lint/.hadolint.yaml
 COPY Dockerfile /lint/Dockerfile
 COPY compose.yaml /lint/compose.yaml
 COPY *.sh /lint/
+# Helpers sourced by the root-level scripts. Must sit next to them so
+# build.sh / run.sh / exec.sh / stop.sh / setup.sh can source _lib.sh
+# (which in turn sources i18n.sh); setup.sh also sources _tui_conf.sh.
+# Issue #104: removing these used to be compensated by inline
+# `_detect_lang` fallbacks in every script — now the canonical
+# definition lives once in i18n.sh.
+COPY template/script/docker/_lib.sh \
+     template/script/docker/i18n.sh \
+     template/script/docker/_tui_conf.sh \
+     /lint/
 RUN shellcheck -S warning /lint/*.sh
 RUN cd /lint && hadolint Dockerfile
 
-# Bats (from pre-built test-tools image)
-COPY --from=test-tools:local /opt/bats /opt/bats
-COPY --from=test-tools:local /usr/lib/bats /usr/lib/bats
+# Bats (from pre-built test-tools image; see TEST_TOOLS_IMAGE at top)
+COPY --from=test-tools-stage /opt/bats /opt/bats
+COPY --from=test-tools-stage /usr/lib/bats /usr/lib/bats
 RUN ln -sf /opt/bats/bin/bats /usr/local/bin/bats
 
 ENV BATS_LIB_PATH="/usr/lib/bats"
