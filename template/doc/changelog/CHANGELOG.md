@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.3] - 2026-04-28
+
+Patch release that completes the test-tools migration started in v0.12.2 (#165 + #164) and fixes a bash 5.3 silent-exit bug in `upgrade.sh --check` exposed by the alpine runner. No breaking changes from v0.12.2.
+
+### Fixed
+- **`upgrade.sh --check` no longer silently dies on alpine** (#168 follow-up). `_get_latest_version`'s pipe (`git ls-remote | grep -oP | head -1 | sed`) ends with `head -1` closing stdin, which SIGPIPE's the upstream `grep -oP`; with `pipefail` set, the pipe inherits that non-zero exit. Bash 5.3 (alpine 3.23 — the test-tools image runner) propagates the failed command-substitution exit through the caller's `set -e` and kills the script before any `_log` line runs; bash 5.2 (debian bookworm — the previous kcov/kcov runner) does not. Symptom was integration test #41 (`upgrade.sh --check reports update available from v0.9.5 → v0.9.7`) failing ~80% of runs on alpine with completely empty output but passing 100% on debian, with identical Dockerfile / upgrade.sh / bats version. Wrapped the pipe in `|| true` so the function unconditionally returns 0; the existing `[[ -z latest_ver ]]` → `_error "Could not fetch ..."` guard in `_check` still surfaces real network failures with a clear message.
+
+### Changed
+- **`compose.yaml` splits the `ci` runner into `ci` (fast) + `coverage` (kcov) services** (#168). The fast `ci` service now uses the prebuilt `ghcr.io/ycpss91255-docker/test-tools:latest` (alpine, with bats / shellcheck / hadolint / bats-{support,assert,mock} / parallel baked in), so `_install_deps` short-circuits via its `command -v bats` guard and no apt-install runs on each `make -f Makefile.ci test`. The `coverage` service stays on `kcov/kcov` and keeps the `APT_MIRROR_DEBIAN` plumbing introduced in v0.12.2 (kcov/kcov is debian-based and still apt-installs bats for the `--coverage` path). `_run_via_compose` takes a service-name first arg so `main()` routes default mode → `ci`, `--coverage` → `coverage`. Override the image with `TEST_TOOLS_IMAGE=...` for local rebuild flows.
+
+### Added
+- **`Dockerfile.test-tools` ships `parallel`** (#168). `bats --jobs N` delegates to GNU parallel; without it bats fails with `parallel: command not found`. `apk add parallel` makes the prebuilt image self-sufficient for the parallel fast-CI path. `release-test-tools.yaml` smoke step extended with `parallel --version` so a missing-parallel regression can't ship silently.
+- **`_run_tests` graceful fallback to serial bats when parallel is missing** (#168). Older test-tools images (v0.12.2 and earlier) ship without parallel; the fallback lets downstream consumers running an older `test-tools:<tag>` still execute the test suite (slower) instead of hard-failing. New images carry parallel, so this fallback is dormant on `:latest`.
+
+## [v0.12.2] - 2026-04-28
+
+Patch release with two related test-tools fixes. No new features, no breaking changes from v0.12.1.
+
+### Fixed
+- **`Dockerfile.test-tools`: bats now runnable in the published image** (#165). The alpine-based final stage was missing `bash` (required by bats's `#!/usr/bin/env bash` entry point) and the `/usr/local/bin/bats` symlink (the upstream `bats/bats:latest` ships it but it lives outside `/opt/bats`, so the existing `COPY --from=bats-src /opt/bats /opt/bats` did not pick it up). `apk add bash` and `ln -s /opt/bats/bin/bats /usr/local/bin/bats` restore both. `release-test-tools.yaml` now runs `bats --version`, `shellcheck --version`, `hadolint --version` against the just-pushed image as a regression guard so a similar break can't ship silently again.
+- **`compose.yaml` / `ci.sh::_install_deps`: `make -f Makefile.ci test` no longer hard-fails on networks where `deb.debian.org` is unreachable** (#164). The kcov/kcov-based `ci` service had no apt-mirror plumbing, so `apt-get update` always pointed at the upstream Debian archive even when the host's TW mirror responded normally. `compose.yaml` now propagates `APT_MIRROR_DEBIAN` (default `deb.debian.org`, no-op when unset) into the container, and `_install_deps` rewrites `/etc/apt/sources.list` (and `sources.list.d/*.list` / `*.sources`) with `sed` before running `apt-get update` whenever the env var differs from the default. Set `APT_MIRROR_DEBIAN=mirror.twds.com.tw` (or any reachable Debian mirror) on the host before invoking `make test` / `make coverage` to opt into the rewrite. The cleaner long-term fix — switching the `ci` service to the published `test-tools` image so the apt-install path is bypassed entirely — is tracked separately and depends on this image rebuild landing first.
+
 ## [v0.12.1] - 2026-04-28
 
 Patch release containing a single bug fix to `upgrade.sh`'s version comparator. No new features, no breaking changes from v0.12.0.

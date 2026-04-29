@@ -15,7 +15,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # Build the test-tools image from THIS PR's Dockerfile so the
+      # self-test exercises the actual changes instead of pulling a
+      # potentially stale ghcr `:latest`. Without this, PRs that touch
+      # Dockerfile.test-tools always run against the previously published
+      # image (chicken-and-egg with release-test-tools.yaml — that
+      # workflow only fires on tag push). Setting TEST_TOOLS_IMAGE
+      # tells compose.yaml's `ci` service to use the local build.
+      - name: Build test-tools:local
+        run: docker build -t test-tools:local -f dockerfile/Dockerfile.test-tools .
+
       - name: Run CI (ShellCheck + Bats + Kcov)
+        env:
+          TEST_TOOLS_IMAGE: test-tools:local
         run: ./script/ci/ci.sh
 
       - name: Upload coverage to Codecov

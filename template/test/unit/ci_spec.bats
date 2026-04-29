@@ -97,6 +97,66 @@ teardown() {
   assert_success
 }
 
+@test "_install_deps: rewrites sources.list when APT_MIRROR_DEBIAN differs from default" {
+  local _log="${BATS_TEST_TMPDIR}/sed.log"
+  # _install_deps gates the sed branch on `[[ -f /etc/apt/sources.list ]]`,
+  # which is true on the previous kcov/kcov debian runner but FALSE on the
+  # alpine test-tools image (no /etc/apt). Materialise the file once if
+  # missing so this regression test is image-agnostic — the goal here is
+  # to verify the sed substitution logic, not the file-existence guard
+  # (the unset/default tests below already cover the no-op branch).
+  if [[ ! -f /etc/apt/sources.list ]]; then
+    mkdir -p /etc/apt
+    : > /etc/apt/sources.list
+  fi
+  mock_cmd "sed" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "apt-get" 'exit 0'
+  mock_cmd "git" 'exit 0'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    export APT_MIRROR_DEBIAN="mirror.twds.com.tw"
+    _install_deps
+  '
+  assert_success
+  assert [ -f "${_log}" ]
+  run cat "${_log}"
+  assert_output --partial "s|deb.debian.org|mirror.twds.com.tw|g"
+}
+
+@test "_install_deps: skips sources.list rewrite when APT_MIRROR_DEBIAN equals default" {
+  mock_cmd "sed" 'echo "sed-should-not-be-called"; exit 1'
+  mock_cmd "apt-get" 'exit 0'
+  mock_cmd "git" 'exit 0'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    export APT_MIRROR_DEBIAN="deb.debian.org"
+    _install_deps
+  '
+  assert_success
+  refute_output --partial "sed-should-not-be-called"
+}
+
+@test "_install_deps: skips sources.list rewrite when APT_MIRROR_DEBIAN unset" {
+  mock_cmd "sed" 'echo "sed-should-not-be-called"; exit 1'
+  mock_cmd "apt-get" 'exit 0'
+  mock_cmd "git" 'exit 0'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    unset APT_MIRROR_DEBIAN
+    _install_deps
+  '
+  assert_success
+  refute_output --partial "sed-should-not-be-called"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_shellcheck
 #
@@ -167,4 +227,138 @@ teardown() {
     _run_shellcheck
   '
   assert_failure
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _run_via_compose / main routing
+#
+# Regression guards for #168: default `ci.sh` (no flag) must hit the
+# alpine `ci` service so the apt-install path is bypassed; `--coverage`
+# must hit the kcov/kcov-based `coverage` service. Mock `docker` so
+# the test captures the chosen service name + COVERAGE env without
+# actually running compose.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_via_compose: routes default mode to the ci service with COVERAGE=0" {
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    _run_via_compose ci 0
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "compose"
+  assert_output --partial "COVERAGE=0"
+  assert_output --partial " ci"
+  refute_output --partial "COVERAGE=1"
+}
+
+@test "_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1" {
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    _run_via_compose coverage 1
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "compose"
+  assert_output --partial "COVERAGE=1"
+  assert_output --partial " coverage"
+}
+
+@test "main: dispatches no-flag default to the ci service" {
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial " ci"
+  assert_output --partial "COVERAGE=0"
+}
+
+@test "_run_tests: passes --jobs N when parallel is on PATH" {
+  local _log="${BATS_TEST_TMPDIR}/bats.log"
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 8'
+  mock_cmd "bats" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    _run_tests
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "--jobs 8"
+}
+
+@test "_run_tests: omits --jobs when parallel is absent (graceful fallback)" {
+  local _log="${BATS_TEST_TMPDIR}/bats.log"
+  # Intentionally NOT mocking `parallel` so command -v misses.
+  mock_cmd "bats" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    _run_tests
+  '
+  assert_success
+  assert_output --partial "serial"
+  assert_output --partial "parallel not in PATH"
+
+  run cat "${_log}"
+  assert_success
+  refute_output --partial "--jobs"
+}
+
+@test "main: dispatches --coverage to the coverage service" {
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --coverage
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial " coverage"
+  assert_output --partial "COVERAGE=1"
 }

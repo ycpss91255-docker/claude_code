@@ -103,10 +103,22 @@ _get_local_version() {
 }
 
 _get_latest_version() {
-  git ls-remote --tags --sort=-v:refname "${TEMPLATE_REMOTE}" \
+  # `head -1` closes stdin after one line, which delivers SIGPIPE to the
+  # upstream `grep -oP`. With `pipefail` set, the pipe inherits that
+  # non-zero exit. Bash 5.3 (alpine 3.23 — the test-tools image runner
+  # introduced in #168) propagates that failed command-substitution exit
+  # through the caller's `set -e` and silently kills the script before
+  # _check's `_log` lines run; bash 5.2 (debian bookworm / kcov-runner)
+  # does not. Wrap the pipe with `|| true` so this function unconditionally
+  # returns 0 — an empty result still funnels into `[[ -z latest_ver ]]`
+  # → `_error "Could not fetch ..."` in _check, so genuine network failures
+  # still surface with a clear message.
+  local _result=""
+  _result=$(git ls-remote --tags --sort=-v:refname "${TEMPLATE_REMOTE}" \
     | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' \
     | head -1 \
-    | sed 's|refs/tags/||'
+    | sed 's|refs/tags/||') || true
+  printf '%s' "${_result}"
 }
 
 # ── Semver comparison ────────────────────────────────────────────────────────

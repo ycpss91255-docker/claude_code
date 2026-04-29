@@ -27,6 +27,7 @@ EOS
   sed -n '/^_verify_subtree_intact() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_semver_cmp() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_check() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_get_latest_version() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
 }
 
 teardown() {
@@ -414,6 +415,55 @@ _mk_subtree_repo() {
   "
   assert_failure
   assert_output --partial "Update available: v0.12.0-rc1 →v0.12.0"
+}
+
+# ── _get_latest_version: errexit / pipefail safety ──────────────────────────
+#
+# Bash 5.3 (alpine 3.23 — the test-tools image runner from #168)
+# propagates non-zero command-substitution exits through the caller's
+# `set -e`; bash 5.2 (debian bookworm — the previous kcov/kcov runner)
+# does not. The pipe inside _get_latest_version uses `head -1` which
+# closes stdin after one line, SIGPIPE'ing the upstream `grep -oP`;
+# with `pipefail` set, the pipe inherits that non-zero exit. Without
+# the `|| true` workaround, alpine consumers saw integration test #41
+# (`upgrade.sh --check`) silently fail with empty output (~80% of
+# runs) — script died at `latest_ver=$(...)` before the first _log
+# line. Lock the workaround in place so a future refactor that drops
+# the `|| true` is caught here, not in CI.
+
+@test "_get_latest_version: returns 0 even when internal pipe fails (bash 5.3 set-e safety)" {
+  run bash -c "
+    set -euo pipefail
+    source '${HARNESS}'
+    TEMPLATE_REMOTE='fake'
+
+    # Force a non-zero pipe exit by failing the inner-most stage. Same
+    # shape as the SIGPIPE-from-head-1 scenario — pipefail catches the
+    # non-zero exit either way.
+    git()  { return 1; }
+
+    _get_latest_version
+    echo 'reached after _get_latest_version, rc=0'
+  "
+  assert_success
+  assert_output --partial "reached after _get_latest_version, rc=0"
+}
+
+@test "_get_latest_version: empty result feeds _check's 'Could not fetch' guard" {
+  # Sanity: when the function returns nothing, _check still surfaces
+  # the genuine failure mode via the existing emptiness guard. Without
+  # this companion check, the `|| true` could silently mask real
+  # network outages.
+  run bash -c "
+    source '${HARNESS}'
+    TEMPLATE_REMOTE='fake'
+
+    _get_local_version() { echo v0.9.5; }
+    _get_latest_version() { :; }
+    _check
+  "
+  assert_failure
+  assert_output --partial "Could not fetch latest version from fake"
 }
 
 # ── _upgrade refuses implicit downgrade ─────────────────────────────────────
