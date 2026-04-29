@@ -13,3 +13,5 @@ compose.yaml
 setup.conf.bak
 coverage/
 .Dockerfile.generated
+
+setup.conf
