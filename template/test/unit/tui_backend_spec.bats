@@ -132,7 +132,12 @@ EOF
   assert_output "3"
 }
 
-@test "_tui_menu forwards --extra-button / --extra-label when TUI_EXTRA_LABEL set" {
+@test "_tui_menu never emits --extra-button on dialog even when TUI_EXTRA_LABEL is set (#178)" {
+  # Issue #178 — TUI_EXTRA_LABEL is no longer plumbed through to either
+  # backend. setup_tui.sh injects a synthetic `__save` menu entry instead,
+  # giving identical UX across dialog / whiptail. _tui_menu must therefore
+  # ignore TUI_EXTRA_LABEL completely (used to forward `--extra-button` on
+  # dialog, kept only as a no-op alias for backwards-compat in env).
   _install_stub dialog
   TUI_BACKEND="dialog"
   export TUI_EXTRA_LABEL="Save & Exit"
@@ -140,12 +145,12 @@ EOF
   run _tui_menu "Title" "Pick" tagA LabelA tagB LabelB
   assert_success
   run cat "${TUI_LOG}"
-  assert_output --partial "--extra-button"
-  assert_output --partial "Save & Exit"
+  refute_output --partial "--extra-button"
+  refute_output --partial "--extra-label"
   unset TUI_EXTRA_LABEL
 }
 
-@test "_tui_menu omits --extra-button when TUI_EXTRA_LABEL unset" {
+@test "_tui_menu still omits --extra-button when TUI_EXTRA_LABEL is unset" {
   _install_stub dialog
   TUI_BACKEND="dialog"
   unset TUI_EXTRA_LABEL
@@ -176,17 +181,6 @@ EOF
   run _tui_menu "Title" "Pick" tagA LabelA
   run cat "${TUI_LOG}"
   refute_output --partial "--no-tags"
-}
-
-@test "_tui_menu propagates backend exit code 3 (extra button / save signal)" {
-  _install_stub dialog
-  TUI_BACKEND="dialog"
-  export TUI_EXTRA_LABEL="Save & Exit"
-  export TUI_STUB_EXIT="3"
-  run _tui_menu "Title" "Pick" tagA LabelA
-  [ "${status}" -eq 3 ]
-  unset TUI_EXTRA_LABEL
-  export TUI_STUB_EXIT=
 }
 
 @test "_tui_menu forwards --ok-label when TUI_OK_LABEL set" {
@@ -336,14 +330,17 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# whiptail flag-spelling compatibility (#136)
+# whiptail flag-spelling compatibility (#136) + Save-button unification (#178)
 #
 # whiptail rejects dialog's --ok-label / --cancel-label spellings (its
-# equivalents are --ok-button / --cancel-button) and has no
-# --extra-button / --extra-label at all. _tui_run / _tui_menu must
-# translate these per ${TUI_BACKEND} so whiptail-only hosts (Ubuntu
-# 22.04 minimal, Jetson arm64) don't abort with `unknown option` on
-# the very first menu.
+# equivalents are --ok-button / --cancel-button). _tui_run translates
+# these per ${TUI_BACKEND} so whiptail-only hosts (Ubuntu 22.04 minimal,
+# Jetson arm64) don't abort with `unknown option` on the very first menu.
+#
+# whiptail also has no --extra-button / --extra-label at all (newt
+# library limitation). After #178 dialog stops using them too, so the
+# Save & Exit affordance lives in the menu body for both backends; the
+# tests below pin both halves of that contract.
 # ════════════════════════════════════════════════════════════════════
 
 @test "_tui_run forwards --ok-button / --cancel-button spelling on whiptail" {
@@ -423,6 +420,8 @@ EOF
 }
 
 @test "_tui_menu omits --extra-button / --extra-label on whiptail even when TUI_EXTRA_LABEL is set" {
+  # whiptail has no --extra-button at all (newt limitation). This test
+  # has held since #136 and remains valid after #178.
   _install_stub whiptail
   TUI_BACKEND="whiptail"
   export TUI_EXTRA_LABEL="Save"
@@ -432,19 +431,5 @@ EOF
   run cat "${TUI_LOG}"
   refute_output --partial "--extra-button"
   refute_output --partial "--extra-label"
-  unset TUI_EXTRA_LABEL
-}
-
-@test "_tui_menu still emits --extra-button / --extra-label on dialog when TUI_EXTRA_LABEL is set" {
-  _install_stub dialog
-  TUI_BACKEND="dialog"
-  export TUI_EXTRA_LABEL="Save"
-  export TUI_STUB_RESPONSE="tagA"
-  run _tui_menu "Title" "Pick" tagA LabelA
-  assert_success
-  run cat "${TUI_LOG}"
-  assert_output --partial "--extra-button"
-  assert_output --partial "--extra-label"
-  assert_output --partial "Save"
   unset TUI_EXTRA_LABEL
 }

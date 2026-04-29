@@ -23,7 +23,7 @@ upgrade: ## Upgrade template subtree (optional VERSION=vX.Y.Z; defaults to lates
 	./upgrade.sh $(VERSION)
 
 upgrade-check: ## Check if a newer template version is available
-	./upgrade.sh --check
+	@./upgrade.sh --check || [ $$? -eq 1 ]
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 

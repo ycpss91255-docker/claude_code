@@ -28,6 +28,9 @@ readonly REPO_ROOT
 TEMPLATE_REL="template"
 readonly TEMPLATE_REL
 
+# shellcheck disable=SC1091
+source "${TEMPLATE_DIR}/script/docker/lib/gitignore.sh"
+
 _log() { printf "[init] %s\n" "$*"; }
 
 # ── Symlink helper ──────────────────────────────────────────────────────────
@@ -210,17 +213,10 @@ jobs:
 YAML
   _log "  Created .github/workflows/main.yaml"
 
-  # .gitignore (compose.yaml + .env are setup.sh-generated artifacts;
-  # *.bak siblings are written by `./template/init.sh --gen-conf --force`
-  # on a reset-conf, see #124 / issue #60 — keep them local-only.)
-  cat > .gitignore <<'GIT'
-.env
-.env.bak
-compose.yaml
-setup.conf.bak
-coverage/
-.Dockerfile.generated
-GIT
+  # .gitignore: source canonical set from lib/gitignore.sh so future
+  # template-added derived artifacts propagate via the existing-repo
+  # sync path on next upgrade (#172).
+  _sync_gitignore "${REPO_ROOT}/.gitignore"
   _log "  Created .gitignore"
 
   # doc/
@@ -279,6 +275,17 @@ MD
 _init_existing_repo() {
   _log "Existing repo detected (Dockerfile found)"
   _create_symlinks
+  _sync_existing_gitignore
+}
+
+# _sync_existing_gitignore
+#   On existing-repo init / upgrade, append any canonical entries the
+#   user's .gitignore is missing AND `git rm --cached` any tracked
+#   files that have since become derived artifacts. Heals the 15-repo
+#   drift documented in #172 in one shot — no separate sweep PR needed.
+_sync_existing_gitignore() {
+  _sync_gitignore "${REPO_ROOT}/.gitignore"
+  _untrack_canonical_in_repo "${REPO_ROOT}"
 }
 
 # ── Generate per-repo setup.conf ────────────────────────────────────────────

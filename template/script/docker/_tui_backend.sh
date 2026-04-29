@@ -116,26 +116,24 @@ _tui_inputbox() {
 # _tui_menu <title> <prompt> <tag1> <label1> [<tag2> <label2> ...]
 #
 # Env var hooks (all optional):
-#   TUI_EXTRA_LABEL    add `--extra-button --extra-label <text>` (exit 3)
 #   TUI_OK_LABEL / TUI_CANCEL_LABEL — handled globally in `_tui_run`
+#   TUI_NO_TAGS — when set, hide the tag column (`--no-tags`)
 # Return codes:
 #   0 → OK (echoed tag is the selected menu entry)
 #   1 → Cancel
-#   3 → Extra button (commonly used for "Save & Exit")
 #   Other non-zero → Esc or backend error
+#
+# Note: the legacy `TUI_EXTRA_LABEL` hook (which forwarded
+# `--extra-button --extra-label` on dialog and produced exit 3) was
+# removed in #178. dialog supported it; whiptail did not (newt has no
+# third button at all). The UX divergence broke shared screenshots and
+# docs, so callers now inject a synthetic menu entry (e.g. `__save`)
+# instead, giving identical layout across backends.
 _tui_menu() {
   _tui_guard || return $?
   local _title="${1}" _prompt="${2}"; shift 2
   local _n_items=$(( $# / 2 ))
   local -a _extra_args=()
-  # whiptail has no --extra-button / --extra-label equivalent at all
-  # (it only renders OK + Cancel). Emitting these flags makes whiptail
-  # error out with `unknown option`, so on whiptail we silently skip
-  # this block and leave the Save & Exit affordance to the caller
-  # (setup_tui.sh injects a synthetic menu entry as fallback). #136.
-  if [[ "${TUI_BACKEND}" != "whiptail" && -n "${TUI_EXTRA_LABEL:-}" ]]; then
-    _extra_args+=(--extra-button --extra-label "${TUI_EXTRA_LABEL}")
-  fi
   if [[ -n "${TUI_NO_TAGS:-}" ]]; then
     # Hide the tag column (keeps the tag as the return value, but only
     # labels render on-screen — useful for list editors where the tag
@@ -180,9 +178,8 @@ _tui_select() {
   local _n_items=$(( ${#_menu_args[@]} / 2 ))
   local -a _dflt_args=()
   [[ -n "${_default_tag}" ]] && _dflt_args=(--default-item "${_default_tag}")
-  # Bypass _tui_menu (which applies TUI_EXTRA_LABEL) because sub-section
-  # selectors have no Save & Exit button. OK/Cancel labels still apply
-  # via _tui_run.
+  # Bypass _tui_menu so sub-section selectors are pure --menu calls.
+  # OK/Cancel labels still apply via _tui_run.
   _tui_run "${_dflt_args[@]}" --title "${_title}" --menu "${_prompt}" \
     "${TUI_HEIGHT}" "${TUI_WIDTH}" "${_n_items}" "${_menu_args[@]}"
 }

@@ -88,4 +88,10 @@ jobs:
           docker run --rm "${image}" hadolint --version
           docker run --rm "${image}" parallel --version
           docker run --rm "${image}" git --version
-          docker run --rm "${image}" git subtree --help >/dev/null  # presence check (no --version flag)
+          docker run --rm "${image}" make --version
+          # `git subtree --help` would invoke `man git-subtree`, but alpine
+          # ships no man viewer in the test-tools image (and we don't want
+          # to install one just for this smoke check). Confirm the binary
+          # exists at git's exec-path instead — same regression-detection
+          # value, no man dependency.
+          docker run --rm "${image}" sh -c 'test -f "$(git --exec-path)/git-subtree"'

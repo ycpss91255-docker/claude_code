@@ -1124,3 +1124,88 @@ _b_swap_setup() {
   [ "${#_TUI_OVR_KEYS[@]}" -eq 0 ]
   [ "${#_TUI_REMOVED[@]}" -eq 0 ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _edit_image_rule __remove — index compaction (#177)
+#
+# Removing rule_n must shift rule_(n+1) .. rule_max down by one, so
+# the user always sees consecutive indices and the next "add"
+# allocates max+1 without leaving a gap.
+# ════════════════════════════════════════════════════════════════════
+
+_b_remove_setup() {
+  export _LANG="en"
+  # shellcheck disable=SC1091
+  source /source/script/docker/setup_tui.sh
+  _tui_init_lang
+  _TUI_OVR_KEYS=()
+  _TUI_OVR_VALUES=()
+  _TUI_REMOVED=()
+  _TUI_CURRENT=()
+}
+
+@test "_edit_image_rule __remove first rule shifts later rules down" {
+  _b_remove_setup
+  _TUI_CURRENT[image.rule_1]="prefix:docker_"
+  _TUI_CURRENT[image.rule_2]="@basename"
+  _TUI_CURRENT[image.rule_3]="@default:fallback"
+
+  _tui_select() { printf '__remove'; }
+  _edit_image_rule 1
+
+  local _v1 _v2 _v3
+  _v1="$(_override_get "image.rule_1" "")"
+  _v2="$(_override_get "image.rule_2" "")"
+  _v3="$(_override_get "image.rule_3" "")"
+  [ "${_v1}" == "@basename" ]
+  [ "${_v2}" == "@default:fallback" ]
+  [ -z "${_v3}" ]
+}
+
+@test "_edit_image_rule __remove middle rule shifts higher rules down" {
+  _b_remove_setup
+  _TUI_CURRENT[image.rule_1]="prefix:docker_"
+  _TUI_CURRENT[image.rule_2]="@basename"
+  _TUI_CURRENT[image.rule_3]="@default:fallback"
+
+  _tui_select() { printf '__remove'; }
+  _edit_image_rule 2
+
+  local _v1 _v2 _v3
+  _v1="$(_override_get "image.rule_1" "")"
+  _v2="$(_override_get "image.rule_2" "")"
+  _v3="$(_override_get "image.rule_3" "")"
+  [ "${_v1}" == "prefix:docker_" ]
+  [ "${_v2}" == "@default:fallback" ]
+  [ -z "${_v3}" ]
+}
+
+@test "_edit_image_rule __remove last rule needs no shift" {
+  _b_remove_setup
+  _TUI_CURRENT[image.rule_1]="prefix:docker_"
+  _TUI_CURRENT[image.rule_2]="@basename"
+  _TUI_CURRENT[image.rule_3]="@default:fallback"
+
+  _tui_select() { printf '__remove'; }
+  _edit_image_rule 3
+
+  local _v1 _v2 _v3
+  _v1="$(_override_get "image.rule_1" "")"
+  _v2="$(_override_get "image.rule_2" "")"
+  _v3="$(_override_get "image.rule_3" "")"
+  [ "${_v1}" == "prefix:docker_" ]
+  [ "${_v2}" == "@basename" ]
+  [ -z "${_v3}" ]
+}
+
+@test "_edit_image_rule __remove sole rule just removes" {
+  _b_remove_setup
+  _TUI_CURRENT[image.rule_1]="@basename"
+
+  _tui_select() { printf '__remove'; }
+  _edit_image_rule 1
+
+  local _v1
+  _v1="$(_override_get "image.rule_1" "")"
+  [ -z "${_v1}" ]
+}

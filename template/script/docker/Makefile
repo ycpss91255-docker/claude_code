@@ -25,7 +25,7 @@ upgrade: ## Upgrade template subtree
 	./template/upgrade.sh
 
 upgrade-check: ## Check for template updates
-	./template/upgrade.sh --check
+	@./template/upgrade.sh --check || [ $$? -eq 1 ]
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | \
