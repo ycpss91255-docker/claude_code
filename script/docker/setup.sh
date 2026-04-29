@@ -56,8 +56,8 @@ _setup_msg() {
         reset_aborted)    echo "已取消，未變更任何檔案" ;;
         reset_done)       echo "setup.conf 已重設為模板預設值（先前內容備份於 .bak）" ;;
         reset_needs_yes)  echo "非互動模式：請加 --yes 才會執行 reset（避免誤刪）" ;;
-        info_no_repo_conf) echo "未找到 repo 自有的 setup.conf — 全部 section 將使用模板預設值" ;;
-        info_empty_repo_conf) echo "repo 的 setup.conf 沒有任何 section 覆寫 — 全部 section 將使用模板預設值" ;;
+        warn_no_repo_conf) echo "未找到 repo 自有的 setup.conf — 全部 section 將使用模板預設值" ;;
+        warn_empty_repo_conf) echo "repo 的 setup.conf 沒有任何 section 覆寫 — 全部 section 將使用模板預設值" ;;
       esac ;;
     zh-CN)
       case "${_key}" in
@@ -78,8 +78,8 @@ _setup_msg() {
         reset_aborted)    echo "已取消，未更改任何文件" ;;
         reset_done)       echo "setup.conf 已重置为模板默认值（之前内容备份至 .bak）" ;;
         reset_needs_yes)  echo "非交互模式：请加 --yes 才会执行 reset（避免误删）" ;;
-        info_no_repo_conf) echo "未找到 repo 自有的 setup.conf — 全部 section 将使用模板默认值" ;;
-        info_empty_repo_conf) echo "repo 的 setup.conf 没有任何 section 覆写 — 全部 section 将使用模板默认值" ;;
+        warn_no_repo_conf) echo "未找到 repo 自有的 setup.conf — 全部 section 将使用模板默认值" ;;
+        warn_empty_repo_conf) echo "repo 的 setup.conf 没有任何 section 覆写 — 全部 section 将使用模板默认值" ;;
       esac ;;
     ja)
       case "${_key}" in
@@ -100,8 +100,8 @@ _setup_msg() {
         reset_aborted)    echo "中断されました。ファイルは変更されていません" ;;
         reset_done)       echo "setup.conf をテンプレートのデフォルトにリセットしました（旧内容は .bak に保存）" ;;
         reset_needs_yes)  echo "非対話モード: --yes を指定しないと reset は実行されません（誤削除防止）" ;;
-        info_no_repo_conf) echo "repo 固有の setup.conf が見つかりません — 全ての section でテンプレートのデフォルト値を使用します" ;;
-        info_empty_repo_conf) echo "repo の setup.conf にセクション上書きがありません — 全ての section でテンプレートのデフォルト値を使用します" ;;
+        warn_no_repo_conf) echo "repo 固有の setup.conf が見つかりません — 全ての section でテンプレートのデフォルト値を使用します" ;;
+        warn_empty_repo_conf) echo "repo の setup.conf にセクション上書きがありません — 全ての section でテンプレートのデフォルト値を使用します" ;;
       esac ;;
     *)
       case "${_key}" in
@@ -122,8 +122,8 @@ _setup_msg() {
         reset_aborted)    echo "Aborted; no files changed" ;;
         reset_done)       echo "setup.conf reset to template default (prior contents saved to .bak)" ;;
         reset_needs_yes)  echo "Non-interactive: pass --yes to confirm reset (prevents accidental destruction)" ;;
-        info_no_repo_conf) echo "no per-repo setup.conf — using template defaults for all sections" ;;
-        info_empty_repo_conf) echo "per-repo setup.conf has no section overrides — using template defaults for all sections" ;;
+        warn_no_repo_conf) echo "no per-repo setup.conf — using template defaults for all sections" ;;
+        warn_empty_repo_conf) echo "per-repo setup.conf has no section overrides — using template defaults for all sections" ;;
       esac ;;
   esac
 }
@@ -1378,12 +1378,14 @@ _setup_check_drift() {
 # ════════════════════════════════════════════════════════════════════
 # _announce_template_default_fallback <base_path>
 #
-# Surface a one-shot INFO when the per-repo setup.conf provides no
+# Surface a one-shot WARN when the per-repo setup.conf provides no
 # overrides — either missing entirely or present but containing no
 # [section] headers. Called from both `_setup_apply` and
 # `_setup_check_drift` so build.sh / run.sh's drift-check rebuild path
 # also surfaces the heads-up (closes #157, follow-up to #150 / #153).
-# Emitted to stderr to keep stdout machine-parseable.
+# Emitted to stderr to keep stdout machine-parseable. #186 promoted
+# the level from INFO to WARN so the notice doesn't scroll past
+# unnoticed in normal build.sh / run.sh output.
 # ════════════════════════════════════════════════════════════════════
 _announce_template_default_fallback() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
@@ -1391,9 +1393,9 @@ _announce_template_default_fallback() {
   # not the derived snapshot.
   local _repo_local="${_base}/setup.conf.local"
   if [[ ! -f "${_repo_local}" ]]; then
-    printf "[setup] INFO: %s\n" "$(_setup_msg info_no_repo_conf)" >&2
+    printf "[setup] WARN: %s\n" "$(_setup_msg warn_no_repo_conf)" >&2
   elif ! grep -qE '^[[:space:]]*\[[^]]+\]' "${_repo_local}"; then
-    printf "[setup] INFO: %s\n" "$(_setup_msg info_empty_repo_conf)" >&2
+    printf "[setup] WARN: %s\n" "$(_setup_msg warn_empty_repo_conf)" >&2
   fi
 }
 

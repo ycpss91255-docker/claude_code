@@ -891,22 +891,25 @@ EOF
 # ── Per-repo setup.conf missing / empty INFO (issue #150) ────────────────
 # When the per-repo setup.conf is absent, or present but has no section
 # headers, every _load_setup_conf call falls back to the template default.
-# That fallback used to be silent — surfacing one INFO line at apply()
+# That fallback used to be silent — surfacing one WARN line at apply()
 # entry tells the user the entire run is template-default driven, without
-# spamming an INFO per section (11 sections would be noisy).
+# spamming a notice per section (11 sections would be noisy). #186
+# promoted this from INFO to WARN so the heads-up doesn't scroll past.
 
-@test "apply prints INFO when per-repo setup.conf is missing" {
+@test "apply prints WARN when per-repo setup.conf is missing (#186)" {
   # No TEMP_DIR/setup.conf created — apply should fall back to template
-  # default and announce it once on stderr.
+  # default and announce it once on stderr at WARN level.
   run bash -c "
     source /source/script/docker/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
+  assert_output --partial "[setup] WARN:"
   assert_output --partial "no per-repo setup.conf"
+  refute_output --partial "[setup] INFO:"
 }
 
-@test "apply prints INFO when per-repo setup.conf has no section headers" {
+@test "apply prints WARN when per-repo setup.conf has no section headers (#186)" {
   # Comments-only file counts as effectively empty: nothing to override.
   cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 # only comments, no [section] headers
@@ -917,6 +920,7 @@ EOF
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
+  assert_output --partial "[setup] WARN:"
   assert_output --partial "per-repo setup.conf has no section"
 }
 
@@ -936,12 +940,13 @@ EOF
   refute_output --partial "per-repo setup.conf has no section"
 }
 
-@test "apply --lang zh-TW prints INFO in Traditional Chinese when setup.conf missing" {
+@test "apply --lang zh-TW prints WARN in Traditional Chinese when setup.conf missing (#186)" {
   run bash -c "
     source /source/script/docker/setup.sh
     main apply --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
   "
   assert_success
+  assert_output --partial "[setup] WARN:"
   assert_output --partial "未找到"
 }
 
@@ -1052,7 +1057,7 @@ EOF
   assert_output --partial "drift detected"
 }
 
-@test "check-drift prints INFO when per-repo setup.conf is missing" {
+@test "check-drift prints WARN when per-repo setup.conf is missing (#186)" {
   # No TEMP_DIR/setup.conf created — check-drift should announce the
   # template-default fallback the same way `apply` does, so users
   # running the build.sh drift-check path see the heads-up too.
@@ -1060,10 +1065,11 @@ EOF
     source /source/script/docker/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
+  assert_output --partial "[setup] WARN:"
   assert_output --partial "no per-repo setup.conf"
 }
 
-@test "check-drift prints INFO when per-repo setup.conf has no section headers" {
+@test "check-drift prints WARN when per-repo setup.conf has no section headers (#186)" {
   cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 # only comments, no [section] headers
 EOF
@@ -1071,6 +1077,7 @@ EOF
     source /source/script/docker/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
+  assert_output --partial "[setup] WARN:"
   assert_output --partial "per-repo setup.conf has no section"
 }
 
@@ -1087,11 +1094,12 @@ EOF
   refute_output --partial "per-repo setup.conf has no section"
 }
 
-@test "check-drift --lang zh-TW prints INFO in Traditional Chinese when setup.conf missing" {
+@test "check-drift --lang zh-TW prints WARN in Traditional Chinese when setup.conf missing (#186)" {
   run bash -c "
     source /source/script/docker/setup.sh
     main check-drift --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
   "
+  assert_output --partial "[setup] WARN:"
   assert_output --partial "未找到"
 }
 
