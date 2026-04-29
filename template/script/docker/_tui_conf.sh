@@ -341,9 +341,21 @@ _write_setup_conf() {
   # Silence unused-nameref warning; the declaration is part of the API.
   : "${_wsc_sections[*]:-}"
 
-  local __line __current="" __k __rest
-  : > "${_dst}"
+  # #187: setup_tui's `_commit_and_setup` passes the same path for dst
+  # and tpl when the per-repo file already exists. Truncating dst before
+  # reading from tpl (the original `: > "${_dst}"` followed by `done <
+  # "${_tpl}"`) collapses the read to zero lines under that aliasing and
+  # silently destroys the user's config. Slurp the template into memory
+  # first so the subsequent truncate-and-rewrite is safe regardless of
+  # whether dst and tpl are distinct files.
+  local -a __tpl_lines=()
   while IFS= read -r __line || [[ -n "${__line}" ]]; do
+    __tpl_lines+=("${__line}")
+  done < "${_tpl}"
+
+  local __current="" __k __rest
+  : > "${_dst}"
+  for __line in "${__tpl_lines[@]}"; do
     if [[ "${__line}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
       # Flush not-yet-emitted overrides belonging to the section we are
       # about to leave (those are "added" keys with no template line).
@@ -383,7 +395,7 @@ _write_setup_conf() {
       fi
     fi
     printf '%s\n' "${__line}" >> "${_dst}"
-  done < "${_tpl}"
+  done
 
   # Flush leftovers belonging to the final section
   if [[ -n "${__current}" ]]; then

@@ -30,13 +30,14 @@ teardown() {
 # _canonical_gitignore_entries
 # ════════════════════════════════════════════════════════════════════
 
-@test "_canonical_gitignore_entries: emits exactly the 6 canonical lines" {
+@test "_canonical_gitignore_entries: emits exactly the 7 canonical lines" {
   run _canonical_gitignore_entries
   assert_success
   assert_output - <<'EXPECTED'
 .env
 .env.bak
 compose.yaml
+setup.conf
 setup.conf.bak
 coverage/
 .Dockerfile.generated
@@ -87,6 +88,7 @@ EXPECTED
 .env
 .env.bak
 compose.yaml
+setup.conf
 setup.conf.bak
 coverage/
 .Dockerfile.generated

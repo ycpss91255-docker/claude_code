@@ -172,7 +172,7 @@ fi'
   # template's baseline (SYS_ADMIN / NET_ADMIN / MKNOD) so the container
   # does not silently drop to Docker's stripped-down default capability
   # set.
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [security]
 privileged = false
 EOF
@@ -191,7 +191,7 @@ EOF
 }
 
 @test "[security] security_opt_* fallback: missing security_opt_* uses template defaults" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [security]
 privileged = false
 EOF
@@ -208,7 +208,7 @@ EOF
 @test "[security] cap_add_* explicit override: user-provided list is honored (no template fallback)" {
   # User set cap_add_1=ALL explicitly: compose should use THAT, not the
   # template's SYS_ADMIN/NET_ADMIN/MKNOD.
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [security]
 privileged = false
 cap_add_1 = ALL
@@ -363,8 +363,8 @@ EOF
   assert_equal "${_v[0]}" "off"
 }
 
-@test "_load_setup_conf uses per-repo setup.conf when section present" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+@test "_load_setup_conf uses per-repo setup.conf.local when section present (#174)" {
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [gpu]
 mode = force
 EOF
@@ -374,9 +374,9 @@ EOF
   assert_equal "${_v[0]}" "force"
 }
 
-@test "_load_setup_conf falls back to template when section absent per-repo" {
-  # Per-repo file has [gpu] but NOT [gui]
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+@test "_load_setup_conf falls back to template when section absent per-repo (#174)" {
+  # Per-repo .local has [gpu] but NOT [gui]
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [gpu]
 mode = force
 EOF
@@ -387,9 +387,9 @@ EOF
   assert_equal "${_v[0]}" "auto"
 }
 
-@test "_load_setup_conf replace strategy: per-repo section fully replaces template section" {
-  # Template [gpu] has mode+count+capabilities; per-repo only sets mode=off
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+@test "_load_setup_conf replace strategy: per-repo .local section fully replaces template section (#174)" {
+  # Template [gpu] has mode+count+capabilities; .local only sets mode=off
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [gpu]
 mode = off
 EOF
@@ -399,6 +399,25 @@ EOF
   # Replace strategy: only "mode" — no count, no capabilities inherited
   assert_equal "${#_k[@]}" "1"
   assert_equal "${_k[0]}" "mode"
+}
+
+@test "_load_setup_conf ignores derived setup.conf when setup.conf.local exists (#174)" {
+  # Both files present — only .local should drive the read. setup.conf
+  # is the materialized output; reads must not depend on it.
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
+[gpu]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[gpu]
+mode = off
+count = 0
+EOF
+  unset SETUP_CONF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
+  assert_equal "${#_k[@]}" "1"
+  assert_equal "${_v[0]}" "force"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -607,7 +626,7 @@ EOF
 }
 
 @test "detect_image_name honors per-repo setup.conf [image] rules" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [image]
 rule_1 = prefix:foo_
 rule_2 = @basename
@@ -619,7 +638,7 @@ EOF
 }
 
 @test "detect_image_name rules apply in order (first match wins)" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [image]
 rule_1 = prefix:docker_
 rule_2 = suffix:_ws
@@ -633,7 +652,7 @@ EOF
 }
 
 @test "detect_image_name @default:<value> used when no rule matches" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [image]
 rule_1 = prefix:nonexistent_
 rule_2 = @default:myfallback
@@ -652,7 +671,7 @@ EOF
 }
 
 @test "detect_image_name returns unknown when no rule matches and no @default" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [image]
 rule_1 = prefix:nonexistent_
 EOF
@@ -716,7 +735,7 @@ EOF
 @test "_compute_conf_hash differs when per-repo setup.conf changes" {
   local _h1 _h2
   _compute_conf_hash "${TEMP_DIR}" _h1
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [gpu]
 mode = off
 EOF
@@ -806,7 +825,7 @@ EOF
   detect_gpu() { local -n _o=$1; _o="false"; }
 
   # Drop in a new per-repo setup.conf → hash differs
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [gpu]
 mode = off
 EOF
@@ -860,7 +879,7 @@ EOF
 }
 
 @test "apply --lang zh-TW sets Chinese messages for full run" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run bash -c "
     source /source/script/docker/setup.sh
     main apply --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
@@ -889,7 +908,7 @@ EOF
 
 @test "apply prints INFO when per-repo setup.conf has no section headers" {
   # Comments-only file counts as effectively empty: nothing to override.
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 # only comments, no [section] headers
 # template defaults apply for every section
 EOF
@@ -904,7 +923,7 @@ EOF
 @test "apply stays silent when per-repo setup.conf has at least one section" {
   # Partial override is normal usage — don't INFO-spam users who edited
   # only one section.
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [gpu]
 mode = auto
 EOF
@@ -972,7 +991,7 @@ EOF
 }
 
 @test "main apply subcommand regenerates .env + compose.yaml" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run bash -c "
     source /source/script/docker/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -1023,7 +1042,7 @@ EOF
   detect_gui() { local -n _o=$1; _o="false"; }
   detect_gpu() { local -n _o=$1; _o="false"; }
 
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [gpu]
 mode = off
 EOF
@@ -1045,7 +1064,7 @@ EOF
 }
 
 @test "check-drift prints INFO when per-repo setup.conf has no section headers" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 # only comments, no [section] headers
 EOF
   run bash -c "
@@ -1056,7 +1075,7 @@ EOF
 }
 
 @test "check-drift stays silent when per-repo setup.conf has at least one section" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [gpu]
 mode = auto
 EOF
@@ -1095,7 +1114,9 @@ EOF
   bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" apply \
     --base-path "${TEMP_DIR}/sandbox" >/dev/null 2>&1
 
-  cat > "${TEMP_DIR}/sandbox/setup.conf" <<'EOF'
+  # #174: drift hash covers template + setup.conf.local. Mutating .local
+  # after apply triggers detection.
+  cat > "${TEMP_DIR}/sandbox/setup.conf.local" <<'EOF'
 [gpu]
 mode = off
 EOF
@@ -1116,7 +1137,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "set writes a value into an existing section, round-trip via show" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run main set deploy.gpu_count all --base-path "${TEMP_DIR}"
   assert_success
   run main show deploy.gpu_count --base-path "${TEMP_DIR}"
@@ -1125,7 +1146,7 @@ EOF
 }
 
 @test "set creates a new key when section exists but key is absent" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [network]
 mode = host
 EOF
@@ -1137,7 +1158,7 @@ EOF
 }
 
 @test "set creates section + key when section is absent" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [image]
 rule_1 = @basename
 EOF
@@ -1149,49 +1170,49 @@ EOF
 }
 
 @test "set rejects an unknown section with non-zero exit + Unknown section stderr" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run main set bogus.key value --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown section"
 }
 
 @test "set rejects an invalid gpu_count value" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run main set deploy.gpu_count -1 --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid mount string" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run main set volumes.mount_5 not-a-mount --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid cgroup_rule" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run main set devices.cgroup_rule_1 "garbage rule" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid env_kv" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run main set environment.env_5 "missing-equals" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid port mapping" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run main set network.port_5 "abc:def" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects a malformed dotted key (no dot)" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run main set deploy_gpu_count all --base-path "${TEMP_DIR}"
   assert_failure
 }
@@ -1204,7 +1225,7 @@ EOF
 }
 
 @test "set does NOT regenerate .env (mtime unchanged after set)" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   # Seed .env via apply so it exists.
   run bash -c "
     source /source/script/docker/setup.sh
@@ -1224,7 +1245,7 @@ EOF
 }
 
 @test "show prints the value of a single key" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [network]
 mode = host
 ipc = host
@@ -1235,7 +1256,7 @@ EOF
 }
 
 @test "show prints all entries of a whole section in on-disk order" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [network]
 mode = host
 ipc = host
@@ -1249,7 +1270,7 @@ EOF
 }
 
 @test "show returns non-zero on a missing key" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [network]
 mode = host
 EOF
@@ -1258,18 +1279,23 @@ EOF
   assert_output --partial "not found"
 }
 
-@test "show returns non-zero on a missing section" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+@test "show falls back to template baseline when section absent in .local (#174)" {
+  # Pre-#174 this test asserted that show fails when the requested
+  # section is missing from the per-repo file. After #174, show reads
+  # the merged view (template ← .local), so the template baseline
+  # always provides the section even when .local omits it. Switching
+  # the assertion: show succeeds and surfaces the template's keys.
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [network]
 mode = host
 EOF
   run main show resources --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "not found"
+  assert_success
+  assert_output --partial "shm_size"
 }
 
 @test "show rejects an unknown section name" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run main show bogus.key --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown section"
@@ -1281,7 +1307,7 @@ EOF
 }
 
 @test "list with no arg prints every section header + key" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [image]
 rule_1 = @basename
 
@@ -1298,7 +1324,7 @@ EOF
 }
 
 @test "list <section> mirrors show <section>" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [network]
 mode = host
 ipc = host
@@ -1310,7 +1336,7 @@ EOF
 }
 
 @test "list <section> rejects an unknown section" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run main list bogus --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown section"
@@ -1346,7 +1372,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "main add appends mount to next available slot" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [volumes]
 mount_1 = /a:/a
 EOF
@@ -1358,7 +1384,7 @@ EOF
 }
 
 @test "main add to empty section creates _1" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [environment]
 EOF
   run main add environment.env FOO=bar --base-path "${TEMP_DIR}"
@@ -1368,18 +1394,20 @@ EOF
   assert_output "FOO=bar"
 }
 
-@test "main add bootstraps setup.conf from template default when missing" {
-  rm -f "${TEMP_DIR}/setup.conf"
+@test "main add bootstraps setup.conf.local empty when missing (#174)" {
+  rm -f "${TEMP_DIR}/setup.conf" "${TEMP_DIR}/setup.conf.local"
   run main add volumes.mount /foo:/bar --base-path "${TEMP_DIR}"
   assert_success
-  assert [ -f "${TEMP_DIR}/setup.conf" ]
+  assert [ -f "${TEMP_DIR}/setup.conf.local" ]
+  # show reads template ← .local merge; the new mount lands in .local
+  # and the merged view surfaces it through the next mount_<N> slot.
   run main show volumes.mount_1 --base-path "${TEMP_DIR}"
   assert_success
   assert_output --partial "/foo:/bar"
 }
 
 @test "main add picks max+1 even with gap from prior remove" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [volumes]
 mount_1 = /a:/a
 mount_3 = /c:/c
@@ -1414,7 +1442,7 @@ EOF
 }
 
 @test "main add does not regen .env" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [volumes]
 mount_1 = /a:/a
 EOF
@@ -1430,7 +1458,7 @@ EOF
 }
 
 @test "main remove drops keyed entry" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [volumes]
 mount_1 = /a:/a
 mount_2 = /b:/b
@@ -1445,7 +1473,7 @@ EOF
 }
 
 @test "main remove by value finds matching key in list" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [volumes]
 mount_1 = /a:/a
 mount_2 = /b:/b
@@ -1461,7 +1489,7 @@ EOF
 }
 
 @test "main remove fails when key missing" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [volumes]
 mount_1 = /a:/a
 EOF
@@ -1471,7 +1499,7 @@ EOF
 }
 
 @test "main remove by value fails when no value matches" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [volumes]
 mount_1 = /a:/a
 EOF
@@ -1489,7 +1517,7 @@ EOF
 }
 
 @test "main remove preserves comments + remaining keys" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 # Top-of-file comment
 [volumes]
 # inline comment
@@ -1501,7 +1529,9 @@ mode = host
 EOF
   run main remove volumes.mount_1 --base-path "${TEMP_DIR}"
   assert_success
-  run cat "${TEMP_DIR}/setup.conf"
+  # #174: remove modifies setup.conf.local in-place; comments and
+  # untouched keys survive the rewrite.
+  run cat "${TEMP_DIR}/setup.conf.local"
   assert_output --partial "Top-of-file comment"
   assert_output --partial "inline comment"
   assert_output --partial "mount_2 = /b:/b"
@@ -1510,7 +1540,7 @@ EOF
 }
 
 @test "main add then remove round-trips" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [environment]
 EOF
   run main add environment.env FOO=bar --base-path "${TEMP_DIR}"
@@ -1538,7 +1568,7 @@ EOF
 }
 
 @test "main add free-form image rule accepts arbitrary string" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [image]
 rule_1 = @basename
 EOF
@@ -1561,14 +1591,15 @@ EOF
 # proceed (safety guard against accidental invocation in pipelines).
 # ════════════════════════════════════════════════════════════════════
 
-@test "main reset --yes overwrites setup.conf with template default" {
+@test "main reset --yes clears setup.conf.local + setup.conf so next apply rebuilds (#174)" {
   mkdir -p "${TEMP_DIR}/template"
   cp /source/setup.conf "${TEMP_DIR}/template/setup.conf"
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 # user-customized
 [network]
 mode = bridge
 EOF
+  : > "${TEMP_DIR}/setup.conf"
   run bash -c "
     _SETUP_SCRIPT_DIR='${TEMP_DIR}/template/script/docker'
     mkdir -p \"\${_SETUP_SCRIPT_DIR}\"
@@ -1576,26 +1607,27 @@ EOF
     main reset --yes --base-path '${TEMP_DIR}'
   "
   assert_success
-  # New setup.conf matches template (has [image] section the user's didn't)
-  run grep -E '^\[image\]' "${TEMP_DIR}/setup.conf"
-  assert_success
+  # Override + materialized snapshot both removed — the next apply will
+  # rebuild setup.conf purely from the template baseline.
+  refute [ -f "${TEMP_DIR}/setup.conf.local" ]
+  refute [ -f "${TEMP_DIR}/setup.conf" ]
 }
 
-@test "main reset --yes backs up prior setup.conf to .bak" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+@test "main reset --yes backs up prior setup.conf.local to .local.bak (#174)" {
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 # CUSTOM_MARKER
 [network]
 mode = bridge
 EOF
   run main reset --yes --base-path "${TEMP_DIR}"
   assert_success
-  assert [ -f "${TEMP_DIR}/setup.conf.bak" ]
-  run grep CUSTOM_MARKER "${TEMP_DIR}/setup.conf.bak"
+  assert [ -f "${TEMP_DIR}/setup.conf.local.bak" ]
+  run grep CUSTOM_MARKER "${TEMP_DIR}/setup.conf.local.bak"
   assert_success
 }
 
 @test "main reset --yes backs up prior .env to .env.bak" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   printf 'IMAGE_NAME=customimg\n' > "${TEMP_DIR}/.env"
   run main reset --yes --base-path "${TEMP_DIR}"
   assert_success
@@ -1605,7 +1637,7 @@ EOF
 }
 
 @test "main reset --yes does NOT regenerate .env" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   : > "${TEMP_DIR}/.env"
   local _before
   _before="$(stat -c '%Y' "${TEMP_DIR}/.env")"
@@ -1622,7 +1654,7 @@ EOF
 }
 
 @test "main reset without --yes refuses non-tty (no confirmation possible)" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   # Bats runs without a controlling TTY — without --yes the handler
   # must refuse rather than silently destroy state.
   run main reset --base-path "${TEMP_DIR}"
@@ -1636,12 +1668,13 @@ EOF
   assert_output --partial "Unknown argument"
 }
 
-@test "main reset --yes works on first-time bootstrap (no prior setup.conf)" {
-  rm -f "${TEMP_DIR}/setup.conf"
+@test "main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)" {
+  rm -f "${TEMP_DIR}/setup.conf" "${TEMP_DIR}/setup.conf.local"
   run main reset --yes --base-path "${TEMP_DIR}"
   assert_success
-  assert [ -f "${TEMP_DIR}/setup.conf" ]
-  # No prior file → no .bak written
+  # First-time bootstrap is a no-op: no override existed, no snapshot
+  # existed, so nothing to clear and no .bak files written.
+  refute [ -f "${TEMP_DIR}/setup.conf.local.bak" ]
   refute [ -f "${TEMP_DIR}/setup.conf.bak" ]
 }
 
@@ -1665,7 +1698,7 @@ EOF
 }
 
 @test "detect_image_name uses @basename rule alone (exercises _rule_basename)" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [image]
 rule_1 = @basename
 EOF
@@ -1685,7 +1718,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "detect_image_name replaces '.' with '-' (regression: tmp.abcdef → tmp-abcdef)" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [image]
 rule_1 = @basename
 EOF
@@ -1696,7 +1729,7 @@ EOF
 }
 
 @test "detect_image_name collapses runs of '-' and strips leading/trailing separators" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [image]
 rule_1 = @basename
 EOF
@@ -1765,7 +1798,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "[build] template defaults ship TW mirrors via arg_N" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   run bash -c "
     source /source/script/docker/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -1778,10 +1811,10 @@ EOF
 }
 
 @test "[build] arg_N override replaces TW default when set" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/setup.conf" build arg_1 \
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
+  _upsert_conf_value "${TEMP_DIR}/setup.conf.local" build arg_1 \
     "APT_MIRROR_UBUNTU=archive.ubuntu.com"
-  _upsert_conf_value "${TEMP_DIR}/setup.conf" build arg_2 \
+  _upsert_conf_value "${TEMP_DIR}/setup.conf.local" build arg_2 \
     "APT_MIRROR_DEBIAN=deb.debian.org"
   run bash -c "
     source /source/script/docker/setup.sh
@@ -1797,7 +1830,7 @@ EOF
 @test "[build] back-compat: old apt_mirror_* named keys still read" {
   # Legacy repo setup.conf with the pre-arg_N schema must keep working
   # so users can upgrade template without rewriting setup.conf first.
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [build]
 apt_mirror_ubuntu = mirror.example.com
 tz = Asia/Tokyo
@@ -1817,8 +1850,8 @@ EOF
   # Dockerfile with `ARG PYTHON_VERSION` can pick up a user-added
   # build arg. Extra args land in .env so compose build.args can
   # reference them.
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/setup.conf" build arg_9 \
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
+  _upsert_conf_value "${TEMP_DIR}/setup.conf.local" build arg_9 \
     "PYTHON_VERSION=3.12"
   run bash -c "
     source /source/script/docker/setup.sh
@@ -1830,8 +1863,8 @@ EOF
 }
 
 @test "[build] target_arch = arm64 writes TARGET_ARCH to .env" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/setup.conf" build target_arch arm64
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
+  _upsert_conf_value "${TEMP_DIR}/setup.conf.local" build target_arch arm64
   run bash -c "
     source /source/script/docker/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1842,9 +1875,9 @@ EOF
 }
 
 @test "[build] target_arch empty omits TARGET_ARCH from .env" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
   # Explicit empty value (the template's default)
-  _upsert_conf_value "${TEMP_DIR}/setup.conf" build target_arch ""
+  _upsert_conf_value "${TEMP_DIR}/setup.conf.local" build target_arch ""
   run bash -c "
     source /source/script/docker/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1856,8 +1889,8 @@ EOF
 }
 
 @test "[build] network = host writes BUILD_NETWORK to .env" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/setup.conf" build network host
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
+  _upsert_conf_value "${TEMP_DIR}/setup.conf.local" build network host
   run bash -c "
     source /source/script/docker/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1868,8 +1901,8 @@ EOF
 }
 
 @test "[build] network empty omits BUILD_NETWORK from .env" {
-  cp /source/setup.conf "${TEMP_DIR}/setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/setup.conf" build network ""
+  cp /source/setup.conf "${TEMP_DIR}/setup.conf.local"
+  _upsert_conf_value "${TEMP_DIR}/setup.conf.local" build network ""
   run bash -c "
     source /source/script/docker/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1936,51 +1969,55 @@ EOF
   assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
 }
 
-@test "workspace second-run: respects user-pinned absolute path that exists" {
+@test "workspace second-run: respects user-pinned absolute path via setup.conf.local (#174)" {
   local _repo="${TEMP_DIR}/repo"
   local _pin="${TEMP_DIR}/custom_ws"
   mkdir -p "${_repo}" "${_pin}"
   bash -c "source /source/script/docker/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
-  # User pins mount_1 to an existing local path.
-  sed -i "s|^mount_1.*|mount_1 = ${_pin}:/home/\${USER_NAME}/work|" \
-    "${_repo}/setup.conf"
+  # #174: user pins go into the override file (.local), not the
+  # materialized snapshot.
+  cat > "${_repo}/setup.conf.local" <<EOF
+[volumes]
+mount_1 = ${_pin}:/home/\${USER_NAME}/work
+EOF
   run bash -c "
     source /source/script/docker/setup.sh
     main apply --base-path '${_repo}' 2>&1
     grep '^WS_PATH=' '${_repo}/.env'
-    grep '^mount_1' '${_repo}/setup.conf'
+    grep '^mount_1' '${_repo}/setup.conf.local'
   "
   assert_success
+  # Effective WS_PATH on this machine is the user-pinned absolute path.
   assert_output --partial "WS_PATH=${_pin}"
+  # The override file (.local) keeps the pinned form verbatim — apply
+  # doesn't rewrite user intent.
   assert_output --partial "mount_1 = ${_pin}:"
 }
 
-@test "workspace second-run: stale absolute path (nonexistent) warns + auto-migrates to \${WS_PATH}" {
-  # Regression (v0.9.4): a repo cloned from github with mount_1 baked
-  # as another machine's absolute path (e.g. /home/alice/work/ws) must
-  # not try to mount that directory on /home/bob. setup.sh detects the
-  # stale host path (absolute, non-existent), warns, and rewrites
-  # mount_1 to the portable \${WS_PATH} form.
+@test "workspace second-run: stale setup.conf path is harmlessly overwritten (#174)" {
+  # Pre-#174 setup.conf was tracked → cross-machine clones inherited
+  # alice's absolute path on bob's checkout, forcing setup.sh to
+  # detect-and-rewrite. Post-#174 setup.conf is gitignored + a derived
+  # snapshot, so the only way a "stale" path lands is a manual edit
+  # between applies. Apply now silently regenerates setup.conf from
+  # template + .local (which contain the portable form) — no warning
+  # needed, the stale value is gone after one apply.
   local _repo="${TEMP_DIR}/repo"
   mkdir -p "${_repo}"
   bash -c "source /source/script/docker/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
-  # Plant a stale absolute path that does not exist on this machine.
   sed -i 's|^mount_1.*|mount_1 = /nonexistent/stale/ws:/home/${USER_NAME}/work|' \
     "${_repo}/setup.conf"
   run bash -c "
     source /source/script/docker/setup.sh
     main apply --base-path '${_repo}' 2>&1
-    grep '^mount_1' '${_repo}/setup.conf'
     grep '^WS_PATH=' '${_repo}/.env'
   "
   assert_success
-  assert_output --partial "WARNING"
-  assert_output --partial "/nonexistent/stale/ws"
-  # mount_1 is rewritten back to the portable form.
-  assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
-  # WS_PATH in .env is a local path, not the stale literal.
+  # Stale path does not leak into .env (apply regenerates from .local +
+  # template + fresh ws_path detection, ignoring the manually-mutated
+  # setup.conf entry for [volumes]).
   refute_output --partial "WS_PATH=/nonexistent/stale/ws"
 }
 
@@ -2006,7 +2043,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "detect_image_name string:<value> short-circuits path parsing" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [image]
 rule_1 = string:my_app
 rule_2 = prefix:docker_
@@ -2019,7 +2056,7 @@ EOF
 }
 
 @test "detect_image_name string value is still lowercased + sanitized" {
-  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.conf.local" <<'EOF'
 [image]
 rule_1 = string:My.App.Name
 EOF

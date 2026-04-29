@@ -62,10 +62,17 @@ _seed_stale_setup_conf() {
 # no .env / compose.yaml exist yet.
 # ════════════════════════════════════════════════════════════════════
 
-@test "fresh clone with stale absolute mount_1: build.sh auto-migrates + generates local .env" {
+@test "fresh clone with stale absolute mount_1: setup.conf is regenerated, no path leak (#174)" {
+  # Pre-#174 the contributor-A → contributor-B path-leak hinged on
+  # setup.conf being tracked: the absolute path travelled through git
+  # and apply had to detect-and-rewrite. After #174 setup.conf is
+  # gitignored and a derived snapshot, so the leak vector is gone at
+  # the source. This test still pre-seeds a stale setup.conf to model
+  # a worst-case scenario (e.g. a developer manually checked it in)
+  # and asserts that apply still produces a clean .env / compose.yaml
+  # regardless — the stale value never reaches WS_PATH.
   _seed_stale_setup_conf "/nonexistent/contributor-a/repo"
 
-  # Sanity: fresh-clone preconditions.
   assert [ -f "${REPO_DIR}/setup.conf" ]
   assert [ ! -f "${REPO_DIR}/.env" ]
   assert [ ! -f "${REPO_DIR}/compose.yaml" ]
@@ -77,15 +84,10 @@ _seed_stale_setup_conf() {
   assert_success
   # The bootstrap banner fires because compose.yaml / .env are missing.
   assert_output --partial "First run"
-  # setup.sh warns about the stale absolute path.
-  assert_output --partial "WARNING"
-  assert_output --partial "/nonexistent/contributor-a/repo"
 
-  # mount_1 auto-migrated to the portable ${WS_PATH} form.
-  run grep '^mount_1' "${REPO_DIR}/setup.conf"
-  assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
-
-  # .env carries THIS machine's WS_PATH, not contributor A's path.
+  # .env carries THIS machine's WS_PATH, never the seeded stale path —
+  # apply re-detects ws_path from template's portable mount_1 (no
+  # .local override exists) instead of trusting the stale snapshot.
   assert [ -f "${REPO_DIR}/.env" ]
   run grep '^WS_PATH=' "${REPO_DIR}/.env"
   assert_success
