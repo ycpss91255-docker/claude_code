@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **784 tests** total (740 unit + 44 integration).
+Template self-tests: **795 tests** total (751 unit + 44 integration).
 
 ## Test Files
 
@@ -351,7 +351,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `pip setup.sh sets PIP_BREAK_SYSTEM_PACKAGES=1` | Break system packages |
 | `pip setup.sh fails when pip is not available` | Missing pip error |
 
-### test/unit/ci_spec.bats (8)
+### test/unit/ci_spec.bats (17)
 
 | Test | Description |
 |------|-------------|
@@ -360,9 +360,18 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `_install_deps: dies with clear error when apt-get install fails` | Explicit `apt-get install` error |
 | `_install_deps: dies with clear error when git clone bats-mock fails` | Explicit `git clone` error |
 | `_install_deps: happy path succeeds when bats absent and all deps install cleanly` | Full install path |
+| `_install_deps: rewrites sources.list when APT_MIRROR_DEBIAN differs from default` | TW-mirror sed substitution path |
+| `_install_deps: skips sources.list rewrite when APT_MIRROR_DEBIAN equals default` | Default value short-circuit |
+| `_install_deps: skips sources.list rewrite when APT_MIRROR_DEBIAN unset` | Unset env var short-circuit |
 | `_run_shellcheck: invokes shellcheck against every expected script` | Wired-file regression guard |
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
+| `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
+| `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
+| `_run_tests: passes --jobs N when parallel is on PATH` | Parallel-present branch |
+| `_run_tests: omits --jobs when parallel is absent (graceful fallback)` | Parallel-missing branch |
+| `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
+| `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
 
 ### test/unit/init_spec.bats (18)
 
@@ -478,7 +487,7 @@ Exercises the runtime assertion helpers shipped in
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/unit/upgrade_spec.bats (33)
+### test/unit/upgrade_spec.bats (35)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -530,6 +539,8 @@ must not be reported as "needing downgrade").
 | `_check: prerelease ahead of latest stable exits 0 (issue #156 case)` | Regression #156 |
 | `_check: stable later than latest stable exits 0 (defensive)` | Local-only tag |
 | `_check: prerelease behind latest stable proposes upgrade (rc1 → 0.12.0)` | Leave prerelease |
+| `_get_latest_version: returns 0 even when internal pipe fails (bash 5.3 set-e safety)` | Alpine bash 5.3 errexit-from-cmdsub workaround (lock the `\|\| true` guard) |
+| `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
 ### test/integration/init_new_repo_spec.bats (36)

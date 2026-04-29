@@ -41,9 +41,33 @@ RUN apk add --no-cache curl xz && \
         "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-${hd_arch}" && \
     chmod +x /usr/local/bin/hadolint
 
+# Final stage: bash + bats + shellcheck + hadolint + bats-{support,assert,mock}
+# + parallel + git + ca-certificates.
+# bash is required because /opt/bats/bin/bats is a `#!/usr/bin/env bash` script
+# and alpine:latest only ships busybox ash. The /usr/local/bin/bats symlink
+# exposes bats on PATH (the upstream bats/bats:latest puts it there but the
+# symlink is not under /opt/bats so it is not picked up by the COPY above).
+# parallel (#168): bats --jobs N delegates to GNU parallel; without it bats
+# falls back to serial. ci.sh tolerates missing parallel for older images,
+# but baking it in keeps the fast CI loop fast.
+# git + git-subtree + ca-certificates (#168): the test suite
+# (upgrade_spec.bats, init_new_repo_spec.bats,
+# fresh_clone_portability_spec.bats) builds fake subtree repos with
+# `git -C <dir> init/commit` and exercises `git subtree pull/add` paths
+# end-to-end. On debian `git-subtree` is bundled in the `git` package;
+# alpine ships it as a separate `git-subtree` package. ca-certificates
+# is needed by the few specs that hit GitHub over HTTPS.
+# grep + coreutils (#168): downstream scripts and several specs rely
+# on GNU-only flags (`grep -P` for PCRE, GNU-format `sha256sum` output)
+# that busybox's defaults do not provide. Installing the GNU packages
+# overrides busybox's symlinks so init.sh / setup.sh / setup_drift
+# helpers behave the same on alpine as on the previous kcov/kcov
+# (debian) runner.
 FROM alpine:latest
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
 COPY --from=bats-extensions /bats /usr/lib/bats
 COPY --from=lint-tools /usr/local/bin/shellcheck /usr/local/bin/
 COPY --from=lint-tools /usr/local/bin/hadolint /usr/local/bin/
+RUN ln -s /opt/bats/bin/bats /usr/local/bin/bats
