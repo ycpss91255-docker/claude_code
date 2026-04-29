@@ -19,6 +19,7 @@ _canonical_gitignore_entries() {
 .env
 .env.bak
 compose.yaml
+setup.conf
 setup.conf.bak
 coverage/
 .Dockerfile.generated

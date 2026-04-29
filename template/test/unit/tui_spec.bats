@@ -510,6 +510,45 @@ EOF
   [[ "${output}" == *"privileged = true"* ]]   # untouched
 }
 
+@test "_write_setup_conf: dst == tpl (same file) keeps content non-empty (#187 regression)" {
+  # Issue #187: setup_tui's `_commit_and_setup` passes `_repo_conf` for
+  # both dst and tpl when the per-repo file already exists. The function
+  # used to truncate `_dst` BEFORE reading from `_tpl`, so when both
+  # pointed at the same file the read got an empty file and the write
+  # produced a 0-byte result — silently destroying the user's config.
+  cat > "${TEMP_DIR}/conf" <<'EOF'
+[image]
+rules = string:original
+
+[deploy]
+gpu_mode = auto
+gpu_count = all
+gpu_capabilities = gpu
+EOF
+  local _before
+  _before="$(wc -c < "${TEMP_DIR}/conf")"
+  [[ "${_before}" -gt 0 ]] || skip "fixture seed unexpectedly empty"
+
+  local -a _sections=(image) _keys=(image.rules) \
+    _values=("string:my_unique_image")
+  # dst and tpl point at the same path — the bug's exact trigger.
+  _write_setup_conf "${TEMP_DIR}/conf" "${TEMP_DIR}/conf" \
+    _sections _keys _values
+
+  # The override must land + the rest of the template content must be
+  # preserved. Pre-fix this test produces a 0-byte file.
+  local _after
+  _after="$(wc -c < "${TEMP_DIR}/conf")"
+  [[ "${_after}" -gt 0 ]] || \
+    fail "_write_setup_conf wiped the file (${_before} → ${_after} bytes)"
+
+  run cat "${TEMP_DIR}/conf"
+  assert_output --partial "rules = string:my_unique_image"
+  # [deploy] keys carried over from the original content unchanged.
+  assert_output --partial "gpu_mode = auto"
+  assert_output --partial "gpu_count = all"
+}
+
 @test "_write_setup_conf round-trips via _load_setup_conf_full" {
   cat > "${TEMP_DIR}/template.conf" <<'EOF'
 [image]

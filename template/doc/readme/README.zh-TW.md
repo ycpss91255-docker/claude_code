@@ -229,10 +229,16 @@ template；沒寫的 section 則吃 template 預設。
 `setup.sh` 只在明確觸發時才執行 — 並不會在每次 build / run 都重跑：
 
 - **`./template/init.sh`** 建完骨架自動跑一次
+- **`make upgrade` / `./template/upgrade.sh`** subtree pull 後透過 init.sh
+  再跑一次，所以升級永遠會用新版 baseline 重新產出 `.env` / `compose.yaml`
 - **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 使用者手動觸發重跑；
   有 TTY 時先啟動 `setup_tui.sh` 讓使用者修改 `setup.conf`，無 TTY 時直接呼叫 `setup.sh`
 - **首次 bootstrap**：`./build.sh` / `./run.sh` 首次執行（`.env` 尚未存在，
   例如 CI 新 clone）會自動走相同的 TTY-aware 流程，不用帶 `--setup`
+
+`setup.sh apply` 每次都會從頭重生 `compose.yaml`，但會保留既有 `.env`
+中的 `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN`，所以手動調過
+的 workspace 路徑或 apt mirror 升級時不會被蓋掉。
 
 ### Drift 偵測
 
@@ -280,7 +286,9 @@ template；沒寫的 section 則吃 template 預設。
 - `.env` — runtime 變數 + `SETUP_*` drift metadata
 - `compose.yaml` — 含 baseline 與條件區塊的完整 compose
 
-任何時候打開 `compose.yaml` 都能看到當下完整 runtime 配置。
+任何時候打開 `compose.yaml` 都能看到當下完整 runtime 配置。每次
+`make upgrade` 都會重生這兩個檔（init.sh 在 subtree pull 後重跑
+`setup.sh apply`）— 不要手改，需要 override 寫到 `setup.conf`。
 
 ## 快速開始
 
@@ -304,6 +312,10 @@ git subtree add --prefix=template \
 
 ### 升級
 
+前置條件：`git config user.name` / `user.email` 必須有設，working tree
+不能在進行中的 merge / rebase / cherry-pick / revert — upgrade.sh 會
+fail-fast 帶可操作訊息，避免半套 pull。
+
 ```bash
 # 檢查是否有新版
 make upgrade-check
@@ -313,12 +325,35 @@ make upgrade
 
 # 或指定版本
 make upgrade VERSION=v0.3.0
+# 指定的版本若比目前 local 還舊（例如從 v0.12.0-rc1 退回 v0.11.0）會被
+# 視為隱式 downgrade 拒絕（依 SemVer §11）。如果是刻意要 rollback，自
+# 行手改 template/.version。
 
 # 沒有 make 時的 fallback
 ./template/upgrade.sh v0.3.0
 ```
 
-`upgrade.sh` 一次完成：`git subtree pull --squash`、post-pull 完整性檢查（偵測到 destructive FF 會自動 rollback）、`./template/init.sh` 重整 root symlinks、以及 sed `.github/workflows/main.yaml` 裡的 `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z`。不要手動 `git subtree pull` — sed 與 init 步驟很容易漏掉。
+`upgrade.sh` 一次完成：
+
+1. `git subtree pull --prefix=template ... --squash`
+2. Post-pull 完整性檢查 — subtree marker（`template/.version`、
+   `template/init.sh`、`template/script/docker/setup.sh`）若不見了會
+   `git reset --hard` rollback（防舊版 `git-subtree.sh` destructive FF）
+3. `./template/init.sh` 重跑：重整 root symlinks（`build.sh` / `run.sh`
+   / `Makefile` …）、把 `.gitignore` 同步到 canonical entry set、
+   `git rm --cached` 已經變成 derived artifact 的舊 tracked 檔（`.env`、
+   `compose.yaml`、…），最後呼叫 `setup.sh apply` 重生 `.env` +
+   `compose.yaml`
+4. `sed` 改寫 `.github/workflows/main.yaml` 的
+   `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z`
+
+per-repo 檔案不會被覆蓋：`<repo>/setup.conf` 保留原樣、
+`<repo>/config/`（bashrc / tmux / terminator …）也不動 — 若上游
+`template/config/` 自上次 pull 後有變動，upgrade.sh 會印出
+`diff -ruN template/config config` 提示，由你自行 reconcile。
+
+不要手動 `git subtree pull` — 完整性檢查、init.sh resync、sed 步驟
+很容易漏掉。
 
 #### 自動升版（選用）
 

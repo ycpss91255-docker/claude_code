@@ -240,10 +240,18 @@ is copied to the repo and the detected workspace is written to
 every build or launch:
 
 - **`./template/init.sh`** runs it once after the skeleton lands
+- **`make upgrade` / `./template/upgrade.sh`** re-runs it via init.sh
+  after the subtree pull, so an upgrade always lands with `.env` /
+  `compose.yaml` regenerated against the new baseline
 - **`./build.sh --setup` / `./run.sh --setup`** (or `-s`) re-runs it on demand
 - **First-time bootstrap**: `./build.sh` / `./run.sh` auto-run setup.sh
   the very first time (when `.env` is missing, e.g. after a fresh CI
   clone) — no manual `--setup` needed
+
+`setup.sh apply` rewrites `compose.yaml` from scratch every time but
+preserves `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN` from any
+existing `.env`, so a hand-tuned workspace path or apt mirror survives
+upgrades.
 
 ### Drift detection
 
@@ -294,7 +302,9 @@ If a downstream repo has custom scripts invoking `setup.sh` directly, prepend `a
 - `compose.yaml` — full compose with baseline + conditional blocks
 
 Open `compose.yaml` anytime to inspect the repo's current effective
-configuration.
+configuration. Both files are regenerated on every `make upgrade`
+(init.sh re-runs `setup.sh apply` after the subtree pull) — never
+hand-edit them; put your overrides in `setup.conf` instead.
 
 ## Quick Start
 
@@ -318,6 +328,10 @@ git subtree add --prefix=template \
 
 ### Updating
 
+Prerequisites: `git config user.name` / `user.email` must be set, and
+the working tree can't be mid-merge / rebase / cherry-pick / revert —
+upgrade.sh fails fast with an actionable message instead of half-pulling.
+
 ```bash
 # Check if update available
 make upgrade-check
@@ -327,16 +341,37 @@ make upgrade
 
 # Or pin a specific version
 make upgrade VERSION=v0.3.0
+# Pinning to a version OLDER than the current local pin (e.g. rolling
+# from v0.12.0-rc1 back to v0.11.0) is refused as an implicit downgrade
+# per SemVer §11. Edit template/.version manually if intentional.
 
 # Fallback if make is unavailable
 ./template/upgrade.sh v0.3.0
 ```
 
-`upgrade.sh` handles the full cycle in one go: `git subtree pull --squash`,
-post-pull integrity check (rolls back on destructive FF), `./template/init.sh`
-to resync root symlinks, and `sed` of `.github/workflows/main.yaml`'s
-`build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` references. Don't
-subtree pull by hand — the sed + init steps are easy to forget.
+`upgrade.sh` handles the full cycle in one go:
+
+1. `git subtree pull --prefix=template ... --squash`
+2. Post-pull integrity check — `git reset --hard` rollback if subtree
+   markers (`template/.version`, `template/init.sh`,
+   `template/script/docker/setup.sh`) are missing (catches the
+   destructive fast-forward seen on older `git-subtree.sh`)
+3. `./template/init.sh` re-runs to: resync root symlinks
+   (`build.sh` / `run.sh` / `Makefile` …), sync `.gitignore` against
+   the canonical entry set, `git rm --cached` any tracked-but-now-derived
+   files (`.env`, `compose.yaml`, …), and call `setup.sh apply` to
+   regenerate `.env` + `compose.yaml`
+4. `sed` rewrites `.github/workflows/main.yaml`'s
+   `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` refs
+
+Your per-repo files are never overwritten: `<repo>/setup.conf` stays
+as-is, and `<repo>/config/` (bashrc / tmux / terminator …) is left
+alone — if upstream `template/config/` moved since the last pull,
+upgrade.sh prints a `diff -ruN template/config config` hint so you can
+reconcile manually.
+
+Don't `git subtree pull` by hand — the integrity check, init.sh
+resync, and sed steps are easy to forget.
 
 #### Automated version bumps (optional)
 

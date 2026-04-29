@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **824 tests** total (771 unit + 53 integration).
+Template self-tests: **828 tests** total (773 unit + 55 integration).
 
 ## Test Files
 
@@ -35,7 +35,7 @@ Template self-tests: **824 tests** total (771 unit + 53 integration).
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
 
-### test/unit/setup_spec.bats (174)
+### test/unit/setup_spec.bats (175)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -68,7 +68,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Per-repo setup.conf missing / empty INFO (#150: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
 | Per-repo setup.conf INFO on check-drift path (#157: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
 
-### test/unit/tui_spec.bats (86)
+### test/unit/tui_spec.bats (87)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -80,7 +80,7 @@ parsers, and setup.conf round-trip.
 | `_validate_gpu_count` ('all', positive int, reject 0/negative/non-numeric/empty) | 6 |
 | `_validate_enum` (match, non-match, empty) | 3 |
 | `_mount_host_path` (plain, with mode, with env-var host) | 3 |
-| `_load_setup_conf_full` + `_write_setup_conf` (section order, kv, comment preservation, untouched keys, round-trip) | 5 |
+| `_load_setup_conf_full` + `_write_setup_conf` (section order, kv, comment preservation, untouched keys, round-trip, dst==tpl regression #187) | 6 |
 | `_upsert_conf_value` (updates existing, leaves other sections untouched) | 2 |
 | `_edit_image_rule __remove` index compaction (#177) — first / middle / last / sole rule | 4 |
 
@@ -553,7 +553,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 
 | Test | Description |
 |------|-------------|
-| `_canonical_gitignore_entries: emits exactly the 6 canonical lines` | Single source of truth |
+| `_canonical_gitignore_entries: emits exactly the 7 canonical lines` | Single source of truth |
 | `_canonical_gitignore_entries: list is stable order` | Deterministic output |
 | `_sync_gitignore: creates the file when missing, with marker block + all entries` | Greenfield |
 | `_sync_gitignore: empty file gets marker block + all entries appended` | Empty file |
@@ -644,7 +644,7 @@ after the Jetson v0.9.7 incident (stubs `git-subtree pull` via
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
 
-### test/integration/gitignore_sync_spec.bats (7)
+### test/integration/gitignore_sync_spec.bats (9)
 
 End-to-end coverage that wires `lib/gitignore.sh` through `init.sh`'s
 new-repo + existing-repo paths and `upgrade.sh`'s commit step. Standalone
@@ -654,10 +654,12 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 
 | Test | Description |
 |------|-------------|
-| `init.sh new-repo: .gitignore contains all 6 canonical entries` | New-repo path uses lib |
+| `init.sh new-repo: .gitignore contains all 7 canonical entries` | New-repo path uses lib |
 | `init.sh new-repo: .gitignore has the 'managed by template' marker` | Marker comment present |
 | `init.sh existing-repo: appends missing canonical entries to user .gitignore` | Drift fill-in |
 | `init.sh existing-repo: untracks compose.yaml that was committed` | 15-repo drift heal |
+| `init.sh existing-repo: migrates tracked setup.conf into setup.conf.local (#174)` | One-shot setup.conf → .local |
+| `init.sh existing-repo: migration is idempotent — does not clobber existing setup.conf.local` | Re-run safety |
 | `init.sh existing-repo: idempotent — second run produces no .gitignore changes` | Re-run no-op |
 | `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
 | `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |

@@ -27,10 +27,10 @@ teardown() {
 # init.sh new-repo path: .gitignore is created via lib (single source)
 # ════════════════════════════════════════════════════════════════════
 
-@test "init.sh new-repo: .gitignore contains all 6 canonical entries" {
+@test "init.sh new-repo: .gitignore contains all 7 canonical entries" {
   bash template/init.sh
   local _entry
-  for _entry in .env .env.bak compose.yaml setup.conf.bak coverage/ .Dockerfile.generated; do
+  for _entry in .env .env.bak compose.yaml setup.conf setup.conf.bak coverage/ .Dockerfile.generated; do
     run grep -xF "${_entry}" "${REPO_DIR}/.gitignore"
     assert_success
   done
@@ -99,6 +99,55 @@ EOF
   assert_output ""
   # Still on disk — user's working copy untouched
   [[ -f "${REPO_DIR}/compose.yaml" ]]
+}
+
+@test "init.sh existing-repo: migrates tracked setup.conf into setup.conf.local (#174)" {
+  # Pre-#174 layout: setup.conf is the user's tracked override file.
+  # init.sh's existing-repo path must copy it into setup.conf.local so
+  # the user's intent survives the gitignore sync's `git rm --cached`
+  # step. The migration runs ONCE per repo (idempotent on re-run).
+  _seed_existing_repo
+  cat > "${REPO_DIR}/setup.conf" <<'EOF'
+[network]
+mode = bridge
+[volumes]
+mount_1 = ${WS_PATH}:/home/${USER_NAME}/work
+EOF
+  git -C "${REPO_DIR}" add setup.conf
+  git -C "${REPO_DIR}" commit -q -m "track setup.conf"
+
+  bash template/init.sh
+
+  # .local now carries the user's prior override content
+  assert [ -f "${REPO_DIR}/setup.conf.local" ]
+  run grep -F 'mode = bridge' "${REPO_DIR}/setup.conf.local"
+  assert_success
+  # Tracked setup.conf removed from index (gitignore sync's rm --cached)
+  run git -C "${REPO_DIR}" ls-files setup.conf
+  assert_output ""
+}
+
+@test "init.sh existing-repo: migration is idempotent — does not clobber existing setup.conf.local" {
+  _seed_existing_repo
+  cat > "${REPO_DIR}/setup.conf" <<'EOF'
+[network]
+mode = bridge
+EOF
+  cat > "${REPO_DIR}/setup.conf.local" <<'EOF'
+# user already migrated by hand
+[network]
+mode = host
+EOF
+  git -C "${REPO_DIR}" add setup.conf setup.conf.local
+  git -C "${REPO_DIR}" commit -q -m "user migrated by hand"
+
+  bash template/init.sh
+
+  # Existing .local survives unchanged — the migration helper backs off
+  # whenever the destination is already populated.
+  run grep -F 'mode = host' "${REPO_DIR}/setup.conf.local"
+  assert_success
+  refute grep -F 'mode = bridge' "${REPO_DIR}/setup.conf.local"
 }
 
 @test "init.sh existing-repo: idempotent — second run produces no .gitignore changes" {
