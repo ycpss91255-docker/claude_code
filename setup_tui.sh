@@ -1,1 +1,0 @@
-template/script/docker/setup_tui.sh
