@@ -6,3 +6,10 @@ data/
 # Workspace-level Claude config lives in ycpss91255-docker/claude-workspace.
 .claude
 CLAUDE.md
+
+# managed by template (do not remove)
+.env.bak
+compose.yaml
+setup.conf.bak
+coverage/
+.Dockerfile.generated
