@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.14.0] - 2026-04-29
+
+Minor release. Two test / quality follow-ups on top of v0.13.0, no
+behavior changes for downstream consumers (the new WARN level on the
+template-default fallback notice is the only user-visible surface
+shift, and matches what the existing log-text already implied).
+
+### Added
+- **`test/unit/tui_flow.bats` lifts `setup_tui.sh` coverage from 18% to 83%** (#189). 44 new interactive-flow tests covering the 5 high-value areas the issue body called out: `_edit_image_rule` + `_compact_image_rules_after_remove` (#177 regression site), `_render_main_menu` / `_render_advanced_menu` (#178 Save & Exit unification), `_edit_list_section` mount/env/port CRUD, Save & Exit / Cancel / Esc abort handling, plus `_swap_image_rule` and several `_edit_section_*` dispatches. Same mock-driven pattern as `tui_backend_spec.bats` — file-backed queue stubs the dialog wrappers (queue line popped via `head -n 1` + `sed -i 1d` so state survives `$(...)` subshell calls), each test scripts the user's click path and asserts on `_TUI_OVR_*` / `_TUI_REMOVED` / `_TUI_CURRENT` outcomes. No real `dialog` / `whiptail` ever launches.
+
+### Changed
+- **`setup_tui.sh` 4-language i18n tables expanded to per-key assignments** (#189 prerequisite). The previous `declare -gA _TUI_MSG_<LANG>=([k]=v ... [k]=v)` literal blocks (~600 lines across en / zh-TW / zh-CN / ja) compiled into a single statement under kcov, so individual entries showed as 0 hits even when reached and capped achievable per-file coverage at ~45%. Each entry is now its own `_TUI_MSG_<LANG>[k]=v` assignment line, which kcov tracks separately. Runtime behavior is identical — `_tui_msg` still does the same associative-array lookup with English fallback. This is what makes the #189 >=70% target reachable; with the new tests the file lands at 83.29% (897 / 1077 lines).
+- **CI `make` package added to the kcov coverage container's apt-install list**. The downstream-Makefile integration tests added in #175 / #182 (`make upgrade-check (downstream Makefile): exit 0 when ...`) shelled out to a `make` binary that the `kcov/kcov` image's apt repo doesn't ship by default, so they exited 127 only under `make coverage` even though they passed under `make test` (where the alpine test-tools image bundles `make` from #182). `script/ci/ci.sh`'s apt-install line now lists `make`, closing the env gap so coverage runs see the same recipes the regular CI does.
+- **Template-default fallback notice promoted from INFO to WARN** (#186). `_announce_template_default_fallback` in `script/docker/setup.sh` now emits `[setup] WARN:` instead of `[setup] INFO:` when the per-repo `setup.conf.local` is missing or has no `[section]` headers. INFO scrolled past in normal `build.sh` / `run.sh` output and users missed the heads-up that template defaults were silently in effect; WARN matches the semantics (this is an unusual configuration state worth flagging, not a routine status line). The two i18n keys also rename `info_no_repo_conf` → `warn_no_repo_conf` and `info_empty_repo_conf` → `warn_empty_repo_conf` across all four languages so the message table stays self-describing.
+
 ## [v0.13.0] - 2026-04-29
 
 Minor release introducing the `setup.conf.local` user-override file.

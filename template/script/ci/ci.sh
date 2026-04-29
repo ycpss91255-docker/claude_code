@@ -78,10 +78,16 @@ _install_deps() {
   apt-get update -qq \
     || _die "apt-get update failed. Check network / apt mirror reachability."
 
+  # `make` is needed by integration tests that exercise the downstream
+  # Makefile recipes (#175 / #182). The kcov image's apt repo doesn't
+  # ship it by default, so without this the upgrade-check integration
+  # tests fail with exit 127 only under `make coverage` (the same tests
+  # pass under `make test`, where the alpine test-tools image bundles
+  # make from #182).
   apt-get install -y --no-install-recommends \
       bats bats-support bats-assert \
       shellcheck git ca-certificates \
-      parallel \
+      parallel make \
     || _die "apt-get install failed for bats/shellcheck deps."
 
   # bats-mock is distro-packaged on newer distros but missing on bookworm,

@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **828 tests** total (773 unit + 55 integration).
+Template self-tests: **872 tests** total (817 unit + 55 integration).
 
 ## Test Files
 
@@ -65,8 +65,8 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `_msg` / `_detect_lang` i18n | 6 |
 | `[build]` apt_mirror (empty fallback, override) | 2 |
 | Workspace writeback (first-time, respect user edit, opt-out) | 3 |
-| Per-repo setup.conf missing / empty INFO (#150: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
-| Per-repo setup.conf INFO on check-drift path (#157: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
+| Per-repo setup.conf missing / empty WARN (#150 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
+| Per-repo setup.conf WARN on check-drift path (#157 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
 
 ### test/unit/tui_spec.bats (87)
 
@@ -100,6 +100,32 @@ a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
 | `_tui_checklist` (passes `--separate-output`) | 1 |
 | `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
 | whiptail flag-spelling translation (#136: `--ok-button` / `--cancel-button` instead of `--*-label`, no `--extra-button`) + Save-button unification (#178: dialog also drops `--extra-button`) | 6 |
+
+### test/unit/tui_flow.bats (44)
+
+Interactive-flow tests for `setup_tui.sh` (#189). Sources `setup_tui.sh`
+directly and overrides `_tui_menu` / `_tui_select` / `_tui_inputbox` /
+`_tui_yesno` / `_tui_msgbox` / `_tui_radiolist` / `_tui_checklist` with
+file-backed stubs (queue lines popped via `head -n 1` + `sed -i 1d` so
+state survives the `$(...)` subshell calls). Each case scripts the
+user's click path, calls one section editor, and asserts on the
+resulting `_TUI_OVR_*` / `_TUI_REMOVED` / `_TUI_CURRENT` arrays — no
+real `dialog` / `whiptail` ever launches. Lifts `setup_tui.sh`
+per-file coverage from 18% to 83% by exercising the 5 high-value
+target areas the issue body called out.
+
+| Category | Tests |
+|----------|-------|
+| `_load_current` (repo-conf wins; falls back to template; both missing → silent return 0) | 3 |
+| `_render_main_menu` / `_render_advanced_menu` (#178 Save & Exit unification, Cancel/Esc returns 1, navigation into section editor) | 5 |
+| `_edit_image_rule` (#177 site: add string/prefix/suffix/basename/default, Cancel from radiolist or inputbox, `__remove`/`__move_up`/`__move_down`, dedupe drops duplicate slot) | 11 |
+| `_compact_image_rules_after_remove` (mid-list shift down, last drop, empty no-op, sparse-slot collapse) | 4 |
+| `_swap_image_rule` (both occupied / target empty / source empty / both empty / m<1) | 5 |
+| `_edit_list_section` via `_edit_section_environment` (env_ add/edit/remove, invalid → msgbox+retry, max+1 indexing, Cancel/Esc) | 7 |
+| `_edit_section_image` top-level dispatch (add max+1, click rule_N, Back) | 3 |
+| `_edit_section_network` (host+host no shm prompt, bridge prompts name+ports, ipc=private prompts shm, empty network_name allowed) | 4 |
+| `_edit_section_deploy` (off short-circuits — only writes gpu_mode) | 1 |
+| Multi-section dispatch from main menu (network → host → save) | 1 |
 
 ### test/unit/build_sh_spec.bats (35)
 
