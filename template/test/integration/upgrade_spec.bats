@@ -127,6 +127,34 @@ YAML
   assert_output --partial "Update available"
 }
 
+@test "make upgrade-check (downstream Makefile): exit 0 when update available (#175)" {
+  # Regression #175: the Makefile recipe wraps upgrade.sh so make doesn't
+  # mistake exit 1 (update available) for a build failure. The downstream
+  # Makefile is symlinked into every consumer repo via init.sh; copy it
+  # here because the seeded subtree fixture omits the Makefile (only the
+  # markers upgrade.sh's post-flight check needs are seeded).
+  cd "${DOWN_DIR}"
+  cp /source/script/docker/Makefile Makefile
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" make upgrade-check
+  assert_success
+  assert_output --partial "Local:  v0.9.5"
+  assert_output --partial "Latest: v0.9.7"
+  assert_output --partial "Update available"
+  refute_output --partial "Error 1"
+}
+
+@test "make upgrade-check (downstream Makefile): exit 0 when up-to-date" {
+  cd "${DOWN_DIR}"
+  cp /source/script/docker/Makefile Makefile
+
+  env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./template/upgrade.sh v0.9.7 >/dev/null
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" make upgrade-check
+  assert_success
+  assert_output --partial "Already up to date."
+}
+
 # ── Pre-flight guards ───────────────────────────────────────────────────────
 
 @test "upgrade.sh fails fast when git identity is missing" {

@@ -63,8 +63,11 @@ RUN apk add --no-cache curl xz && \
 # overrides busybox's symlinks so init.sh / setup.sh / setup_drift
 # helpers behave the same on alpine as on the previous kcov/kcov
 # (debian) runner.
+# make (#175): integration tests exercise `make upgrade-check` end-to-end
+# to verify the Makefile recipe wraps upgrade.sh exit 1 (update available)
+# as success — busybox's ash has no `make`, so install GNU make.
 FROM alpine:latest
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils make
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
 COPY --from=bats-extensions /bats /usr/lib/bats

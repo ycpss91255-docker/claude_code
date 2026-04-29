@@ -94,6 +94,27 @@ setup() {
   assert_success
 }
 
+@test "Makefile upgrade-check tolerates upgrade.sh exit 1 (update available)" {
+  # Regression #175: `upgrade.sh --check` exits 1 when an update is
+  # available (documented shell convention so `if ./upgrade.sh --check;
+  # then ...` works). The Makefile recipe must wrap the call so make
+  # treats exit 1 as success — the check itself succeeded, the user-
+  # facing message already conveys the result. Exit codes ≥2 (genuine
+  # failures) still propagate.
+  run grep -E '\./template/upgrade\.sh --check \|\| \[ \$\$\? -eq 1 \]' \
+      /source/script/docker/Makefile
+  assert_success
+}
+
+@test "Makefile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)" {
+  # Same wrap as the downstream Makefile (regression #175). Template's
+  # own `make -f Makefile.ci upgrade-check` was failing on every release
+  # cycle when upstream/downstream diverged.
+  run grep -E '\./upgrade\.sh --check \|\| \[ \$\$\? -eq 1 \]' \
+      /source/Makefile.ci
+  assert_success
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Structure: test directory layout
 # ════════════════════════════════════════════════════════════════════

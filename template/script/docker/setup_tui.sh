@@ -923,7 +923,7 @@ _edit_image_rule() {
   local _final=""
   case "${_type}" in
     __remove)
-      _mark_removed "image.rule_${_n}"
+      _compact_image_rules_after_remove "${_n}"
       return 0
       ;;
     __move_up)
@@ -968,6 +968,49 @@ _edit_image_rule() {
   done
 
   _override_set "image.rule_${_n}" "${_final}"
+}
+
+# _compact_image_rules_after_remove <n>
+#
+# Drop image.rule_${_n} and shift the values of higher-numbered rules
+# down by one slot, so the user always sees consecutive indices
+# (rule_1 .. rule_M) after a delete and the next "add" allocates
+# max+1 without leaving a gap (#177). Also collapses any pre-existing
+# sparse slots above _n as a side effect, since the loop only walks
+# occupied slots in ascending order.
+_compact_image_rules_after_remove() {
+  local _removed_n="${1:?}"
+  local -a _nums=()
+  local _k _n _x _found _i
+  for _k in "${!_TUI_CURRENT[@]}"; do
+    if [[ "${_k}" == image.rule_* ]]; then
+      _n="${_k#image.rule_}"
+      [[ "${_n}" =~ ^[0-9]+$ ]] && _nums+=("${_n}")
+    fi
+  done
+  for (( _i=0; _i<${#_TUI_OVR_KEYS[@]}; _i++ )); do
+    if [[ "${_TUI_OVR_KEYS[_i]}" == image.rule_* ]]; then
+      _n="${_TUI_OVR_KEYS[_i]#image.rule_}"
+      if [[ "${_n}" =~ ^[0-9]+$ ]]; then
+        _found=0
+        for _x in "${_nums[@]}"; do [[ "${_x}" == "${_n}" ]] && _found=1 && break; done
+        (( _found )) || _nums+=("${_n}")
+      fi
+    fi
+  done
+  # shellcheck disable=SC2207
+  mapfile -t _nums < <(printf '%s\n' "${_nums[@]}" | sort -n | uniq)
+
+  local _slot="${_removed_n}"
+  local _val
+  for _n in "${_nums[@]}"; do
+    (( _n <= _removed_n )) && continue
+    _val="$(_override_get "image.rule_${_n}" "")"
+    [[ -z "${_val}" ]] && continue
+    _override_set "image.rule_${_slot}" "${_val}"
+    _slot="${_n}"
+  done
+  _mark_removed "image.rule_${_slot}"
 }
 
 # _swap_image_rule <n> <m>
@@ -1454,21 +1497,19 @@ _edit_section_devices() {
 
 _render_main_menu() {
   # Footer button labels are NOT i18n'd — keep a stable English
-  # "Save / Enter / Cancel" row across all locales so users never see
-  # a mix of English widget chrome and translated buttons, and so
+  # "Enter / Cancel" row across all locales so users never see a mix
+  # of English widget chrome and translated buttons, and so
   # screenshots / docs stay consistent.
-  export TUI_EXTRA_LABEL TUI_OK_LABEL TUI_CANCEL_LABEL
-  TUI_EXTRA_LABEL="Save"
+  export TUI_OK_LABEL TUI_CANCEL_LABEL
   TUI_OK_LABEL="Enter"
   TUI_CANCEL_LABEL="Cancel"
-  # whiptail has no --extra-button equivalent, so the Save & Exit
-  # footer button never renders there. On whiptail we inject a
-  # synthetic `__save` menu entry instead so the user still has a
-  # one-click way to commit + exit (#136).
-  local -a _save_entry=()
-  if [[ "${TUI_BACKEND}" == "whiptail" ]]; then
-    _save_entry=(__save "$(_tui_msg main.save)")
-  fi
+  # Save & Exit lives in the menu body for both backends (#178).
+  # whiptail has no `--extra-button` equivalent at all (newt limit),
+  # and using dialog's `--extra-button` made the same repo render with
+  # different button rows on dialog vs whiptail hosts — breaking shared
+  # screenshots / docs. Standardizing on a synthetic `__save` entry
+  # gives identical layout regardless of backend; the small extra
+  # navigation step on dialog is acceptable for the consistency win.
   while :; do
     local _choice _rc
     _choice="$(_tui_menu "$(_tui_msg title)" "$(_tui_msg main.prompt)" \
@@ -1478,26 +1519,23 @@ _render_main_menu() {
       volumes     "$(_tui_msg main.volumes)" \
       environment "$(_tui_msg main.environment)" \
       advanced    "$(_tui_msg main.advanced)" \
-      "${_save_entry[@]}")"
+      __save      "$(_tui_msg main.save)")"
     _rc=$?
     case "${_rc}" in
       0)
         case "${_choice}" in
           network|deploy|gui|volumes|environment) "_edit_section_${_choice}" ;;
           advanced) _render_advanced_menu ;;
-          __save)   TUI_EXTRA_LABEL=""; TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 0 ;;
-          "")       TUI_EXTRA_LABEL=""; TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 1 ;;
+          __save)   TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 0 ;;
+          "")       TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 1 ;;
         esac
         ;;
-      3)  TUI_EXTRA_LABEL=""; TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 0 ;;   # Save & Exit
-      *)  TUI_EXTRA_LABEL=""; TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 1 ;;   # Cancel / Esc
+      *)  TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 1 ;;   # Cancel / Esc
     esac
   done
 }
 
 _render_advanced_menu() {
-  local _save_label="${TUI_EXTRA_LABEL:-}"
-  TUI_EXTRA_LABEL=""
   while :; do
     local _choice
     _choice="$(_tui_menu "$(_tui_msg advanced.title)" "$(_tui_msg advanced.menu)" \
@@ -1514,7 +1552,6 @@ _render_advanced_menu() {
       __back|"") break ;;
     esac
   done
-  TUI_EXTRA_LABEL="${_save_label}"
 }
 
 # _do_reset

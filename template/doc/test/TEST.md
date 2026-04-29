@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **795 tests** total (751 unit + 44 integration).
+Template self-tests: **824 tests** total (771 unit + 53 integration).
 
 ## Test Files
 
@@ -68,7 +68,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Per-repo setup.conf missing / empty INFO (#150: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
 | Per-repo setup.conf INFO on check-drift path (#157: missing → INFO, empty → INFO, partial → silent, zh-TW lang) | 4 |
 
-### test/unit/tui_spec.bats (82)
+### test/unit/tui_spec.bats (86)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -82,8 +82,9 @@ parsers, and setup.conf round-trip.
 | `_mount_host_path` (plain, with mode, with env-var host) | 3 |
 | `_load_setup_conf_full` + `_write_setup_conf` (section order, kv, comment preservation, untouched keys, round-trip) | 5 |
 | `_upsert_conf_value` (updates existing, leaves other sections untouched) | 2 |
+| `_edit_image_rule __remove` index compaction (#177) — first / middle / last / sole rule | 4 |
 
-### test/unit/tui_backend_spec.bats (30)
+### test/unit/tui_backend_spec.bats (28)
 
 Backend detection and wrapper-level arg forwarding. Uses a stub
 `dialog` / `whiptail` binary installed on PATH that logs argv and echoes
@@ -94,11 +95,11 @@ a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
 | `_backend_detect` (prefers dialog, falls back to whiptail, prints install hint when neither) | 3 |
 | `_tui_guard` (rejects empty backend) | 1 |
 | `_tui_inputbox` (forwards title/prompt/initial, returns canned response, propagates non-zero on cancel) | 2 |
-| `_tui_menu` (computes item count, forwards tag/label pairs) | 1 |
+| `_tui_menu` (computes item count, forwards tag/label pairs; `TUI_EXTRA_LABEL` no-op after #178; `--no-tags`, `--ok-label`) | 1 |
 | `_tui_radiolist` (forwards tag/label/state triples) | 1 |
 | `_tui_checklist` (passes `--separate-output`) | 1 |
 | `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
-| whiptail flag-spelling translation (#136: `--ok-button` / `--cancel-button` instead of `--*-label`, no `--extra-button`; dialog spelling preserved) | 7 |
+| whiptail flag-spelling translation (#136: `--ok-button` / `--cancel-button` instead of `--*-label`, no `--extra-button`) + Save-button unification (#178: dialog also drops `--extra-button`) | 6 |
 
 ### test/unit/build_sh_spec.bats (35)
 
@@ -196,7 +197,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `runtime detection is robust against weird whitespace` | regex tolerance |
 | `runtime detection ignores non-runtime stage names` | strict match |
 
-### test/unit/template_spec.bats (130)
+### test/unit/template_spec.bats (132)
 
 | Test | Description |
 |------|-------------|
@@ -215,6 +216,8 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `Makefile.ci has upgrade target` | Makefile target |
 | `Makefile.ci upgrade target forwards optional VERSION variable` | VERSION arg passthrough |
 | `Makefile upgrade target uses ./template/upgrade.sh (not ./template/script/upgrade.sh)` | Regression: bad path in script/docker/Makefile |
+| `Makefile upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap exit 1 = success |
+| `Makefile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: same wrap on Makefile.ci |
 | `test/smoke/test_helper.bash exists` | Directory structure |
 | `test/smoke/script_help.bats exists` | Directory structure |
 | `test/smoke/display_env.bats exists` | Directory structure |
@@ -543,6 +546,30 @@ must not be reported as "needing downgrade").
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
 
+### test/unit/gitignore_spec.bats (16)
+
+Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
+`.gitignore` set + sync/untrack helpers introduced for issue #172.
+
+| Test | Description |
+|------|-------------|
+| `_canonical_gitignore_entries: emits exactly the 6 canonical lines` | Single source of truth |
+| `_canonical_gitignore_entries: list is stable order` | Deterministic output |
+| `_sync_gitignore: creates the file when missing, with marker block + all entries` | Greenfield |
+| `_sync_gitignore: empty file gets marker block + all entries appended` | Empty file |
+| `_sync_gitignore: file with all entries already present is a no-op` | Already-synced |
+| `_sync_gitignore: appends only missing entries when subset already present` | Drift fill-in |
+| `_sync_gitignore: preserves user-defined lines (bridge.yaml, .env.gpg, .claude/)` | User-line preservation |
+| `_sync_gitignore: idempotent — second invocation produces no further changes` | Idempotency |
+| `_sync_gitignore: no duplicate canonical lines after re-run` | No-dup invariant |
+| `_sync_gitignore: ends with newline so future appends start on their own line` | Trailing-newline guarantee |
+| `_untrack_canonical_in_repo: git rm --cached for tracked compose.yaml` | 15-repo drift fix |
+| `_untrack_canonical_in_repo: leaves untracked files alone` | Scope guard |
+| `_untrack_canonical_in_repo: no-op when no canonical files tracked` | Healthy-repo no-op |
+| `_untrack_canonical_in_repo: handles tracked coverage/ directory` | Directory entry |
+| `_untrack_canonical_in_repo: idempotent — second run succeeds without error` | Re-run safety |
+| `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep |
+
 ### test/integration/init_new_repo_spec.bats (36)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
@@ -596,7 +623,7 @@ invocation — `build.sh --dry-run`).
 | `fresh clone with stale absolute mount_1: build.sh auto-migrates + generates local .env` | Stale-path auto-migrate |
 | `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
 
-### test/integration/upgrade_spec.bats (6)
+### test/integration/upgrade_spec.bats (8)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
@@ -611,6 +638,26 @@ after the Jetson v0.9.7 incident (stubs `git-subtree pull` via
 | `upgrade.sh v0.9.7: bumps template/.version, pulls new content, updates main.yaml` | Happy path |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
+| `make upgrade-check (downstream Makefile): exit 0 when update available (#175)` | Regression #175: make wraps exit 1 |
+| `make upgrade-check (downstream Makefile): exit 0 when up-to-date` | Up-to-date path stays green |
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
+
+### test/integration/gitignore_sync_spec.bats (7)
+
+End-to-end coverage that wires `lib/gitignore.sh` through `init.sh`'s
+new-repo + existing-repo paths and `upgrade.sh`'s commit step. Standalone
+fixture (independent of `upgrade_spec.bats`'s stub-init fixture) because
+gitignore sync requires the **real** `init.sh` to run during Step 3 of
+`upgrade.sh`. Issue #172.
+
+| Test | Description |
+|------|-------------|
+| `init.sh new-repo: .gitignore contains all 6 canonical entries` | New-repo path uses lib |
+| `init.sh new-repo: .gitignore has the 'managed by template' marker` | Marker comment present |
+| `init.sh existing-repo: appends missing canonical entries to user .gitignore` | Drift fill-in |
+| `init.sh existing-repo: untracks compose.yaml that was committed` | 15-repo drift heal |
+| `init.sh existing-repo: idempotent — second run produces no .gitignore changes` | Re-run no-op |
+| `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
+| `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |

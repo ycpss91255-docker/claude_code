@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.4] - 2026-04-29
+
+Patch release bundling two Makefile / setup-tui fixes plus the
+template-managed `.gitignore` plumbing introduced in #172. No new
+features, no breaking changes from v0.12.3.
+
+### Fixed
+- **`setup_tui` image rules are compacted on delete** (#177). Removing `rule_n` previously only marked the slot as removed, leaving `rule_(n+1) .. rule_max` with their original numbers; the next "add" then allocated `max + 1` instead of backfilling the gap, so the user was left looking at sparse indices like `rule_2, rule_3, rule_5`. The `__remove` branch in `_edit_image_rule` now calls a new `_compact_image_rules_after_remove` helper that shifts all higher-numbered rules down by one slot, so the menu always shows `rule_1 .. rule_M` consecutive and `add` allocates `M + 1` cleanly. The compaction loop walks occupied slots in ascending order and uses the existing override / removal primitives, so the in-memory mutation flows through to `_write_setup_conf` without any save-path changes.
+- **`make upgrade-check` no longer surfaces a fake `Error 1`** (#175). `upgrade.sh --check` exits 1 when an update is available — a deliberate shell convention so `if ./upgrade.sh --check; then ...` reads naturally — but `script/docker/Makefile` and `Makefile.ci` invoked the script directly, so make treated the exit as a build failure and printed `make: *** [Makefile:28: upgrade-check] Error 1` after the otherwise-correct "Update available: vX → vY" line. Both Makefile recipes now wrap the call as `./upgrade.sh --check || [ $$? -eq 1 ]` so make sees success when the check itself succeeded; exit codes ≥2 (genuine network / missing-`template/` failures) still propagate. Two new unit tests guard the wrap pattern in each Makefile, two new integration tests run the recipe end-to-end through real `make` (the `test-tools` image now installs GNU `make` for this purpose, and `release-test-tools.yaml` smoke step adds `make --version`).
+
+### Changed
+- **`setup_tui` Save & Exit lives in the menu body on both backends** (#178). dialog used to render Save as a third footer button via `--extra-button --extra-label "Save"` while whiptail (no `--extra-button` equivalent — newt library limitation) injected a synthetic `__save` menu entry. The same repo therefore looked and behaved differently on a stock Ubuntu host (whiptail-only) versus a host with `dialog` installed, so screenshots and docs could not be shared. After this change both backends use the synthetic `__save` entry — placed last in the main menu — for identical UX, screenshots, and docs. Trade-off: dialog users lose the one-keystroke Save (must move cursor onto `__save` then press Enter); the unified UX is worth the extra step. Side cleanups: `_tui_menu` no longer reads `TUI_EXTRA_LABEL` (the env hook is now a no-op rather than removed, so unrelated callers keep working); `_render_advanced_menu` drops the `TUI_EXTRA_LABEL` save/restore dance; the OK/Cancel label translation in `_tui_run` (introduced in #136 for whiptail-spelling) stays untouched.
+
+### Added
+- **`.gitignore` is now template-managed** (#172). Two new helpers in `template/script/docker/lib/gitignore.sh` — `_sync_gitignore <path>` (append-missing strategy: idempotent, preserves user-defined lines, leaves a `# managed by template (do not remove)` marker on first sync) and `_untrack_canonical_in_repo <repo>` (`git rm --cached` for any canonical entry that's still git-tracked) — wire into both `init.sh` paths and propagate through `upgrade.sh`. Canonical set: `.env`, `.env.bak`, `compose.yaml`, `setup.conf.bak`, `coverage/`, `.Dockerfile.generated`. Future derived artifacts get appended to the lib in a later release and downstream repos pick them up automatically on the next `make upgrade`. The wiring also heals the v0.9.0+ drift where 15/17 downstream repos still git-tracked `compose.yaml` despite it being a derived artifact: the next batch-upgrade emits the `git rm --cached` in the same commit as the workflow `@tag` rewrite, with no separate sweep PR.
+
 ## [v0.12.3] - 2026-04-28
 
 Patch release that completes the test-tools migration started in v0.12.2 (#165 + #164) and fixes a bash 5.3 silent-exit bug in `upgrade.sh --check` exposed by the alpine runner. No breaking changes from v0.12.2.

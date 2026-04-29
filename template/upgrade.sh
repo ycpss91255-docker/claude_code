@@ -269,11 +269,21 @@ _upgrade() {
     git add "${main_yaml}"
   fi
 
-  # Commit workflow updates
+  # Step 3 ran init.sh which (re-)synced .gitignore via lib/gitignore.sh
+  # and `git rm --cached`-ed any tracked-but-now-derived artifacts
+  # (#172). The .gitignore mutation is unstaged; the rm is index-staged.
+  # Stage .gitignore so both land in the same commit.
+  if [[ -f "${REPO_ROOT}/.gitignore" ]]; then
+    git add "${REPO_ROOT}/.gitignore"
+  fi
+
+  # Commit workflow + .gitignore + index removals together
   git commit -m "$(cat <<COMMIT
 chore: update template references to ${target_ver}
 
 - main.yaml: workflow @tag updated to ${target_ver}
+- .gitignore: synced canonical entries (template lib/gitignore.sh)
+- untracked any derived artifacts now covered by .gitignore
 COMMIT
 )" || _log "No additional changes to commit"
 

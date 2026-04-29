@@ -17,8 +17,12 @@ setup() {
   TMP_REPO="$(mktemp -d)"
   mkdir -p "${TMP_REPO}/template/dockerfile" \
            "${TMP_REPO}/template/config" \
-           "${TMP_REPO}/template/script/docker"
+           "${TMP_REPO}/template/script/docker/lib"
   ln -s /source/init.sh "${TMP_REPO}/template/init.sh"
+  # init.sh sources lib/gitignore.sh on load (#172). Symlink the real
+  # lib so its functions are available to tests that hit _create_new_repo.
+  ln -s /source/script/docker/lib/gitignore.sh \
+        "${TMP_REPO}/template/script/docker/lib/gitignore.sh"
 
   # Minimal Dockerfile.example stub for _create_new_repo's `cp` step.
   cat > "${TMP_REPO}/template/dockerfile/Dockerfile.example" <<'EOF'
