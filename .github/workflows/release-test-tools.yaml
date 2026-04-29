@@ -71,3 +71,21 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.tags }}
           push: true
+
+      - name: Smoke test pushed image
+        # Regression guard for the v0.12.1 publish (issue #165): the alpine
+        # final stage shipped without bash and without /usr/local/bin/bats,
+        # so the image had bats-* files on disk but `bats` was unrunnable.
+        # Pull the just-pushed amd64 leg and exercise each tool end-to-end
+        # so a similar break never reaches downstream consumers silently.
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/ycpss91255-docker/test-tools:latest"
+          docker pull "${image}"
+          docker run --rm "${image}" bats --version
+          docker run --rm "${image}" shellcheck --version
+          docker run --rm "${image}" hadolint --version
+          docker run --rm "${image}" parallel --version
+          docker run --rm "${image}" git --version
+          docker run --rm "${image}" git subtree --help >/dev/null  # presence check (no --version flag)
