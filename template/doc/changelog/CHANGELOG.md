@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.15.0] - 2026-04-30
+
+Minor release. Single feature: nested Dockerfile support in the
+`build-worker.yaml` reusable workflow (#195). Backwards compatible —
+the 17 existing downstream repos see no CI change unless they opt
+in by adding `with: context_path: <subdir>` to their main.yaml.
+
+### Added
+- **`build-worker.yaml` accepts `context_path` / `dockerfile_path` inputs** (#195). Lets downstream repos that nest their docker assets in a subdirectory (e.g. `docker/Dockerfile`, `docker/compose.yaml`) call the reusable workflow with `with: context_path: docker` instead of being forced to keep the Dockerfile at repo root. Both inputs default to current behaviour (`context_path: "."`, `dockerfile_path: ""` → falls back to `<context_path>/Dockerfile`), so the 17 existing downstream repos see no CI change. Use case discovered while migrating `ycpss91255-docker/seggpt`, where the docker environment lives under `seggpt/docker/` to keep template-managed files separate from `src/` and `test/`. Three new `test/unit/build_worker_yaml_spec.bats` tests lock the input forwarding so a future refactor can't silently revert one of the 3 build steps.
+
 ## [v0.14.0] - 2026-04-29
 
 Minor release. Two test / quality follow-ups on top of v0.13.0, no

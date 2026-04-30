@@ -56,6 +56,35 @@ on:
 
           Supported values: linux/amd64, linux/arm64. Other values are
           rejected by the compute-matrix step.
+      context_path:
+        required: false
+        type: string
+        default: "."
+        description: |
+          Build context passed to docker/build-push-action's `context:`
+          input. Defaults to repo root for backwards compatibility with
+          the standard template layout (Dockerfile + compose.yaml at
+          repo root).
+
+          Set to a subdirectory (e.g. `docker`) when the consumer repo
+          keeps its docker assets nested — typically to keep
+          template-managed files separated from application source. The
+          path is relative to the repo root after `actions/checkout`.
+
+          Pairs with `dockerfile_path`; both inputs are independent so
+          callers can override one without the other.
+      dockerfile_path:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Optional explicit Dockerfile path relative to the repo root.
+          Empty string (default) defers to `<context_path>/Dockerfile`,
+          matching docker/build-push-action's own default.
+
+          Override only when the Dockerfile is named non-standardly or
+          lives outside `<context_path>/` — most consumers should leave
+          this empty and rely on the implicit `<context_path>/Dockerfile`.
 
 jobs:
   # ────────────────────────────────────────────────────────────────
@@ -168,7 +197,8 @@ jobs:
         # was wrong: that ref is the caller's own tag, not template's).
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
           target: test
           platforms: ${{ matrix.platform }}
           push: false
@@ -184,7 +214,8 @@ jobs:
       - name: Build devel stage
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
           target: devel
           platforms: ${{ matrix.platform }}
           push: false
@@ -200,7 +231,8 @@ jobs:
         if: ${{ inputs.build_runtime }}
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
           target: runtime
           platforms: ${{ matrix.platform }}
           push: false
