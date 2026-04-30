@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **872 tests** total (817 unit + 55 integration).
+Template self-tests: **879 tests** total (824 unit + 55 integration).
 
 ## Test Files
 
@@ -126,6 +126,25 @@ target areas the issue body called out.
 | `_edit_section_network` (host+host no shm prompt, bridge prompts name+ports, ipc=private prompts shm, empty network_name allowed) | 4 |
 | `_edit_section_deploy` (off short-circuits — only writes gpu_mode) | 1 |
 | Multi-section dispatch from main menu (network → host → save) | 1 |
+
+### test/unit/build_worker_yaml_spec.bats (7)
+
+Structural assertions for `.github/workflows/build-worker.yaml` (#195).
+Reusable workflows are not exec'd by these tests; instead grep
+patterns lock the YAML invariants — `context_path` / `dockerfile_path`
+inputs declared with the right defaults, all 3 `docker/build-push-action`
+steps forwarding those inputs, and no leftover `context: .` /
+`file: ./Dockerfile` literals.
+
+| Category | Tests |
+|----------|-------|
+| `inputs.context_path` declared with `default: "."` | 1 |
+| `inputs.dockerfile_path` declared with `default: ""` | 1 |
+| 3 build steps reference `inputs.context_path` | 1 |
+| 3 build steps reference `inputs.dockerfile_path` with `format()` fallback | 1 |
+| No leftover `context: .` literals | 1 |
+| No leftover `file: ./Dockerfile` literals | 1 |
+| Default values together preserve repo-root-Dockerfile callers | 1 |
 
 ### test/unit/build_sh_spec.bats (35)
 
