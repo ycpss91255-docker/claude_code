@@ -14,3 +14,5 @@ setup.conf.bak
 coverage/
 .Dockerfile.generated
 
+
+setup.conf.local
