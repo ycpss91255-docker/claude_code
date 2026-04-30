@@ -6,9 +6,7 @@ ignored:
   - DL3007  # Using latest is prone to errors
   - DL3008  # Pin versions in apt get install
   - DL3013  # Pin versions in pip install
-  - DL3015  # Avoid additional packages by specifying --no-install-recommends
-  - DL3016  # Pin versions in npm install
   - DL3018  # Pin versions in apk add
   - DL3046  # useradd without flag -l
-  - DL3059  # Multiple consecutive RUN instructions
   - DL4006  # Set SHELL option -o pipefail (alpine stages use default shell)
+
