@@ -120,6 +120,25 @@ _validate_env_kv() {
   return 1
 }
 
+# _validate_additional_context <value>
+#
+# Compose `build.additional_contexts` entry. Format:
+#   <name>=<value>
+# <name> follows BuildKit's named-context naming: starts with a letter
+# or digit, then alphanumerics plus underscore / dot / hyphen.
+# <value> is a free-form context source (relative path, docker-image://,
+# https://, oci-layout://, etc.) and must be non-empty.
+_validate_additional_context() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 1
+  [[ "${_v}" != *"="* ]] && return 1
+  local _name="${_v%%=*}"
+  local _val="${_v#*=}"
+  [[ -z "${_name}" || -z "${_val}" ]] && return 1
+  [[ "${_name}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] && return 0
+  return 1
+}
+
 # _validate_network_name <value>
 #
 # Docker network name: start with [a-zA-Z0-9], then alphanumerics plus

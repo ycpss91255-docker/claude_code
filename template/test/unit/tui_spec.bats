@@ -146,6 +146,51 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _validate_additional_context
+# ════════════════════════════════════════════════════════════════════
+
+@test "_validate_additional_context accepts <name>=<relative-path>" {
+  _validate_additional_context "repo=.."
+  _validate_additional_context "vendor=../third_party"
+  _validate_additional_context "data=./local/data"
+}
+
+@test "_validate_additional_context accepts BuildKit context schemes" {
+  _validate_additional_context "base=docker-image://debian:bookworm-slim"
+  _validate_additional_context "remote=https://github.com/example/repo.git"
+  _validate_additional_context "oci=oci-layout:///tmp/foo"
+}
+
+@test "_validate_additional_context accepts names with allowed punctuation" {
+  _validate_additional_context "my.context=.."
+  _validate_additional_context "my-ctx=.."
+  _validate_additional_context "my_ctx=.."
+  _validate_additional_context "1abc=.."
+}
+
+@test "_validate_additional_context rejects empty / missing pieces" {
+  run _validate_additional_context ""
+  [ "${status}" -ne 0 ]
+  run _validate_additional_context "noequals"
+  [ "${status}" -ne 0 ]
+  run _validate_additional_context "=novalue"
+  [ "${status}" -ne 0 ]
+  run _validate_additional_context "noname="
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_additional_context rejects invalid name shapes" {
+  run _validate_additional_context "-leading-dash=.."
+  [ "${status}" -ne 0 ]
+  run _validate_additional_context ".leading-dot=.."
+  [ "${status}" -ne 0 ]
+  run _validate_additional_context "name with space=.."
+  [ "${status}" -ne 0 ]
+  run _validate_additional_context "name/slash=.."
+  [ "${status}" -ne 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _validate_network_name
 # ════════════════════════════════════════════════════════════════════
 

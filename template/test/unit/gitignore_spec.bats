@@ -37,8 +37,8 @@ teardown() {
 .env
 .env.bak
 compose.yaml
-setup.conf
 setup.conf.bak
+setup.conf.local
 coverage/
 .Dockerfile.generated
 EXPECTED
@@ -88,8 +88,8 @@ EXPECTED
 .env
 .env.bak
 compose.yaml
-setup.conf
 setup.conf.bak
+setup.conf.local
 coverage/
 .Dockerfile.generated
 EOF
