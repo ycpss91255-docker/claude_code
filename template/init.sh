@@ -275,47 +275,7 @@ MD
 _init_existing_repo() {
   _log "Existing repo detected (Dockerfile found)"
   _create_symlinks
-  # #174: migrate before sync so the user's setup.conf content survives
-  # the `git rm --cached` step.
-  _migrate_setup_conf_to_local
   _sync_existing_gitignore
-}
-
-# _migrate_setup_conf_to_local
-#   #174 one-shot migration: when an existing repo still tracks
-#   setup.conf (the pre-#174 layout, where setup.conf was the user's
-#   override file), copy that content into a fresh setup.conf.local so
-#   the user's intent survives the gitignore + `git rm --cached` step
-#   that runs in `_sync_existing_gitignore` immediately after.
-#
-#   Idempotent:
-#     - Skips if setup.conf.local already exists (don't clobber).
-#     - Skips if no tracked setup.conf is present (nothing to migrate).
-#   Strips no fields — copies the whole file verbatim. The volatile
-#   `mount_1` absolute path becomes part of the user's tracked override
-#   on first migration, but apply will treat it as a portable / pinned
-#   value per the existing [volumes] mount_1 logic, and the user can
-#   trim it after the fact.
-_migrate_setup_conf_to_local() {
-  local _conf="${REPO_ROOT}/setup.conf"
-  local _local="${REPO_ROOT}/setup.conf.local"
-  if [[ ! -f "${_conf}" ]]; then
-    return 0
-  fi
-  if [[ -f "${_local}" ]]; then
-    return 0
-  fi
-  # Only migrate when setup.conf is git-tracked (the pre-#174 state we
-  # need to heal). Untracked working-tree copies are derived snapshots
-  # and should NOT seed user override content.
-  if ! git -C "${REPO_ROOT}" rev-parse --git-dir >/dev/null 2>&1; then
-    return 0
-  fi
-  if [[ -z "$(git -C "${REPO_ROOT}" ls-files -- setup.conf 2>/dev/null)" ]]; then
-    return 0
-  fi
-  cp "${_conf}" "${_local}"
-  _log "Migrated tracked setup.conf → setup.conf.local (#174)"
 }
 
 # _sync_existing_gitignore

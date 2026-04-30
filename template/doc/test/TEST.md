@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **879 tests** total (824 unit + 55 integration).
+Template self-tests: **923 tests** total (869 unit + 54 integration).
 
 ## Test Files
 
@@ -35,7 +35,7 @@ Template self-tests: **879 tests** total (824 unit + 55 integration).
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
 
-### test/unit/setup_spec.bats (175)
+### test/unit/setup_spec.bats (206)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -67,8 +67,10 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Workspace writeback (first-time, respect user edit, opt-out) | 3 |
 | Per-repo setup.conf missing / empty WARN (#150 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
 | Per-repo setup.conf WARN on check-drift path (#157 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
+| `[additional_contexts]` parsing + compose emission (#199: omitted by default, devel/test block, runtime block, numeric sort, empty-slot skip, _setup_known_section) | 6 |
+| Per-section setup.conf parameter end-to-end coverage (#202: [deploy] gpu_mode/count/capabilities/runtime, [gui] mode, [network] mode/ipc/network_name/port_*, [resources] shm_size, [environment] env_*, [tmpfs] tmpfs_*, [devices] device_*/cgroup_rule_*, [volumes] mount_2..N, [security] privileged) | 25 |
 
-### test/unit/tui_spec.bats (87)
+### test/unit/tui_spec.bats (92)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -83,6 +85,7 @@ parsers, and setup.conf round-trip.
 | `_load_setup_conf_full` + `_write_setup_conf` (section order, kv, comment preservation, untouched keys, round-trip, dst==tpl regression #187) | 6 |
 | `_upsert_conf_value` (updates existing, leaves other sections untouched) | 2 |
 | `_edit_image_rule __remove` index compaction (#177) — first / middle / last / sole rule | 4 |
+| `_validate_additional_context` (#199: relative paths, BuildKit schemes, name punctuation, reject empty / missing pieces, reject invalid name shapes) | 5 |
 
 ### test/unit/tui_backend_spec.bats (28)
 
@@ -101,7 +104,7 @@ a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
 | `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
 | whiptail flag-spelling translation (#136: `--ok-button` / `--cancel-button` instead of `--*-label`, no `--extra-button`) + Save-button unification (#178: dialog also drops `--extra-button`) | 6 |
 
-### test/unit/tui_flow.bats (44)
+### test/unit/tui_flow.bats (53)
 
 Interactive-flow tests for `setup_tui.sh` (#189). Sources `setup_tui.sh`
 directly and overrides `_tui_menu` / `_tui_select` / `_tui_inputbox` /
@@ -689,7 +692,7 @@ after the Jetson v0.9.7 incident (stubs `git-subtree pull` via
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
 
-### test/integration/gitignore_sync_spec.bats (9)
+### test/integration/gitignore_sync_spec.bats (8)
 
 End-to-end coverage that wires `lib/gitignore.sh` through `init.sh`'s
 new-repo + existing-repo paths and `upgrade.sh`'s commit step. Standalone
@@ -703,8 +706,7 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 | `init.sh new-repo: .gitignore has the 'managed by template' marker` | Marker comment present |
 | `init.sh existing-repo: appends missing canonical entries to user .gitignore` | Drift fill-in |
 | `init.sh existing-repo: untracks compose.yaml that was committed` | 15-repo drift heal |
-| `init.sh existing-repo: migrates tracked setup.conf into setup.conf.local (#174)` | One-shot setup.conf → .local |
-| `init.sh existing-repo: migration is idempotent — does not clobber existing setup.conf.local` | Re-run safety |
+| `init.sh existing-repo: setup.conf stays committed across init runs (#201)` | 2-file model: setup.conf is user override |
 | `init.sh existing-repo: idempotent — second run produces no .gitignore changes` | Re-run no-op |
 | `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
 | `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |

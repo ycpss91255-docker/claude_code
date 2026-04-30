@@ -240,6 +240,13 @@ _upgrade() {
   # hash later by _warn_config_drift.
   _pre_config_hash="$(git rev-parse --verify "HEAD:template/config" 2>/dev/null || true)"
 
+  # Snapshot pre-pull template/setup.conf hash too. If the upstream
+  # baseline changed, the user may want to copy new sections / keys
+  # into their <repo>/setup.conf override (issue #201's 2-file model
+  # makes this a manual merge — we never overwrite the user's file).
+  local _pre_setup_conf_hash=""
+  _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:template/setup.conf" 2>/dev/null || true)"
+
   # Step 1: subtree pull
   _log "Step 1/4: git subtree pull"
   git subtree pull --prefix=template \
@@ -293,6 +300,13 @@ COMMIT
   # baseline didn't change or there was no prior baseline.
   _warn_config_drift "${_pre_config_hash}"
 
+  # Same pattern for template/setup.conf: post-#201 the user's per-repo
+  # setup.conf is the override file (committed, never overwritten by
+  # template upgrades). When the upstream template/setup.conf adds new
+  # sections / keys / changes defaults, point the user at the diff so
+  # they can opt in.
+  _warn_setup_conf_drift "${_pre_setup_conf_hash}"
+
   _log "Done! Upgraded to ${target_ver}"
   _log ""
   _log "Next steps:"
@@ -322,6 +336,32 @@ _warn_config_drift() {
     _log ""
     _log "         Upstream-only diff (what moved in template/config/):"
     _log "           git diff ${_pre:0:12}..${_post:0:12} -- template/config"
+  fi
+}
+
+# _warn_setup_conf_drift <pre_pull_blob_hash>
+#
+# Post-#201 sibling of _warn_config_drift. <repo>/setup.conf is the
+# user-owned override file; this script never rewrites it. When the
+# upstream template/setup.conf changes (new sections, new keys, default
+# tweaks), surface a pointer to the diff so the user can hand-merge any
+# upstream additions they want into their override. Silent on no change.
+_warn_setup_conf_drift() {
+  local _pre="${1:-}"
+  local _post
+  _post="$(git rev-parse --verify "HEAD:template/setup.conf" 2>/dev/null || true)"
+  [[ -z "${_post}" ]] && return 0
+  [[ "${_pre}" == "${_post}" ]] && return 0
+  _log ""
+  _log "WARNING: template/setup.conf changed upstream since the last pull."
+  _log "         Your <repo>/setup.conf is the user override and was NOT updated."
+  _log "         Review the diff and copy any new sections / keys you want:"
+  _log ""
+  _log "           diff -u template/setup.conf setup.conf"
+  if [[ -n "${_pre}" ]]; then
+    _log ""
+    _log "         Upstream-only diff (what moved in template/setup.conf):"
+    _log "           git diff ${_pre:0:12}..${_post:0:12} -- template/setup.conf"
   fi
 }
 
