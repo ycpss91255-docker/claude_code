@@ -47,6 +47,8 @@ RUN sed -i "s@archive.ubuntu.com@${APT_MIRROR_UBUNTU}@g" /etc/apt/sources.list |
 
 ENV LC_ALL="en_US.UTF-8"
 ENV LANG="en_US.UTF-8"
+ENV LANGUAGE="en_US:en"
+ENV TZ="${TZ}"
 
 # Create user (handle UID/GID conflicts)
 RUN if getent group "${USER_GID}" >/dev/null; then \

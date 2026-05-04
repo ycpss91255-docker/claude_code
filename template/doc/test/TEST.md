@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **931 tests** total (877 unit + 54 integration).
+Template self-tests: **933 tests** total (879 unit + 54 integration).
 
 ## Test Files
 
@@ -247,7 +247,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `runtime detection is robust against weird whitespace` | regex tolerance |
 | `runtime detection ignores non-runtime stage names` | strict match |
 
-### test/unit/template_spec.bats (132)
+### test/unit/template_spec.bats (134)
 
 | Test | Description |
 |------|-------------|
@@ -361,6 +361,8 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `Dockerfile.example has ARG TEST_TOOLS_IMAGE with test-tools:local default` | ARG default |
 | `Dockerfile.example FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` | named stage alias |
 | `Dockerfile.example test stage copies from test-tools-stage, not test-tools:local` | stage rename migration |
+| `Dockerfile.example declares ENV TZ (matches downstream fleet, #210)` | runtime $TZ alignment |
+| `Dockerfile.example declares ENV LANGUAGE=en_US:en (matches downstream fleet, #210)` | runtime $LANGUAGE alignment |
 | `release-test-tools.yaml exists and pushes to ghcr.io/ycpss91255-docker/test-tools` | GHCR publisher |
 | `release-test-tools.yaml declares packages:write permission` | ghcr auth scope |
 | `release-test-tools.yaml builds multi-arch (amd64 + arm64)` | arch coverage |
