@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **923 tests** total (869 unit + 54 integration).
+Template self-tests: **931 tests** total (877 unit + 54 integration).
 
 ## Test Files
 
@@ -130,7 +130,7 @@ target areas the issue body called out.
 | `_edit_section_deploy` (off short-circuits — only writes gpu_mode) | 1 |
 | Multi-section dispatch from main menu (network → host → save) | 1 |
 
-### test/unit/build_worker_yaml_spec.bats (7)
+### test/unit/build_worker_yaml_spec.bats (15)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195).
 Reusable workflows are not exec'd by these tests; instead grep
@@ -148,6 +148,8 @@ steps forwarding those inputs, and no leftover `context: .` /
 | No leftover `context: .` literals | 1 |
 | No leftover `file: ./Dockerfile` literals | 1 |
 | Default values together preserve repo-root-Dockerfile callers | 1 |
+| User build-args use long form matching Dockerfile.example sys stage (#198: USER_NAME / USER_GROUP / USER_UID / USER_GID across 3 build steps + no short-form regression) | 5 |
+| `build_contexts` input forwards to docker/build-push-action `build-contexts:` (#207: input declared with empty default, 3 build steps forward, default preserves zero-diff) | 3 |
 
 ### test/unit/build_sh_spec.bats (35)
 

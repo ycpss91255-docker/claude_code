@@ -85,6 +85,33 @@ on:
           Override only when the Dockerfile is named non-standardly or
           lives outside `<context_path>/` — most consumers should leave
           this empty and rely on the implicit `<context_path>/Dockerfile`.
+      build_contexts:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Optional newline-separated `<name>=<location>` pairs forwarded
+          to docker/build-push-action's `build-contexts:` input. Mirrors
+          compose's `additional_contexts:` so the named contexts the
+          local `./build.sh` flow reads from `setup.conf
+          [additional_contexts]` (#199) reach BuildKit when CI bypasses
+          compose. Empty default = no extra contexts (zero diff for
+          existing callers).
+
+          Paths are resolved relative to the repo root (the
+          `actions/checkout` working dir), NOT to `context_path`. So a
+          caller using `context_path: docker` and wanting a context
+          rooted at the repo top declares `build_contexts: repo_root=.`,
+          not `repo_root=..` (the latter form is what compose's
+          `additional_contexts:` needs because compose resolves paths
+          relative to compose.yaml, which lives inside `docker/`).
+
+          Example:
+            with:
+              context_path: docker
+              build_contexts: |
+                repo_root=.
+                third_party=./vendor
 
 jobs:
   # ────────────────────────────────────────────────────────────────
@@ -199,14 +226,15 @@ jobs:
         with:
           context: ${{ inputs.context_path }}
           file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
           target: test
           platforms: ${{ matrix.platform }}
           push: false
           build-args: |
-            USER=ci
-            GROUP=ci
-            UID=1000
-            GID=1000
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
             HARDWARE=${{ matrix.hardware }}
             TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
             ${{ inputs.build_args }}
@@ -216,14 +244,15 @@ jobs:
         with:
           context: ${{ inputs.context_path }}
           file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
           target: devel
           platforms: ${{ matrix.platform }}
           push: false
           build-args: |
-            USER=ci
-            GROUP=ci
-            UID=1000
-            GID=1000
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
             HARDWARE=${{ matrix.hardware }}
             ${{ inputs.build_args }}
 
@@ -233,14 +262,15 @@ jobs:
         with:
           context: ${{ inputs.context_path }}
           file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
           target: runtime
           platforms: ${{ matrix.platform }}
           push: false
           build-args: |
-            USER=ci
-            GROUP=ci
-            UID=1000
-            GID=1000
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
             ${{ inputs.build_args }}
 
   # ────────────────────────────────────────────────────────────────

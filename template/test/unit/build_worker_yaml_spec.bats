@@ -88,3 +88,76 @@ setup() {
   [[ "${_ctx}" == *'"."'* ]]
   [[ "${_df}" == *'""'* ]]
 }
+
+# ── User build-args alignment with Dockerfile.example (#198) ──────────
+
+@test "build-worker.yaml: 3 build steps pass USER_NAME=ci (long form, matching Dockerfile.example sys stage)" {
+  # Pre-#198 the workflow passed `USER=ci` (short form) which the
+  # Dockerfile only sees in the devel stage; the sys-stage useradd
+  # reads USER_NAME and stuck on the default "user". The container
+  # then USER-switched to "ci" with no /etc/passwd entry, exploding
+  # any RUN that resolved the username.
+  run grep -c '^            USER_NAME=ci$' "${WF}"
+  assert_success
+  assert_output "3"
+}
+
+@test "build-worker.yaml: 3 build steps pass USER_GROUP=ci (long form)" {
+  run grep -c '^            USER_GROUP=ci$' "${WF}"
+  assert_success
+  assert_output "3"
+}
+
+@test "build-worker.yaml: 3 build steps pass USER_UID=1000 (long form)" {
+  run grep -c '^            USER_UID=1000$' "${WF}"
+  assert_success
+  assert_output "3"
+}
+
+@test "build-worker.yaml: 3 build steps pass USER_GID=1000 (long form)" {
+  run grep -c '^            USER_GID=1000$' "${WF}"
+  assert_success
+  assert_output "3"
+}
+
+@test "build-worker.yaml: no short-form USER=/GROUP=/UID=/GID= build-args (regression #198)" {
+  # The Generate-.env step at the top of the workflow uses long-form
+  # writes via `printf 'USER_NAME=...'`; only build-args lines (8-space
+  # indent inside the build steps) are at risk. Anchor on that
+  # indentation to avoid false positives from the env-file write.
+  run grep -E '^            (USER|GROUP|UID|GID)=' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
+# ── build_contexts input forwards to docker/build-push-action (#207) ──
+
+@test "build-worker.yaml: declares build_contexts input with empty default" {
+  # #199 added compose's `additional_contexts:` for local builds, but
+  # CI invokes `docker/build-push-action` directly (bypassing compose),
+  # so the named contexts never reached BuildKit. #207 adds the input
+  # the workflow needs to forward them to the action's `build-contexts:`
+  # field. Default is empty so existing callers see zero diff.
+  run grep -A 3 '^      build_contexts:' "${WF}"
+  assert_success
+  assert_output --partial 'required: false'
+  assert_output --partial 'type: string'
+  assert_output --partial 'default: ""'
+}
+
+@test "build-worker.yaml: 3 build steps forward inputs.build_contexts to docker/build-push-action build-contexts:" {
+  # Three docker/build-push-action calls (test/devel/runtime). Each
+  # must forward the input so named contexts work end-to-end in CI.
+  run grep -c '^          build-contexts: \${{ inputs.build_contexts }}$' "${WF}"
+  assert_success
+  assert_output "3"
+}
+
+@test "build-worker.yaml: build_contexts default preserves zero-diff for existing callers (#207)" {
+  # The combined safety net: with empty default + per-step plumbing,
+  # callers that don't pass build_contexts get an empty action input,
+  # which docker/build-push-action treats as "no extra contexts" — the
+  # exact pre-#207 behaviour.
+  local _bc
+  _bc="$(grep -A 3 '^      build_contexts:' "${WF}" | grep 'default:' | head -1)"
+  [[ "${_bc}" == *'""'* ]]
+}
