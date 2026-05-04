@@ -985,6 +985,39 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Dockerfile.example: ENV alignment with downstream fleet (#210)
+#
+# All 17 hand-written downstream Dockerfiles declare ENV TZ +
+# ENV LANGUAGE alongside ENV LC_ALL / ENV LANG. Pre-#210 the seed
+# Dockerfile.example only had LC_ALL / LANG; downstream-derived images
+# from `/new-repo` therefore silently differed from the fleet on
+# runtime $TZ and $LANGUAGE. The gap surfaces only for consumers that
+# read the env directly (Python tzlocal, gettext fallback, some JVM
+# tz resolution paths), but new repos should match the fleet.
+# ════════════════════════════════════════════════════════════════════
+
+@test "Dockerfile.example declares ENV TZ (matches downstream fleet, #210)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # Forwards the build-time ARG TZ value into a runtime env. ENV without
+  # an explicit value would inherit the ARG, which is what we want — the
+  # exact spelling the test locks is `ENV TZ="${TZ}"` to mirror how the
+  # 17 downstream Dockerfiles spell it.
+  run grep -E '^ENV TZ="\$\{TZ\}"$' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example declares ENV LANGUAGE=en_US:en (matches downstream fleet, #210)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # Same value the 17 downstream Dockerfiles use; gettext fallback uses
+  # $LANGUAGE in addition to $LANG so unset means the fallback chain
+  # collapses to en_US only.
+  run grep -E '^ENV LANGUAGE="en_US:en"$' "${_df}"
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
 # release-test-tools.yaml: GHCR publisher workflow
 # ════════════════════════════════════════════════════════════════════
 
