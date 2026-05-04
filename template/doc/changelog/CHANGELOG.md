@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.16.1] - 2026-05-04
+
+Patch release. Two CI plumbing fixes that surfaced from `seggpt`'s
+v0.16.0 adoption — neither breaks the 17 existing downstreams (their
+CI was already passing), but both unblock new repos using
+`Dockerfile.example` verbatim or `setup.conf [additional_contexts]`.
+
+### Added
+- **`build-worker.yaml` accepts `build_contexts` input forwarding to `docker/build-push-action`'s `build-contexts:`** (#207). v0.16.0 (#199) added compose's `additional_contexts:` so that local `./build.sh` (which goes through `docker compose build`) could use named contexts in `Dockerfile` `COPY --from=<name>` lines. CI bypassed compose entirely — `build-worker.yaml` calls `docker/build-push-action@v7` directly — so the same `setup.conf [additional_contexts]` entry that worked locally failed in CI with `failed to resolve source metadata: no source for '<name>'`. Fix: new `build_contexts` workflow input (default `""`) plumbs caller-supplied `<name>=<location>` pairs into all 3 build steps' `build-contexts:` field. Caller usage: `with: build_contexts: \|\n  repo_root=.`. Path semantics differ from compose's `additional_contexts:` because `docker/build-push-action` resolves `build-contexts:` paths relative to the repo root (the `actions/checkout` working dir), NOT to `context:` — so a caller using `context_path: docker` writes `repo_root=.` here even though the same context in `setup.conf` is `repo_root=..`. Default empty preserves zero-diff for existing callers. Coverage: 3 new `build_worker_yaml_spec.bats` tests (input declaration, 3-step plumbing, zero-diff default).
+
+### Fixed
+- **`build-worker.yaml` user build-args now match `Dockerfile.example` sys-stage names** (#198). Pre-fix the workflow passed `USER=ci` / `GROUP=ci` / `UID=1000` / `GID=1000` (short form) to all 3 `docker/build-push-action` calls, while `Dockerfile.example`'s sys stage `useradd` reads `USER_NAME` / `USER_GROUP` / `USER_UID` / `USER_GID` (long form, also what the same workflow's "Generate .env" step writes). Result: `useradd` created `user` (the Dockerfile default), but the devel stage's `ARG USER="${USER_NAME}"` got overridden by the build-arg `USER=ci` so `USER "${USER}"` switched the image to UID-with-no-passwd-entry, exploding any subsequent `RUN` that resolved the username — `seggpt`'s CI hit `unable to find user ci: no matching entries in passwd file`. Fix: rename the 12 build-args lines (3 steps × 4 args) to long form so they hit the Dockerfile's sys-stage ARGs directly. No downstream Dockerfile change required (every existing `Dockerfile.example`-derived Dockerfile already declares the long-form ARGs). Coverage: 5 new `build_worker_yaml_spec.bats` tests lock the long-form invariant + assert no short-form regression.
+
 ## [v0.16.0] - 2026-04-30
 
 Minor release bundling three setup.conf-area changes. Includes a
