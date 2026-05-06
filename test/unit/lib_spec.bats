@@ -336,6 +336,50 @@ EOF
   assert_output --partial "./setup_tui.sh"
 }
 
+@test "_print_config_summary prints Variables block mapping setup.conf placeholders to detected values" {
+  # The Identity block already shows resolved user/workspace, but the
+  # setup.conf [volumes] dump prints raw `${WS_PATH}` / `${USER_NAME}`
+  # placeholders. Variables block bridges the gap so users can map the
+  # placeholder to the value at a glance without re-deriving from
+  # Identity field labels.
+  local _fp="${BATS_TEST_TMPDIR}"
+  _write_sample_conf "${_fp}/setup.conf"
+  run bash -c "
+    source ${LIB}
+    FILE_PATH='${_fp}'
+    USER_NAME=alice USER_UID=1000 USER_GROUP=alice USER_GID=1000
+    HARDWARE=x86_64 DOCKER_HUB_USER=alice IMAGE_NAME=myrepo
+    WS_PATH=/home/alice/work
+    GPU_ENABLED=true GPU_COUNT=all GPU_CAPABILITIES='gpu compute'
+    SETUP_GUI_DETECTED=true NETWORK_MODE=host IPC_MODE=host PRIVILEGED=false
+    TZ=Asia/Taipei APT_MIRROR_UBUNTU=tw.archive.ubuntu.com
+    APT_MIRROR_DEBIAN=mirror.twds.com.tw
+    PROJECT_NAME=alice-myrepo
+    _print_config_summary build
+  "
+  assert_success
+  assert_output --partial "Variables"
+  assert_output --partial "\${USER_NAME} = alice"
+  assert_output --partial "\${USER_UID}  = 1000"
+  assert_output --partial "\${USER_GROUP} = alice"
+  assert_output --partial "\${USER_GID}  = 1000"
+  assert_output --partial "\${WS_PATH}   = /home/alice/work"
+}
+
+@test "_print_config_summary Variables block falls back to '-' for unset values" {
+  local _fp="${BATS_TEST_TMPDIR}"
+  _write_sample_conf "${_fp}/setup.conf"
+  run bash -c "
+    source ${LIB}
+    FILE_PATH='${_fp}'
+    unset USER_NAME USER_UID USER_GROUP USER_GID WS_PATH
+    _print_config_summary build
+  "
+  assert_success
+  assert_output --partial "\${USER_NAME} = -"
+  assert_output --partial "\${WS_PATH}   = -"
+}
+
 @test "_print_config_summary hides sections that are empty in setup.conf" {
   local _fp="${BATS_TEST_TMPDIR}"
   # Minimal conf with only [image]; expect no [build]/[volumes] headers

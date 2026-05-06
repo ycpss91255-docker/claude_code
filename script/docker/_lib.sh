@@ -115,6 +115,10 @@ _lib_msg() {
     zh-CN:resolved)          echo "解析结果" ;;
     ja:resolved)             echo "解決済み" ;;
     *:resolved)              echo "Resolved" ;;
+    zh-TW:variables)         echo "變數對映" ;;
+    zh-CN:variables)         echo "变量映射" ;;
+    ja:variables)            echo "変数マッピング" ;;
+    *:variables)             echo "Variables" ;;
     # Identity field labels
     zh-TW:user)              echo "使用者" ;;
     zh-CN:user)              echo "用户" ;;
@@ -220,6 +224,19 @@ _print_config_summary() {
   printf "[%s]   %-12s : %s\n" "${_tag}" "$(_lib_msg image_tag)" "${_img}"
   printf "[%s]   %-12s : %s\n" "${_tag}" "$(_lib_msg project)" "${_proj}"
   printf "[%s]   %-12s : %s\n" "${_tag}" "$(_lib_msg workspace)" "${WS_PATH:--}"
+
+  # Variables block: explicit map from setup.conf placeholders to the
+  # detected runtime values. Identity prints the resolved values with
+  # i18n labels (e.g. "使用者 : alice"); the [volumes] dump prints raw
+  # `${USER_NAME}` / `${WS_PATH}` placeholders. This block bridges the
+  # two so users can read mount_* lines without re-deriving the mapping
+  # from translated labels.
+  printf "[%s] %s\n" "${_tag}" "$(_lib_msg variables)"
+  printf "[%s]   \${USER_NAME} = %s\n"  "${_tag}" "${USER_NAME:--}"
+  printf "[%s]   \${USER_UID}  = %s\n"  "${_tag}" "${USER_UID:--}"
+  printf "[%s]   \${USER_GROUP} = %s\n" "${_tag}" "${USER_GROUP:--}"
+  printf "[%s]   \${USER_GID}  = %s\n"  "${_tag}" "${USER_GID:--}"
+  printf "[%s]   \${WS_PATH}   = %s\n"  "${_tag}" "${WS_PATH:--}"
 
   # setup.conf section-by-section dump. Each section prints only if
   # non-empty to stay readable. Order matches the TUI main menu so
