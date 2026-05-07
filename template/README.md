@@ -232,9 +232,16 @@ network.port_1 = 8080:80
 deploy.gpu_capabilities = gpu compute utility graphics video
 ```
 
-Use `./setup_tui.sh` → Advanced → "Per-stage overrides" for an
-interactive editor; the entry only appears when your Dockerfile has at
-least one non-baseline stage.
+Use `./setup_tui.sh` for an interactive editor:
+
+- **Advanced → Per-stage overrides**: drills straight into the editor.
+  The entry only appears when your Dockerfile has at least one
+  non-baseline stage.
+- **Features → Per-stage overrides** (#221): always-visible
+  discoverability surface that lists conditional / power-user
+  features. When the precondition is met it acts as a shortcut into
+  the same editor; when not, it pops a msgbox explaining how to
+  enable.
 
 Allowlist (v1 — keys that can be overridden per-stage):
 
@@ -326,7 +333,24 @@ is copied to the repo and the detected workspace is written to
 
 ### Interactive TUI
 
-`./setup_tui.sh` opens the main menu and lets you edit values across all sections; the backend is `dialog` or `whiptail` (when both are missing it prints a `sudo apt install dialog` hint and exits). Cancel / Esc leaves without saving; saving auto-invokes `setup.sh` to regenerate `.env` + `compose.yaml`.
+`./setup_tui.sh` opens the main menu. The backend is `dialog` or `whiptail` (when both are missing it prints a `sudo apt install dialog` hint and exits). Cancel / Esc leaves without saving; saving auto-invokes `setup.sh` to regenerate `.env` + `compose.yaml`.
+
+Main menu structure (#221):
+
+```
+Main
+├─ image            IMAGE_NAME detection rules
+├─ build            APT mirrors + Dockerfile build args
+├─ Runtime  ──→     network / deploy (GPU) / gui / environment
+├─ Mounts   ──→     volumes / devices / tmpfs
+├─ Advanced ──→     security / additional_contexts
+│                   / per_stage (conditional) / Reset
+├─ Features         conditional / power-user features index
+│                   (today: per_stage status row)
+└─ Save & Exit
+```
+
+`./setup_tui.sh <section>` still drills directly into a section editor (e.g. `./setup_tui.sh volumes`), bypassing the main menu.
 
 ### When setup.sh runs
 
