@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.19.0] - 2026-05-07
+
+Promoted from `v0.19.0-rc1` (#228) — RC tag CI was green; no fixups needed.
+
+### Changed
+- **`setup_tui.sh` main menu restructured into 5 grouped entries + `Features` discoverability surface** (#221). Top-level main now shows `image`, `build`, `runtime`, `mounts`, `advanced`, `features`, `Save & Exit` — replacing the previous flat list of 5 runtime/mount sections + `advanced` mixed at the same level. `runtime` (network / GPU / display / env vars) and `mounts` (volumes / devices / tmpfs) are sub-menu groupers; `image` and `build` get promoted from Advanced because they are commonly tweaked when wiring a new repo. Advanced is slimmed to truly-advanced knobs (security, named build contexts, conditional per-stage overrides, Reset). The new `features` entry is permanently visible and lists conditional / power-user features with a status row (today: `Per-stage overrides — enabled (N stages)` when a non-baseline `FROM ... AS <name>` exists, otherwise `— hidden (no non-baseline stages)`); clicking the disabled row pops a msgbox explaining how to enable, clicking the enabled row drills into the same editor as the conditional Advanced entry. No semantic change to any underlying section editor — every existing `_edit_section_*` is reachable via the new layout.
+
+### Added
+- 12 i18n keys × 4 languages for the new menu structure: `main.runtime` / `main.mounts` / `main.features`, `runtime.title` / `.menu` / `.back`, `mounts.title` / `.menu` / `.back`, `features.title` / `.menu` / `.back`, `features.per_stage_enabled` / `features.per_stage_hidden` / `features.per_stage_hidden_info`.
+
 ## [v0.18.2] - 2026-05-07
 
 Patch release that ships **the correct `.version` metadata** for the work that landed under the v0.18.0 / v0.18.1 git tags. Both prior tags shipped without the standard `chore: release` step, so their tagged commits still carried `.version = v0.17.0`. Downstream consumers ended up with a stale `template/.version` after `make upgrade`, which made `make upgrade-check` perpetually report "upgrade available". Functionally those tags were correct (workflows, scripts, tests all matched their version), but the metadata file lied.
