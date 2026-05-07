@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.18.2] - 2026-05-07
+
+Patch release that ships **the correct `.version` metadata** for the work that landed under the v0.18.0 / v0.18.1 git tags. Both prior tags shipped without the standard `chore: release` step, so their tagged commits still carried `.version = v0.17.0`. Downstream consumers ended up with a stale `template/.version` after `make upgrade`, which made `make upgrade-check` perpetually report "upgrade available". Functionally those tags were correct (workflows, scripts, tests all matched their version), but the metadata file lied.
+
+This release contains **no functional change vs v0.18.1**. Only `.version` and CHANGELOG bookkeeping. Downstream upgrade to v0.18.2 is a metadata-only refresh: same template content, same `main.yaml` `@v0.18.x` reusable workflow surface (modulo the `@tag` bump itself), and the local `template/.version` finally agrees with what the agent actually consumed.
+
+Process gap that caused this is tracked in claude-workspace #36 (added `check_tag_version_consistency.sh` PreToolUse hook and a `Process discipline` section in CLAUDE.md so the same mistake cannot repeat — `git tag v*` is now blocked when the repo's `.version` file does not match the tag name).
+
+### Fixed
+- **`.version` file bumped to match the tag** (refs claude-workspace#36). Prior tags v0.18.0 and v0.18.1 carried `.version = v0.17.0`. Pinned consumers of those tags ended up with a stale local `template/.version`; `make upgrade-check` would loop "upgrade available" forever. v0.18.2 ships `.version = v0.18.2` so the loop terminates and `cat template/.version` agrees with the ref users pulled from.
+
+### Added (v0.18.0 + v0.18.1 -- carried forward, no functional change in v0.18.2)
+- See [v0.18.1](#v0181---2026-05-06) for the per-stage `[stage:<name>]` overrides feature, the standalone-emit fix, and the `--help` / `--lang` argument-order fix.
+
+## [v0.18.1] - 2026-05-06
+
+> Tagged with stale `.version = v0.17.0`. Functionally correct but metadata-only fix in v0.18.2 -- prefer v0.18.2 for new consumers.
+
 ### Fixed
 - **`[stage:<name>]` per-stage list overrides now actually replace devel's lists at runtime** (#220 follow-up; v0.18.0 had this gap, fixed in v0.18.1). compose `extends` MERGES list fields (`volumes` / `environment` / `ports` / `cap_add` / `deploy.devices`) by appending child entries to parent's, not replacing them — so the v0.18.0 emit pattern of "minimal `extends: devel` + override list block in stage" left devel's X11 mount + DISPLAY env intact even when the stage set `gui.mode = off`. Confirmed via Isaac Sim headless validation: `docker compose --profile headless config` showed `/tmp/.X11-unix` and `DISPLAY` inherited despite the stage's `gui.mode = off`, and kit emitted the exact `X11 connection rejected because of wrong authentication` warning the issue body called out. Fix: when a stage has any list-affecting override (`gui.mode` change, or any `volumes.mount_*` / `environment.env_*` / `network.port_*` / `*_inherit = false`), emit a **standalone** service block (no `extends: devel`). Top-level fields not yet in the per-stage allowlist (`cap_add` / `cap_drop` / `security_opt` / `devices` / `cgroup_rules` / `tmpfs`) are re-emitted from top-level so the stage still inherits those by default. Cost: a stage with even a single scalar override now produces ~150 lines of compose.yaml instead of ~10; compose.yaml is auto-generated, so the verbosity is fine. v0.18.0 stable tag is left as-is for record-keeping; users should upgrade to v0.18.1 to get the fix. Updated 3 integration tests + 1 new test (`stage-override: standalone emit re-emits cap_add / runtime / privileged inherited from devel`).
 - **`build.sh` / `run.sh` / `exec.sh` / `stop.sh` `--help` now respects `--lang` regardless of argument order** (#222). Previously `<script> --help --lang zh-TW` printed English usage because `usage()` exited via `-h|--help` before the main parse loop reached `--lang`. The reverse order (`--lang` first) worked. Fix: a one-pass scan in each `main()` resolves `--lang` (and via the existing `_sanitize_lang` machinery, `SETUP_LANG`) before the canonical parse loop runs, so both orderings produce the localised usage. Flag surface unchanged. 9 new smoke-test rows in `test/smoke/script_help.bats` (zh-TW / zh-CN / ja across the four scripts).
