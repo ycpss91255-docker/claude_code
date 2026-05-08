@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.22.0] - 2026-05-08
+
+Minor release adding `-C` / `--chdir` to the four wrappers for worktree-path
+invocation parity with `git -C` / `make -C`. RC skipped: wrapper-only change,
+no Dockerfile / release-pipeline impact, full unit coverage on the feature
+PR (#255).
+
+### Added
+- **`-C <dir>` / `--chdir <dir>` flag on all four wrappers**
+  (`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) — operate on the repo
+  at `<dir>` without changing the caller's cwd, mirroring `git -C` /
+  `make -C`. Closes docker_harness#53. The pre-pass overrides
+  `FILE_PATH` before `_lib.sh` is sourced, so `_lib.sh` lookup, `.env`
+  load, `setup.sh` invocation, and `compose.yaml` resolution all
+  honor the override. Critical for Claude Code's sandbox
+  `excludedCommands` matching: top-level token stays
+  `./build.sh ...` rather than `(cd <dir> && ...)` or
+  `bash -c "cd <dir> && ..."`, neither of which the bash AST parser
+  unwraps into the `./build.sh *` prefix. Must come before the
+  positional `TARGET` / `CMD`. Long form `--chdir` is also accepted.
+  Adds 20 unit tests across `build_sh_spec` / `run_sh_spec` /
+  `exec_sh_spec` / `stop_sh_spec`.
+
+### Changed
+- License migrated from GPL-3.0 to Apache 2.0 (#246). Aligns with
+  upstream `osrf/docker_images` and the rest of the
+  `ycpss91255-docker` org; explicit patent grant and patent-retaliation
+  clause; avoids the GPL viral concern when this repo is bundled as
+  a subtree under `template/` in downstream repos. README License
+  badge updated across all 4 language variants. The non-English
+  badges' link path was also corrected from `./LICENSE` (a stale
+  relative pointer to `doc/readme/LICENSE`) to `../../LICENSE`.
+
 ## [v0.21.1] - 2026-05-08
 
 Patch release fixing a bug in v0.21.0's runtime-test stage example.

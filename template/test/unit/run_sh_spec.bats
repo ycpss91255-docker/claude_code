@@ -638,3 +638,56 @@ EOS
   # build-sh appears AFTER setup-check-drift (line ≥ 2)
   [[ "${output%%:*}" -ge 2 ]] || { echo "expected build-sh after check-drift, got: ${output}"; return 1; }
 }
+
+# ════════════════════════════════════════════════════════════════════
+# -C / --chdir flag (issue docker_harness#53) — see build_sh_spec for the
+# rationale; run.sh mirrors the build.sh pre-pass.
+# ════════════════════════════════════════════════════════════════════
+
+@test "run.sh -C <dir> redirects FILE_PATH to <dir>" {
+  local ALT="${TEMP_DIR}/alt"
+  mkdir -p "${ALT}/template/script/docker"
+  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  cp "${SANDBOX}/template/script/docker/setup.sh" "${ALT}/template/script/docker/setup.sh"
+  chmod +x "${ALT}/template/script/docker/setup.sh"
+
+  run bash "${SANDBOX}/run.sh" -C "${ALT}" --dry-run --detach
+  assert_success
+  assert [ -f "${MOCK_SETUP_LOG}" ]
+  run cat "${MOCK_SETUP_LOG}"
+  assert_output --partial "setup.sh invoked --base-path ${ALT}"
+}
+
+@test "run.sh --chdir <dir> long form is equivalent to -C" {
+  local ALT="${TEMP_DIR}/alt2"
+  mkdir -p "${ALT}/template/script/docker"
+  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  cp "${SANDBOX}/template/script/docker/setup.sh" "${ALT}/template/script/docker/setup.sh"
+  chmod +x "${ALT}/template/script/docker/setup.sh"
+
+  run bash "${SANDBOX}/run.sh" --chdir "${ALT}" --dry-run --detach
+  assert_success
+  run cat "${MOCK_SETUP_LOG}"
+  assert_output --partial "setup.sh invoked --base-path ${ALT}"
+}
+
+@test "run.sh -C without a value exits 2" {
+  run bash "${SANDBOX}/run.sh" -C
+  assert_failure 2
+  assert_output --partial "requires a value"
+}
+
+@test "run.sh -C with a non-existent directory exits 2" {
+  run bash "${SANDBOX}/run.sh" -C /definitely/does/not/exist
+  assert_failure 2
+  assert_output --partial "not a directory"
+}
+
+@test "run.sh -C is mentioned in usage help" {
+  run bash "${SANDBOX}/run.sh" --help
+  assert_success
+  assert_output --partial "-C"
+  assert_output --partial "--chdir"
+}
