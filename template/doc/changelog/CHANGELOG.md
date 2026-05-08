@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.20.1] - 2026-05-08
+
+### Fixed
+- **`setup.conf [environment] env_N` cross-reference now expands**
+  (#236). When a later `env_N` value references an earlier sibling KEY
+  via `${KEY}`, `setup.sh` now substitutes the earlier sibling's value
+  before emitting to `compose.yaml`. Previously the literal `${KEY}`
+  shipped to compose, and compose's own `${VAR}` substitution does NOT
+  consult sibling environment entries -- the container saw the
+  unexpanded form (e.g. `LD_LIBRARY_PATH=/foo//lib` after declaring
+  `ROS_DISTRO=humble` and `LD_LIBRARY_PATH=/foo/${ROS_DISTRO}/lib`).
+  Order-sensitive: forward references and unknown names stay literal
+  so compose's substitution layer (`.env` / shell env) gets a chance
+  at file-load time. Transitive references resolve through the chain
+  (env_3 sees the fully-expanded env_2). Implementation: new
+  `_expand_env_cross_refs` helper called from `generate_compose_yaml`
+  before the env block emits. 5 new unit tests in
+  `test/unit/compose_gen_spec.bats` cover basic / forward / unknown /
+  multi-ref / transitive cases.
+
+## [v0.20.0] - 2026-05-08
+
+Promoted from `v0.20.0-rc1` (#234) — RC tag CI was green; no fixups needed.
+
+### Added
+- **`publish-worker.yaml` reusable workflow** (#232). Opt-in
+  workflow_call entry point that pushes a Dockerfile target stage
+  (default `devel`) to a container registry (default `ghcr.io`) on
+  tag push. Inputs mirror `build-worker.yaml` (`image_name`,
+  `build_args`, `context_path`, `dockerfile_path`, `build_contexts`,
+  `platforms`, `test_tools_version`) plus publish-specific knobs
+  (`tag_suffix`, `is_latest`, `registry`, `target`). Default behavior
+  for existing repos is unchanged: only repos that explicitly add a
+  `call-publish` job in their `main.yaml` publish images. Designed
+  for foundational image repos (`ros_distro`, `ros2_distro`) so app
+  repos can `FROM ghcr.io/<org>/ros_distro:vX.Y.Z-<variant>` instead
+  of duplicating sys / base / devel layers per repo. Auth uses
+  `GITHUB_TOKEN` for GHCR; multi-arch via `platforms: linux/amd64,linux/arm64`
+  publishes a single multi-arch manifest list under each tag.
+  Documented under "CI Reusable Workflows" in template README with
+  full input table and caller example.
+
 ## [v0.19.0] - 2026-05-07
 
 Promoted from `v0.19.0-rc1` (#228) — RC tag CI was green; no fixups needed.

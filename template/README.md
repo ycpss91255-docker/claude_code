@@ -60,7 +60,7 @@ graph TB
         smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
         config["config/<br/>bashrc / tmux / terminator / pip"]
         mgmt["script/docker/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
-        workflows["Reusable Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
+        workflows["Reusable Workflows<br/>build-worker.yaml<br/>release-worker.yaml<br/>publish-worker.yaml (opt-in)"]
     end
 
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
@@ -565,6 +565,68 @@ jobs:
 | `archive_name_prefix` | string | yes | - | Archive name prefix |
 | `extra_files` | string | no | `""` | Space-separated extra files |
 
+### publish-worker.yaml inputs (opt-in, foundational image repos)
+
+Pushes a Dockerfile target stage to a container registry on tag push.
+Opt-in: only repos that consume this workflow publish images (default
+template flow stays test-only). Typical use case: foundational image
+repos (`ros_distro`, `ros2_distro`) that other repos consume via
+Docker `FROM`.
+
+| Input | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `image_name` | string | yes | - | Image repo name on the registry (e.g. `ros_distro`); full ref becomes `${registry}/${owner}/${image_name}` |
+| `tag_suffix` | string | no | `""` | Appended to both `:${version}` and `:latest` tags. Convention: `-<matrix-entry-name>` so each variant lands on its own tag |
+| `is_latest` | boolean | no | `false` | When true, also pushes `:latest${tag_suffix}` alongside `:${version}${tag_suffix}`. Multi-variant repos set this only on the canonical default variant |
+| `registry` | string | no | `"ghcr.io"` | Container registry hostname. GHCR uses GITHUB_TOKEN auth automatically |
+| `target` | string | no | `"devel"` | Dockerfile target stage to publish. `devel` for app-base usage; `runtime` for production images |
+| `build_args` | string | no | `""` | Multi-line KEY=VALUE build args (same shape as build-worker) |
+| `platforms` | string | no | `"linux/amd64"` | Comma-separated target platforms; multi-arch publishes a single multi-arch manifest under each tag |
+| `context_path` | string | no | `"."` | Build context (mirrors build-worker) |
+| `dockerfile_path` | string | no | `""` | Optional explicit Dockerfile path |
+| `build_contexts` | string | no | `""` | Optional newline-separated `<name>=<location>` build contexts |
+| `test_tools_version` | string | no | `"latest"` | `ghcr.io/.../test-tools:<tag>` build-arg (pin to your template release for reproducibility) |
+
+Caller example (foundational multi-variant repo):
+
+```yaml
+# .github/workflows/main.yaml
+jobs:
+  call-publish:
+    needs: ci-passed
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        target:
+          - { name: 'noetic-desktop-full',  base: 'osrf/ros:noetic-desktop-full-focal',   is_latest: true }
+          - { name: 'noetic-ros-base',      base: 'ros:noetic-ros-base-focal',            is_latest: false }
+          - { name: 'kinetic-desktop-full', base: 'osrf/ros:kinetic-desktop-full-xenial', is_latest: false }
+          - { name: 'kinetic-ros-base',     base: 'ros:kinetic-ros-base-xenial',          is_latest: false }
+    uses: ycpss91255-docker/template/.github/workflows/publish-worker.yaml@vX.Y.Z
+    with:
+      image_name: ros_distro
+      tag_suffix: "-${{ matrix.target.name }}"
+      is_latest: ${{ matrix.target.is_latest }}
+      target: devel
+      build_args: |
+        BASE_IMAGE=${{ matrix.target.base }}
+```
+
+After a `v0.1.0` tag push, the matrix above yields:
+
+```
+ghcr.io/<org>/ros_distro:v0.1.0-noetic-desktop-full
+ghcr.io/<org>/ros_distro:latest-noetic-desktop-full   # is_latest = true
+ghcr.io/<org>/ros_distro:v0.1.0-noetic-ros-base
+ghcr.io/<org>/ros_distro:v0.1.0-kinetic-desktop-full
+ghcr.io/<org>/ros_distro:v0.1.0-kinetic-ros-base
+```
+
+Downstream app repos (e.g. `urg_node`) then `FROM ghcr.io/<org>/ros_distro:v0.1.0-humble-desktop-full` in their own Dockerfile, dropping the duplicated sys / base / devel layers.
+
 ## Running Template Tests
 
 Using `Makefile.ci` (from template root):
@@ -647,8 +709,10 @@ template/
 ├── codecov.yml
 ├── .github/workflows/
 │   ├── self-test.yaml                # Template CI
-│   ├── build-worker.yaml             # Reusable build workflow
-│   └── release-worker.yaml           # Reusable release workflow
+│   ├── build-worker.yaml             # Reusable build + smoke-test workflow
+│   ├── release-worker.yaml           # Reusable release (source archive) workflow
+│   ├── publish-worker.yaml           # Reusable image publish workflow (opt-in; pushes to GHCR)
+│   └── release-test-tools.yaml       # Template's own test-tools image release
 ├── doc/
 │   ├── readme/                       # README translations (zh-TW / zh-CN / ja)
 │   ├── test/TEST.md                  # Test catalog (spec tables)
