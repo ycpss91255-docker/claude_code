@@ -1,5 +1,7 @@
 # Claude Code Docker Environment
 
+[![CI](https://github.com/ycpss91255-docker/claude_code/actions/workflows/main.yaml/badge.svg)](https://github.com/ycpss91255-docker/claude_code/actions/workflows/main.yaml) [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](./LICENSE)
+
 [![CI](https://github.com/ycpss91255-docker/claude_code/actions/workflows/main.yaml/badge.svg)](https://github.com/ycpss91255-docker/claude_code/actions/workflows/main.yaml)
 
 **[English](README.md)** | **[繁體中文](doc/README.zh-TW.md)** | **[简体中文](doc/README.zh-CN.md)** | **[日本語](doc/README.ja.md)**
