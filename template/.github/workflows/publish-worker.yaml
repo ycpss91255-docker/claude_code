@@ -19,12 +19,11 @@ name: Publish Docker Image
 # When `is_latest: true`, also pushes:
 #   ${registry}/${owner}/${image_name}:latest${tag_suffix}
 #
-# So a v0.1.0 release of ros_distro with the matrix below produces:
-#   ghcr.io/<org>/ros_distro:v0.1.0-noetic-desktop-full   (latest entry)
-#   ghcr.io/<org>/ros_distro:latest-noetic-desktop-full   (latest entry)
-#   ghcr.io/<org>/ros_distro:v0.1.0-noetic-ros-base
-#   ghcr.io/<org>/ros_distro:v0.1.0-kinetic-desktop-full
-#   ghcr.io/<org>/ros_distro:v0.1.0-kinetic-ros-base
+# So a v0.1.0 release of `<image_name>` with a 2-variant matrix
+# (`standard` flagged is_latest=true, `minimal` not) produces:
+#   ghcr.io/<org>/<image_name>:v0.1.0-standard
+#   ghcr.io/<org>/<image_name>:latest-standard          (latest flag)
+#   ghcr.io/<org>/<image_name>:v0.1.0-minimal
 #
 # The reused inputs (build_args / context_path / dockerfile_path /
 # build_contexts / platforms / test_tools_version) mirror
@@ -48,7 +47,7 @@ on:
         description: |
           String appended to both `:${version}` and `:latest` tags.
           Convention: `-<matrix-entry-name>` so each variant lands on
-          its own tag (e.g. `-noetic-desktop-full`). Empty default =
+          its own tag (e.g. `-standard`, `-minimal`). Empty default =
           bare `:${version}` / `:latest` tags (single-variant repos).
       is_latest:
         required: false
@@ -57,9 +56,9 @@ on:
         description: |
           When true, also push `:latest${tag_suffix}` alongside
           `:${version}${tag_suffix}`. Multi-variant repos should set
-          this to `true` only on the canonical default variant
-          (typically osrf desktop-full) so downstream `:latest-...`
-          consumers point at the variant the maintainer recommends.
+          this to `true` only on the canonical default variant so
+          downstream `:latest-...` consumers point at the variant the
+          maintainer recommends.
       registry:
         required: false
         type: string
@@ -100,10 +99,10 @@ on:
           `docker pull` the tag and get the right arch automatically.
 
           MVP supports linux/amd64 + linux/arm64 (publishes a multi-arch
-          manifest list). osrf/ros: variants are amd64-only, so callers
-          publishing osrf-based variants should leave this at the
-          default. ros: variants on linux/arm64 publish via native
-          arm64 runners (no QEMU emulation).
+          manifest list). When upstream base images are amd64-only,
+          callers should leave this at the default; multi-arch base
+          images publish to linux/arm64 via native arm64 runners (no
+          QEMU emulation).
       context_path:
         required: false
         type: string

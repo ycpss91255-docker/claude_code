@@ -39,24 +39,25 @@ setup() {
 
 # ── Build steps forward both inputs (#195) ────────────────────────────
 
-@test "build-worker.yaml: 3 build steps all reference inputs.context_path" {
-  # Three `docker/build-push-action` calls — test/devel/runtime stages.
-  # Each must read context from the new input; `context: .` would
-  # silently work for repo-root-Dockerfile callers but break the
-  # nested-Dockerfile use case the issue body documented.
+@test "build-worker.yaml: 4 build steps all reference inputs.context_path (#243 added runtime-test)" {
+  # Four `docker/build-push-action` calls after #243:
+  # devel-test / devel / runtime-test / runtime stages. Each must read
+  # context from the new input; `context: .` would silently work for
+  # repo-root-Dockerfile callers but break the nested-Dockerfile use
+  # case the #195 issue body documented.
   run grep -c 'context: ${{ inputs.context_path }}' "${WF}"
   assert_success
-  assert_output "3"
+  assert_output "4"
 }
 
-@test "build-worker.yaml: 3 build steps all forward inputs.dockerfile_path with format() fallback" {
+@test "build-worker.yaml: 4 build steps all forward inputs.dockerfile_path with format() fallback" {
   # The `||` short-circuit means an empty dockerfile_path falls back
   # to `<context_path>/Dockerfile`, matching docker/build-push-action's
   # implicit default. Override path lets callers pin a non-standard
   # filename.
   run grep -c "file: \${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}" "${WF}"
   assert_success
-  assert_output "3"
+  assert_output "4"
 }
 
 @test "build-worker.yaml: no leftover hardcoded 'context: .' lines" {
@@ -91,7 +92,7 @@ setup() {
 
 # ── User build-args alignment with Dockerfile.example (#198) ──────────
 
-@test "build-worker.yaml: 3 build steps pass USER_NAME=ci (long form, matching Dockerfile.example sys stage)" {
+@test "build-worker.yaml: 4 build steps pass USER_NAME=ci (long form, matching Dockerfile.example sys stage)" {
   # Pre-#198 the workflow passed `USER=ci` (short form) which the
   # Dockerfile only sees in the devel stage; the sys-stage useradd
   # reads USER_NAME and stuck on the default "user". The container
@@ -99,25 +100,25 @@ setup() {
   # any RUN that resolved the username.
   run grep -c '^            USER_NAME=ci$' "${WF}"
   assert_success
-  assert_output "3"
+  assert_output "4"
 }
 
-@test "build-worker.yaml: 3 build steps pass USER_GROUP=ci (long form)" {
+@test "build-worker.yaml: 4 build steps pass USER_GROUP=ci (long form)" {
   run grep -c '^            USER_GROUP=ci$' "${WF}"
   assert_success
-  assert_output "3"
+  assert_output "4"
 }
 
-@test "build-worker.yaml: 3 build steps pass USER_UID=1000 (long form)" {
+@test "build-worker.yaml: 4 build steps pass USER_UID=1000 (long form)" {
   run grep -c '^            USER_UID=1000$' "${WF}"
   assert_success
-  assert_output "3"
+  assert_output "4"
 }
 
-@test "build-worker.yaml: 3 build steps pass USER_GID=1000 (long form)" {
+@test "build-worker.yaml: 4 build steps pass USER_GID=1000 (long form)" {
   run grep -c '^            USER_GID=1000$' "${WF}"
   assert_success
-  assert_output "3"
+  assert_output "4"
 }
 
 @test "build-worker.yaml: no short-form USER=/GROUP=/UID=/GID= build-args (regression #198)" {
@@ -144,12 +145,43 @@ setup() {
   assert_output --partial 'default: ""'
 }
 
-@test "build-worker.yaml: 3 build steps forward inputs.build_contexts to docker/build-push-action build-contexts:" {
-  # Three docker/build-push-action calls (test/devel/runtime). Each
-  # must forward the input so named contexts work end-to-end in CI.
+@test "build-worker.yaml: 4 build steps forward inputs.build_contexts to docker/build-push-action build-contexts:" {
+  # Four docker/build-push-action calls after #243 (devel-test / devel
+  # / runtime-test / runtime). Each must forward the input so named
+  # contexts work end-to-end in CI.
   run grep -c '^          build-contexts: \${{ inputs.build_contexts }}$' "${WF}"
   assert_success
-  assert_output "3"
+  assert_output "4"
+}
+
+# ── #243: stage rename + runtime-test smoke step ──────────────────────
+
+@test "build-worker.yaml: devel-test build step uses target: devel-test (renamed from target: test)" {
+  # Pre-#243 the test stage was named `test`; renamed to `devel-test`
+  # for symmetry with the new `runtime-test` stage. The literal target
+  # line must reflect the new name.
+  run grep -E '^          target: devel-test$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: no leftover target: test (the renamed stage)" {
+  # If we forget to update one of the build steps, this catches it.
+  run grep -E '^          target: test$' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
+@test "build-worker.yaml: runtime-test build step exists and uses target: runtime-test" {
+  run grep -E '^          target: runtime-test$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: runtime-test build step is gated on inputs.build_runtime" {
+  # Same gate as the runtime stage build, so agent/* repos
+  # (build_runtime: false) skip both cleanly. Asserts the gate appears
+  # at least twice in the file (once for runtime-test, once for runtime).
+  run grep -c '^        if: ${{ inputs.build_runtime }}$' "${WF}"
+  assert_success
+  [[ "${output}" -ge 2 ]] || { echo "expected >=2 build_runtime gates, got ${output}"; return 1; }
 }
 
 @test "build-worker.yaml: build_contexts default preserves zero-diff for existing callers (#207)" {

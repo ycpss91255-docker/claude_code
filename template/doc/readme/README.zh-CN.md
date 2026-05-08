@@ -63,10 +63,10 @@ graph TB
         workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
-    subgraph consumer["Docker Repo（如 ros_noetic）"]
+    subgraph consumer["Docker Repo（例如 my_app）"]
         symlinks["build.sh → template/script/docker/build.sh<br/>run.sh → template/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
-        repo_test["test/smoke/<br/>ros_env.bats（repo 专属）"]
+        repo_test["test/smoke/<br/>app_env.bats（repo 专属）"]
         main_yaml["main.yaml<br/>→ 调用可重用 workflows"]
     end
 
@@ -159,7 +159,8 @@ flowchart LR
 
 #### 添加额外 stage（#215）
 
-任何在 baseline blocklist `{sys, base, devel, test}` 之外的
+任何在 baseline blocklist `{sys, devel-base, devel, devel-test,
+runtime-test}` 之外的（v0.21.x 过渡期同时接受旧名 `{base, test}`）
 `FROM <base> AS <stage>`，会被自动 emit 成一个 compose 服务 —
 `extends: devel`（继承 volumes / network / GPU / GUI / cap_add /
 additional_contexts），仅 override `build.target` / `image` /
@@ -190,9 +191,10 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 
 - Stage 名必须符合 `^[a-z][a-z0-9_-]*$` — 大写 / 数字开头 / 点号
   等会被拒（WARN + 跳过，其他 stage 继续解析）。
-- 撞到 baseline（`sys` / `base` / `devel` / `test`）`setup.sh apply`
-  hard error 退出 1。撞到 template 控制的 image tag namespace
-  （`latest`、`v[0-9]*`）也是 hard error。
+- 撞到 baseline（`sys` / `devel-base` / `devel` / `devel-test` /
+  `runtime-test`，v0.21.x 过渡期亦同时接受旧名 `base` / `test`）
+  `setup.sh apply` hard error 退出 1。撞到 template 控制的 image
+  tag namespace（`latest`、`v[0-9]*`）也是 hard error。
 - 添加 / 移除 stage 会触发 `setup.sh check-drift`（通过 `.env` 内
   的 `SETUP_DOCKERFILE_HASH`），下次 wrapper 跑会自动 regen
   `compose.yaml`。其他 `RUN apt-get install` 等修改**不会**触发 drift。
@@ -350,8 +352,9 @@ Main
 
 > **Fresh-clone lint 覆盖率（#216）**：`./run.sh` 在本机没 image
 > cached 时会走 Compose auto-build — 但 auto-build **只 build
-> `target: devel`**（或 `-t` 指定的 target），会跳过 `target: test`
-> 那层的 ShellCheck / Hadolint / Bats smoke。`run.sh` 检测到这个情况
+> `target: devel`**（或 `-t` 指定的 target），会跳过 `target:
+> devel-test`（pre-#243 该 stage 名为 `test`）那层的 ShellCheck /
+> Hadolint / Bats smoke。`run.sh` 检测到这个情况
 > 会在 `compose up` 前打印一段 `[run] INFO:` 提示（只在 TTY 环境）。
 > 想要一次取得跟 CI 同样的完整验证，加 `--build` flag：
 >
@@ -505,18 +508,18 @@ jobs:
   call-docker-build:
     uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v1
     with:
-      image_name: ros_noetic
+      image_name: my_app
       build_args: |
-        ROS_DISTRO=noetic
-        ROS_TAG=ros-base
-        UBUNTU_CODENAME=focal
+        BASE_IMAGE=python:3.11-slim
+        APP_VERSION=1.0
+        DEBIAN_CODENAME=bookworm
 
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
     uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v1
     with:
-      archive_name_prefix: ros_noetic
+      archive_name_prefix: my_app
 ```
 
 ### build-worker.yaml 参数
@@ -580,7 +583,7 @@ template/
 │       └── ci.sh                     # CI pipeline（本地 + 远端）
 ├── dockerfile/
 │   ├── Dockerfile.test-tools         # 预构建 lint/测试工具 image
-│   └── Dockerfile.example            # 新 repo 的 Dockerfile 模板（sys → base → devel → test → [runtime]）
+│   └── Dockerfile.example            # 新 repo 的 Dockerfile 模板（sys → devel-base → devel → devel-test → [runtime-base → runtime → runtime-test]）
 ├── setup.conf                        # 单一 runtime 配置（per-repo override: <repo>/setup.conf）
 ├── config/                           # Container 内部 shell / 工具配置
 │   ├── image_name.conf               # 默认 IMAGE_NAME 检测规则

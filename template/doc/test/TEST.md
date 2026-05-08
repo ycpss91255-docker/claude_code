@@ -1,13 +1,13 @@
 # TEST.md
 
-Template self-tests: **1048 tests** total (994 unit + 54 integration).
+Template self-tests: **1045 tests** total (991 unit + 54 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
 > `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
 > build time (via `./build.sh test`) inside both this repo and every
 > downstream repo, and are documented in [Smoke Tests](#smoke-tests)
-> below. They are **not** included in the 1011 figure because they are
+> below. They are **not** included in the 1045 figure because they are
 > build-time assertions, not self-tests.
 
 ## Test Files
@@ -45,7 +45,7 @@ Template self-tests: **1048 tests** total (994 unit + 54 integration).
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
 
-### test/unit/setup_spec.bats (260)
+### test/unit/setup_spec.bats (261)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -149,26 +149,28 @@ target areas the issue body called out.
 | Per-stage UI #220 (`_list_dockerfile_stages_available` from-Dockerfile + baseline filter, `_count_stage_overrides` OVR+CURRENT dedup + empty skip, `_edit_stage_gui` mode + __inherit, `_edit_stage_scalar` write + empty-clears, `_edit_stage_list` inherit toggle + add) | 10 |
 | Menu restructure #221 (i18n keys for main.runtime/mounts/features × 4 langs; `_render_runtime_menu` / `_render_mounts_menu` / `_render_features_menu` function existence; main-menu dispatch for image/build/runtime/mounts/features + bare network/deploy/gui/volumes/environment no longer dispatch from main; Runtime sub-menu dispatch for network/deploy/gui/environment + __back/Cancel; Mounts sub-menu dispatch for volumes/devices/tmpfs + __back/Cancel; Features sub-menu __back, per_stage enabled enters editor, per_stage hidden shows msgbox without entering editor; Advanced sub-menu image/build/devices/tmpfs entries removed, security still dispatches) | 31 |
 
-### test/unit/build_worker_yaml_spec.bats (15)
+### test/unit/build_worker_yaml_spec.bats (19)
 
-Structural assertions for `.github/workflows/build-worker.yaml` (#195).
-Reusable workflows are not exec'd by these tests; instead grep
-patterns lock the YAML invariants — `context_path` / `dockerfile_path`
-inputs declared with the right defaults, all 3 `docker/build-push-action`
-steps forwarding those inputs, and no leftover `context: .` /
-`file: ./Dockerfile` literals.
+Structural assertions for `.github/workflows/build-worker.yaml` (#195
++ #243). Reusable workflows are not exec'd by these tests; instead
+grep patterns lock the YAML invariants — `context_path` /
+`dockerfile_path` inputs declared with the right defaults, all 4
+`docker/build-push-action` steps (devel-test / devel / runtime-test /
+runtime after #243) forwarding those inputs, and no leftover
+`context: .` / `file: ./Dockerfile` literals.
 
 | Category | Tests |
 |----------|-------|
 | `inputs.context_path` declared with `default: "."` | 1 |
 | `inputs.dockerfile_path` declared with `default: ""` | 1 |
-| 3 build steps reference `inputs.context_path` | 1 |
-| 3 build steps reference `inputs.dockerfile_path` with `format()` fallback | 1 |
+| 4 build steps reference `inputs.context_path` (#243 added runtime-test) | 1 |
+| 4 build steps reference `inputs.dockerfile_path` with `format()` fallback | 1 |
 | No leftover `context: .` literals | 1 |
 | No leftover `file: ./Dockerfile` literals | 1 |
 | Default values together preserve repo-root-Dockerfile callers | 1 |
-| User build-args use long form matching Dockerfile.example sys stage (#198: USER_NAME / USER_GROUP / USER_UID / USER_GID across 3 build steps + no short-form regression) | 5 |
-| `build_contexts` input forwards to docker/build-push-action `build-contexts:` (#207: input declared with empty default, 3 build steps forward, default preserves zero-diff) | 3 |
+| User build-args use long form matching Dockerfile.example sys stage (#198: USER_NAME / USER_GROUP / USER_UID / USER_GID across 4 build steps + no short-form regression) | 5 |
+| `build_contexts` input forwards to docker/build-push-action `build-contexts:` (#207: input declared with empty default, 4 build steps forward, default preserves zero-diff) | 3 |
+| #243 stage rename + runtime-test smoke: `target: devel-test` (renamed from `test`), no leftover `target: test`, `target: runtime-test` exists, runtime-test gated on `inputs.build_runtime` (>=2 occurrences shared with runtime gate) | 4 |
 
 ### test/unit/build_sh_spec.bats (35)
 
@@ -275,7 +277,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
 
-### test/unit/template_spec.bats (134)
+### test/unit/template_spec.bats (137)
 
 | Test | Description |
 |------|-------------|
@@ -406,23 +408,16 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `setup.sh default _base_path uses /..` | Path resolution |
 | `setup.sh default _base_path uses double parent traversal` | Repo root traversal |
 
-### test/unit/bashrc_spec.bats (18)
+### test/unit/bashrc_spec.bats (7)
 
 | Test | Description |
 |------|-------------|
 | `defines alias_func` | Function definition |
-| `defines swc` | Function definition |
 | `defines color_git_branch` | Function definition |
-| `defines ros_complete` | Function definition |
-| `defines ros_source` | Function definition |
 | `defines ebc alias` | Alias definition |
 | `defines sbc alias` | Alias definition |
 | `alias_func is called` | Function call |
 | `color_git_branch is called` | Function call |
-| `ros_complete is called` | Function call |
-| `ros_source is called` | Function call |
-| `swc searches for catkin devel/setup.bash` | Catkin search |
-| `ros_source references ROS_DISTRO` | ROS env var |
 | `color_git_branch sets PS1` | PS1 setting |
 
 ### test/unit/pip_setup_spec.bats (3)

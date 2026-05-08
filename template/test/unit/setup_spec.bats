@@ -2614,7 +2614,9 @@ EOF
 }
 
 @test "_validate_stage_name rejects baseline collision with exit 2 (HARD ERROR)" {
-  for _base in sys base devel test; do
+  # Forward-looking baseline + legacy aliases (kept during v0.21.x
+  # transition for backward compat with un-renamed downstream Dockerfiles).
+  for _base in sys devel-base devel devel-test runtime-test base test; do
     run _validate_stage_name "${_base}"
     [[ "${status}" -eq 2 ]] || { echo "expected 2 for '${_base}', got ${status}"; return 1; }
   done
@@ -2631,16 +2633,30 @@ EOF
 # _parse_dockerfile_stages (#215)
 #
 # Reads `^FROM\s+\S+\s+AS\s+<stage>` lines from a Dockerfile, dedups,
-# filters out the baseline blocklist {sys, base, devel, test}, and
-# echoes the surviving stages one per line.
+# filters out the baseline blocklist {sys, devel-base, devel,
+# devel-test, runtime-test} (plus legacy {base, test} during v0.21.x
+# transition), and echoes the surviving stages one per line.
 # ════════════════════════════════════════════════════════════════════
 
-@test "_parse_dockerfile_stages: returns nothing for Dockerfile with only baseline stages" {
+@test "_parse_dockerfile_stages: returns nothing for Dockerfile with only legacy baseline stages (backward compat)" {
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM ubuntu:24.04 AS sys
 FROM sys AS base
 FROM base AS devel
 FROM devel AS test
+EOF
+  run _parse_dockerfile_stages "${TEMP_DIR}/Dockerfile"
+  assert_success
+  assert_output ""
+}
+
+@test "_parse_dockerfile_stages: returns nothing for Dockerfile with only new baseline stages (#243)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM ubuntu:24.04 AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM runtime AS runtime-test
 EOF
   run _parse_dockerfile_stages "${TEMP_DIR}/Dockerfile"
   assert_success

@@ -7,6 +7,165 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.21.1] - 2026-05-08
+
+Patch release fixing a bug in v0.21.0's runtime-test stage example.
+
+### Fixed
+- **`Dockerfile.example` runtime-test stage RUN line was buggy in
+  v0.21.0** (#243). Two issues:
+  - `RUN ${RUNTIME_SMOKE_CMD}` did Docker ARG substitution then
+    word-split the value: shell operators (`&&`, `||`, `;`) and
+    nested quotes were treated as literal arguments to the first
+    word. Concrete failure: with default
+    `bash -lc "whoami && bash --version && exit 0"`, `whoami`
+    received `--version` as an arg and printed its own version
+    info instead of running the chained commands. Fixed by
+    wrapping the ARG with `sh -c "${RUNTIME_SMOKE_CMD}"` so the
+    value reaches sh as a single string for normal parsing.
+  - `USER root` was the last `USER` in the Dockerfile (runtime-test
+    is ephemeral but hadolint can't know that), triggering hadolint
+    DL3002. Fixed by inheriting non-root USER from runtime;
+    downstream overrides that need root should prefix the smoke
+    command with `sudo`.
+  - Default ARG also simplified from
+    `bash -lc "whoami && bash --version && exit 0"` to
+    `whoami && bash --version` -- the `bash -lc` wrapper added a
+    login shell rc check but the nested quotes were the
+    word-split trigger. The simpler form keeps the USER + bash
+    + PATH coverage.
+
+  Discovered during sick_humble's manual v0.21.0 rollout. Three
+  new unit tests in `test/unit/template_spec.bats` (134 -> 137)
+  lock the fix: positive assertion for the `sh -c` wrapper, plus
+  regression guards for the bare `RUN ${ARG}` and `USER root`
+  forms. Total self-tests 1042 -> 1045.
+
+## [v0.21.0] - 2026-05-08
+
+Promoted from `v0.21.0-rc2` (#245). Both RC tags' CI was green; no
+fixups needed between rc2 and stable.
+
+Roll-up of changes since v0.20.1:
+- ROS-specific content removed from template (#240, via #241).
+  Template positioned as generic Docker scaffolding; ROS helpers
+  belong in downstream repos.
+- `runtime-test` stage smoke framework + `devel-base` / `devel-test`
+  stage rename (#243, via #244). Closes the runtime stage's
+  behavioural validation gap with a Dockerfile-stage approach
+  symmetric with the existing `FROM devel AS test` pattern.
+
+BREAKING for downstream Dockerfiles: stage rename `base` ->
+`devel-base` and `test` -> `devel-test` is required to keep CI green
+after upgrading the `template/` subtree to v0.21.0+. Each downstream
+upgrade PR must combine subtree pull with the local Dockerfile
+rename atomically. See the v0.21.0-rc2 entry below for the full
+migration notes.
+
+## [v0.21.0-rc2] - 2026-05-08
+
+Second Release Candidate for v0.21.0. Adds the runtime-test stage
+smoke framework on top of v0.21.0-rc1's ROS removal. v0.21.0 stable
+follows once both RCs validate cleanly.
+
+### Added
+- **`runtime-test` stage in `Dockerfile.example`** (#243). New
+  ephemeral stage `FROM runtime AS runtime-test` mirrors the
+  existing devel-test pattern. Body is `ARG RUNTIME_SMOKE_CMD='bash
+  -lc "whoami && bash --version && exit 0"'` + `USER root` + `RUN
+  ${RUNTIME_SMOKE_CMD}`. Closes the runtime stage's behavioural
+  validation gap surfaced during the v0.21.0 stage-coverage audit.
+  Default smoke is install-check style (USER set + bash on PATH +
+  login shell rc files don't error); downstream override per repo
+  via `build_args: RUNTIME_SMOKE_CMD=<command>` to test domain
+  binaries. Constraint: smoke command must be CLI-only — no GUI
+  binaries that initialize Qt / OGRE on `--version` or `--help`.
+- **`build-worker.yaml` runtime-test build step**. New step `Build
+  runtime-test stage (install check)` after the devel build, gated
+  on `inputs.build_runtime` so agent/* repos (no runtime) skip
+  cleanly. Builds `target: runtime-test`; failure of the inline
+  `RUN ${RUNTIME_SMOKE_CMD}` in the Dockerfile surfaces as a build
+  error in the GHA log.
+- 4 new tests in `test/unit/build_worker_yaml_spec.bats` locking
+  the new step's shape (target name, build_runtime gate). 1 new
+  test in `test/unit/setup_spec.bats` confirming
+  `_parse_dockerfile_stages` correctly filters the new baseline
+  names.
+
+### Changed
+- **BREAKING for downstream Dockerfiles**: stage rename for
+  symmetry with the new runtime-test stage (#243):
+  - `FROM sys AS base` -> `FROM sys AS devel-base`
+  - `FROM devel AS test` -> `FROM devel AS devel-test`
+  Downstream repos must rename these in their own root `Dockerfile`
+  the same PR they upgrade their `template/` subtree to v0.21.0+,
+  otherwise CI's new `target: devel-test` / `target: runtime-test`
+  build steps will fail because the stages don't exist in their
+  Dockerfile yet. The `runtime-base` stage keeps its name (it's
+  load-bearing for the lean runtime image; pairs symmetrically
+  with the renamed `devel-base`).
+- **`build-worker.yaml`** CI target: `target: test` ->
+  `target: devel-test` (mirrors the Dockerfile rename above).
+  Workflow callers don't need to change anything in their
+  `main.yaml`; the change is in the workflow itself. Downstream
+  repos just need to keep their `main.yaml` `@tag` reference up
+  to date and rename their own Dockerfile stages (see above).
+- **`setup.sh` baseline blocklist** widened to recognise both the
+  new and legacy stage names during the v0.21.x transition: `{sys,
+  devel-base, devel, devel-test, runtime-test}` are the
+  forward-looking baseline; `{base, test}` remain accepted so
+  un-renamed downstream Dockerfiles don't accidentally emit `base`
+  / `test` as compose services. Legacy aliases will be removed in
+  a future major release once all downstream repos have renamed.
+- **TUI per-stage messages** updated in 4 languages (en / zh-TW /
+  zh-CN / ja) to surface the new baseline names.
+- **Test count**: total 1037 -> 1042 (+1 setup_spec, +4
+  build_worker_yaml_spec). Unit 983 -> 988; integration unchanged
+  at 54.
+
+## [v0.21.0-rc1] - 2026-05-08
+
+Release Candidate for v0.21.0. Single change: ROS-specific content
+removal from template (#240) to honour template's positioning as
+generic Docker scaffolding. The runtime smoke framework (the
+follow-up issue in the v0.21.0 plan) ships in v0.21.0-rc2 once
+this RC validates clean against the 13 active downstream repos.
+
+### Removed
+- **ROS-specific shell helpers from `config/shell/bashrc`** (#240).
+  Removed `swc` (catkin `devel/setup.bash` searcher), `ros1_source`,
+  `ros2_source`, `ros1_complete`, `ros2_complete`, `_ros_detect`,
+  `_ros_auto_source`, plus the `_ROS1_DISTROS` / `_ROS2_DISTROS`
+  distro lists and the auto-source invocation at the bottom of the
+  rc file. Template is positioned as generic Docker scaffolding;
+  ROS-specific behaviour (auto-sourcing `/opt/ros/*/setup.bash` at
+  shell startup, multi-distro warning) belongs in downstream repos
+  (`env/ros_distro`, `env/ros2_distro`) that consume the template.
+  Migration of the helpers to those repos is tracked separately at
+  `ycpss91255-docker/docker_harness` and lands on the same release
+  cycle so consumers don't lose the behaviour at next subtree pull.
+
+### Changed
+- **Test count**: `test/unit/bashrc_spec.bats` 18 -> 7 (removed 11
+  ROS-related tests covering the helpers above). Total self-tests
+  1048 -> 1037 (994 unit + 54 integration -> 983 + 54).
+- **Neutralised ROS-flavoured examples in template-internal docs +
+  comments + test fixtures** (#240): README + 3 translation copies
+  (build-worker / release-worker example block, publish-worker
+  matrix example, mermaid diagram repo label, ros_env.bats ->
+  app_env.bats), `.github/workflows/publish-worker.yaml` example
+  comments (ros_distro tag scheme -> generic 2-variant example),
+  `setup.conf` annotations (network host / privileged / shm_size /
+  env / tmpfs / devices sections), `script/docker/setup.sh` env_1
+  inline doc comment, `test/unit/compose_gen_spec.bats` fixture
+  variable names (5 #236 tests use `BUILD_TARGET` / `ROOT` / `BASE`
+  instead of `ROS_DISTRO` / `/opt/ros`). The behaviours under test
+  are unchanged; only the example variable names neutralised so
+  template's perceived audience isn't locked to ROS users. Existing
+  CHANGELOG historical entries (e.g. v0.20.1 describing the #236
+  fix using ROS_DISTRO as the example) are left intact as
+  historical record.
+
 ## [v0.20.1] - 2026-05-08
 
 ### Fixed

@@ -138,12 +138,12 @@ teardown() {
   # substitution does NOT resolve from sibling environment entries).
   local _extras=()
   local _env
-  printf -v _env '%s\n%s' "ROS_DISTRO=humble" "LD_LIBRARY_PATH=/foo/\${ROS_DISTRO}/lib"
+  printf -v _env '%s\n%s' "BUILD_TARGET=production" "LD_LIBRARY_PATH=/foo/\${BUILD_TARGET}/lib"
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- LD_LIBRARY_PATH=/foo/humble/lib' "${COMPOSE_OUT}"
+  run grep -F -- '- LD_LIBRARY_PATH=/foo/production/lib' "${COMPOSE_OUT}"
   assert_success
-  refute grep -F -- '${ROS_DISTRO}' "${COMPOSE_OUT}"
+  refute grep -F -- '${BUILD_TARGET}' "${COMPOSE_OUT}"
 }
 
 @test "environment env_N forward reference is left literal (refs #236)" {
@@ -153,12 +153,12 @@ teardown() {
   # `.env` / shell env, and an unintended footgun surfaces visibly.
   local _extras=()
   local _env
-  printf -v _env '%s\n%s' "LD_LIBRARY_PATH=/foo/\${ROS_DISTRO}/lib" "ROS_DISTRO=humble"
+  printf -v _env '%s\n%s' "LD_LIBRARY_PATH=/foo/\${BUILD_TARGET}/lib" "BUILD_TARGET=production"
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- LD_LIBRARY_PATH=/foo/${ROS_DISTRO}/lib' "${COMPOSE_OUT}"
+  run grep -F -- '- LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib' "${COMPOSE_OUT}"
   assert_success
-  run grep -F -- '- ROS_DISTRO=humble' "${COMPOSE_OUT}"
+  run grep -F -- '- BUILD_TARGET=production' "${COMPOSE_OUT}"
   assert_success
 }
 
@@ -180,12 +180,12 @@ teardown() {
   local _extras=()
   local _env
   printf -v _env '%s\n%s\n%s' \
-    "ROS_DISTRO=humble" \
+    "BUILD_TARGET=production" \
     "ARCH=aarch64" \
-    "PLUGIN_PATH=/opt/\${ROS_DISTRO}/lib/\${ARCH}"
+    "PLUGIN_PATH=/opt/\${BUILD_TARGET}/lib/\${ARCH}"
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- PLUGIN_PATH=/opt/humble/lib/aarch64' "${COMPOSE_OUT}"
+  run grep -F -- '- PLUGIN_PATH=/opt/production/lib/aarch64' "${COMPOSE_OUT}"
   assert_success
 }
 
@@ -196,13 +196,13 @@ teardown() {
   local _env
   printf -v _env '%s\n%s\n%s' \
     "ROOT=/opt" \
-    "BASE=\${ROOT}/ros" \
+    "BASE=\${ROOT}/lib" \
     "INCLUDE=\${BASE}/include"
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
-  run grep -F -- '- BASE=/opt/ros' "${COMPOSE_OUT}"
+  run grep -F -- '- BASE=/opt/lib' "${COMPOSE_OUT}"
   assert_success
-  run grep -F -- '- INCLUDE=/opt/ros/include' "${COMPOSE_OUT}"
+  run grep -F -- '- INCLUDE=/opt/lib/include' "${COMPOSE_OUT}"
   assert_success
 }
 
