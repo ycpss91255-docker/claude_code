@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1043 tests** total (989 unit + 54 integration).
+Template self-tests: **1048 tests** total (994 unit + 54 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -238,7 +238,7 @@ Chinese / Simplified Chinese / Japanese translations of the
 no-instances message, `--all` multi-project teardown loop, and
 fallback `_detect_lang` branches.
 
-### test/unit/compose_gen_spec.bats (45)
+### test/unit/compose_gen_spec.bats (50)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -269,6 +269,11 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `runtime service appears between devel and test blocks` | ordering |
 | `runtime detection is robust against weird whitespace` | regex tolerance |
 | `runtime detection ignores non-runtime stage names` | strict match |
+| `environment env_N expands ${VAR} cross-reference to earlier sibling (refs #236)` | basic cross-ref |
+| `environment env_N forward reference is left literal (refs #236)` | order-sensitive |
+| `environment env_N unknown ${VAR} is left literal (refs #236)` | unknown stays literal |
+| `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
+| `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
 
 ### test/unit/template_spec.bats (134)
 
