@@ -3,7 +3,33 @@
 
 set -euo pipefail
 
+# `-C <dir>` / `--chdir <dir>` pre-pass — see build.sh for the full
+# rationale (refs docker_harness#53). Override FILE_PATH before _lib.sh
+# is sourced so all path-dependent operations honor the target repo.
 FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_chdir_i=1
+while (( _chdir_i <= $# )); do
+  case "${!_chdir_i}" in
+    -C|--chdir)
+      _chdir_next=$((_chdir_i + 1))
+      if (( _chdir_next > $# )) || [[ -z "${!_chdir_next:-}" ]]; then
+        printf '[stop] ERROR: -C/--chdir requires a value\n' >&2
+        exit 2
+      fi
+      _chdir_arg="${!_chdir_next}"
+      if [[ ! -d "${_chdir_arg}" ]]; then
+        printf '[stop] ERROR: -C target is not a directory: %s\n' "${_chdir_arg}" >&2
+        exit 2
+      fi
+      FILE_PATH="$(cd -- "${_chdir_arg}" && pwd -P)"
+      _chdir_i=$((_chdir_next + 1))
+      ;;
+    *)
+      _chdir_i=$((_chdir_i + 1))
+      ;;
+  esac
+done
+unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
 # _lib.sh lookup: template/script/docker/_lib.sh in consumer repos, or
 # sibling _lib.sh in /lint/ (Dockerfile test stage). See build.sh.
@@ -34,12 +60,13 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./stop.sh [-h] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
+用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
 
 停止並移除容器。預設只停止 default instance。
 
 選項:
   -h, --help        顯示此說明
+  -C, --chdir DIR   對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C / make -C
   --instance NAME   只停止指定的命名 instance
   -a, --all         停止所有 instance（預設 + 全部命名 instance)
   --lang LANG       設定訊息語言（預設: en）
@@ -48,12 +75,13 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./stop.sh [-h] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
+用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
 
 停止并移除容器。默认只停止 default instance。
 
 选项:
   -h, --help        显示此说明
+  -C, --chdir DIR   对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C / make -C
   --instance NAME   只停止指定的命名 instance
   -a, --all         停止所有 instance（默认 + 全部命名 instance)
   --lang LANG       设置消息语言（默认: en）
@@ -62,12 +90,13 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./stop.sh [-h] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
+使用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
 
 コンテナを停止・削除します。デフォルトは default instance のみ。
 
 オプション:
   -h, --help        このヘルプを表示
+  -C, --chdir DIR   DIR 配下の repo に対して実行（呼び出し側の cwd は変えない）
   --instance NAME   指定された名前付き instance のみ停止
   -a, --all         すべての instance を停止（デフォルト + 全名前付き instance）
   --lang LANG       メッセージ言語を設定（デフォルト: en）
@@ -76,12 +105,14 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./stop.sh [-h] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
+Usage: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [--lang LANG]
 
 Stop and remove containers. Default: stop only the default instance.
 
 Options:
   -h, --help        Show this help
+  -C, --chdir DIR   Operate on the repo at DIR without changing the caller's cwd
+                    (mirrors git -C / make -C)
   --instance NAME   Stop only the named instance
   -a, --all         Stop ALL instances (default + every named instance)
   --lang LANG       Set message language (default: en)
@@ -127,6 +158,13 @@ main() {
     case "$1" in
       -h|--help)
         usage
+        ;;
+      -C|--chdir)
+        # Already consumed by the file-scope pre-pass that overrides
+        # FILE_PATH; skip flag + value here. Without this branch the
+        # `*)` catch-all below would dump -C / DIR into PASSTHROUGH and
+        # docker compose down would reject them.
+        shift 2
         ;;
       --instance)
         INSTANCE="${2:?"--instance requires a value"}"

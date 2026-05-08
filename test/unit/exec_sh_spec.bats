@@ -183,3 +183,69 @@ teardown() {
   assert_output --partial "使用法"
   rm -rf "${_tmp}"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# -C / --chdir flag (issue docker_harness#53) — see build_sh_spec.
+# ════════════════════════════════════════════════════════════════════
+
+@test "exec.sh -C <dir> redirects FILE_PATH to <dir>" {
+  # Seed an alt sandbox with its own .env carrying a distinct IMAGE_NAME.
+  # When -C points there, exec.sh's docker exec invocation must reference
+  # the alt IMAGE_NAME, proving FILE_PATH was redirected.
+  local ALT="${TEMP_DIR}/alt"
+  mkdir -p "${ALT}/template/script/docker"
+  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=altimg"
+    echo "DOCKER_HUB_USER=altuser"
+  } > "${ALT}/.env"
+
+  # Make `docker ps` claim the alt container is running so exec proceeds.
+  echo "altuser-altimg" > "${DOCKER_PS_FILE}"
+
+  run bash "${SANDBOX}/exec.sh" -C "${ALT}" --dry-run
+  assert_success
+  # The compose project name is derived from DOCKER_HUB_USER + IMAGE_NAME
+  # in .env. If FILE_PATH still pointed at SANDBOX, project would say
+  # mockuser-mockimg.
+  assert_output --partial "altuser-altimg"
+  refute_output --partial "mockuser-mockimg"
+}
+
+@test "exec.sh --chdir <dir> long form is equivalent to -C" {
+  local ALT="${TEMP_DIR}/alt2"
+  mkdir -p "${ALT}/template/script/docker"
+  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=altimg2"
+    echo "DOCKER_HUB_USER=altuser2"
+  } > "${ALT}/.env"
+  echo "altuser2-altimg2" > "${DOCKER_PS_FILE}"
+
+  run bash "${SANDBOX}/exec.sh" --chdir "${ALT}" --dry-run
+  assert_success
+  assert_output --partial "altuser2-altimg2"
+}
+
+@test "exec.sh -C without a value exits 2" {
+  run bash "${SANDBOX}/exec.sh" -C
+  assert_failure 2
+  assert_output --partial "requires a value"
+}
+
+@test "exec.sh -C with a non-existent directory exits 2" {
+  run bash "${SANDBOX}/exec.sh" -C /definitely/does/not/exist
+  assert_failure 2
+  assert_output --partial "not a directory"
+}
+
+@test "exec.sh -C is mentioned in usage help" {
+  run bash "${SANDBOX}/exec.sh" --help
+  assert_success
+  assert_output --partial "-C"
+  assert_output --partial "--chdir"
+}
