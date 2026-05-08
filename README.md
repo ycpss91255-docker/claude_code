@@ -1,364 +1,718 @@
-**English** | **[繁體中文](doc/README.zh-TW.md)** | **[简体中文](doc/README.zh-CN.md)** | **[日本語](doc/README.ja.md)**
+# template
 
-# Claude Code Docker Environment
+[![Self Test](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml)
+[![codecov](https://codecov.io/gh/ycpss91255-docker/template/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/template)
 
-Docker-in-Docker (DinD) development container for Claude Code, with Anthropic's Claude Code CLI pre-installed. Available in CPU and NVIDIA GPU variants. Runs as non-root user with host UID/GID matching.
+![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
+![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
+![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
+![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+[![License](https://img.shields.io/badge/License-GPL--3.0-yellow?style=flat-square)](./LICENSE)
+
+Shared template for Docker container repos in the [ycpss91255-docker](https://github.com/ycpss91255-docker) organization.
+
+**[English](README.md)** | **[繁體中文](doc/readme/README.zh-TW.md)** | **[简体中文](doc/readme/README.zh-CN.md)** | **[日本語](doc/readme/README.ja.md)**
+
+---
 
 ## Table of Contents
 
 - [TL;DR](#tldr)
 - [Overview](#overview)
-- [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
-- [Conversation Persistence](#conversation-persistence)
-- [Running Multiple Instances](#running-multiple-instances)
-- [Authentication](#authentication)
-  - [OAuth (Interactive Login)](#oauth-interactive-login)
-  - [API Key (Encrypted)](#api-key-encrypted)
-- [Usage as Subtree](#usage-as-subtree)
-- [Configuration](#configuration)
-- [Smoke Tests](#smoke-tests)
-- [Architecture](#architecture)
-  - [Dockerfile Stages](#dockerfile-stages)
-  - [Compose Services](#compose-services)
-  - [Entrypoint Flow](#entrypoint-flow)
-  - [Pre-installed Tools](#pre-installed-tools)
-  - [Container Capabilities](#container-capabilities)
+- [CI Reusable Workflows](#ci-reusable-workflows)
+- [Running Template Tests](#running-template-tests)
+- [Tests](#tests)
+- [Directory Structure](#directory-structure)
+
+---
 
 ## TL;DR
 
 ```bash
-./build.sh && ./run.sh    # Build and run (CPU, default)
-```
+# New repo from scratch: init + first commit + subtree + init.sh
+mkdir <repo_name> && cd <repo_name>
+git init
+git commit --allow-empty -m "chore: initial commit"
+git subtree add --prefix=template \
+    https://github.com/ycpss91255-docker/template.git main --squash
+./template/init.sh
 
-- Isolated Docker-in-Docker container with Claude Code pre-installed
-- Non-root user, auto-detected UID/GID from host
-- OAuth credentials auto-copied on first run, conversations persisted locally
-- Optionally encrypted API keys (GPG AES-256)
-- CPU default, GPU via `./run.sh devel-gpu`
+# Upgrade to latest
+make upgrade-check   # check
+make upgrade         # pull + update version + workflow tag
+
+# Run CI
+make test            # ShellCheck + Bats + Kcov
+make help            # show all commands
+```
 
 ## Overview
 
+This repo consolidates shared scripts, tests, and CI workflows used across all Docker container repos. Instead of maintaining identical files in 15+ repos, each repo pulls this template as a **git subtree** and uses symlinks.
+
+### Architecture
+
 ```mermaid
 graph TB
-    subgraph Host
-        H_OAuth["~/.claude<br/>(OAuth credentials)"]
-        H_WS["Workspace<br/>(WS_PATH)"]
-        H_Data["Data Directory<br/>(agent_* or ./data/)"]
+    subgraph template["template (shared repo)"]
+        scripts[".hadolint.yaml / Makefile.ci / compose.yaml"]
+        smoke["test/smoke/<br/>script_help.bats<br/>display_env.bats"]
+        config["config/<br/>bashrc / tmux / terminator / pip"]
+        mgmt["script/docker/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
+        workflows["Reusable Workflows<br/>build-worker.yaml<br/>release-worker.yaml<br/>publish-worker.yaml (opt-in)"]
     end
 
-    subgraph "Container (DinD)"
-        EP["entrypoint.sh"]
-        DinD["dockerd<br/>(isolated)"]
-        Claude["Claude Code"]
-        Tools["git, python3, jq,<br/>ripgrep, make, cmake..."]
-
-        EP -->|"1. start"| DinD
-        EP -->|"2. copy credentials<br/>(first run)"| Claude
-        EP -->|"3. decrypt API keys<br/>(if .env.gpg)"| Tools
+    subgraph consumer["Docker Repo (e.g. ros_noetic)"]
+        symlinks["build.sh → template/script/docker/build.sh<br/>run.sh → template/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
+        repo_test["test/smoke/<br/>app_env.bats (repo-specific)"]
+        main_yaml["main.yaml<br/>→ calls reusable workflows"]
     end
 
-    H_OAuth -->|"read-only mount"| EP
-    H_WS -->|"bind mount<br/>~/work"| Tools
-    H_Data -->|"bind mount<br/>~/.claude"| Claude
-
+    template -- "git subtree" --> consumer
+    scripts -. symlink .-> symlinks
+    smoke -. "Dockerfile COPY" .-> repo_test
+    workflows -. "@tag reference" .-> main_yaml
 ```
 
-```mermaid
-graph LR
-    subgraph "Dockerfile Stages"
-        sys["sys<br/>user, locale, tz"]
-        base["base<br/>dev tools, docker"]
-        devel["devel<br/>claude code"]
-        test["test<br/>bats smoke test"]
-    end
-
-    sys --> base --> devel --> test
-
-    subgraph "Compose Services"
-        S_CPU["devel<br/>(CPU, default)"]
-        S_GPU["devel-gpu<br/>(NVIDIA GPU)"]
-        S_Test["test<br/>(ephemeral)"]
-    end
-
-    devel -.-> S_CPU
-    devel -.-> S_GPU
-    test -.-> S_Test
-
-```
+### CI/CD Flow
 
 ```mermaid
 flowchart LR
-    subgraph "run.sh"
-        A["Generate .env<br/>(template)"] --> B["Derive BASE_IMAGE<br/>(post_setup.sh)"]
-        B --> C{"--data-dir?"}
-        C -->|yes| D["Use specified dir"]
-        C -->|no| E{"agent_* found?"}
-        E -->|yes| F["Use agent_* dir"]
-        E -->|no| G["Use ./data/"]
-        D --> H["docker compose run"]
-        F --> H
-        G --> H
+    subgraph local["Local"]
+        build_test["./build.sh test"]
+        make_test["make test"]
     end
+
+    subgraph ci_container["CI Container (kcov/kcov)"]
+        shellcheck["ShellCheck"]
+        hadolint["Hadolint"]
+        bats["Bats smoke tests"]
+    end
+
+    subgraph github["GitHub Actions"]
+        build_worker["build-worker.yaml<br/>(from template)"]
+        release_worker["release-worker.yaml<br/>(from template)"]
+    end
+
+    build_test --> ci_container
+    make_test -->|"script/ci/ci.sh"| ci_container
+    shellcheck --> hadolint --> bats
+
+    push["git push / PR"] --> build_worker
+    build_worker -->|"docker build test"| ci_container
+    tag["git tag v*"] --> release_worker
+    release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-## Prerequisites
+### What's included
 
-- Docker with Compose V2
-- GPU variant requires [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
-- Host-side OAuth login for Claude Code (`claude`)
+| File | Description |
+|------|-------------|
+| `build.sh` | Build containers (TTY-aware `--setup` launches `setup_tui.sh`, else runs `setup.sh`) |
+| `run.sh` | Run containers (X11/Wayland support; same `--setup` semantics as `build.sh`; `--build` opt-in pre-flight ./build.sh test for fresh-clone CI parity) |
+| `exec.sh` | Exec into running containers |
+| `stop.sh` | Stop and remove containers |
+| `setup_tui.sh` | Interactive setup.conf editor (dialog / whiptail front-end) |
+| `script/docker/setup.sh` | Auto-detect system parameters and generate `.env` + `compose.yaml` |
+| `script/docker/_tui_backend.sh` | dialog/whiptail wrapper functions used by `setup_tui.sh` |
+| `script/docker/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
+| `script/docker/_lib.sh` | Shared helpers (`_load_env`, `_compose`, `_compose_project`, ...) |
+| `script/docker/i18n.sh` | Shared language detection (`_detect_lang`, `_LANG`) |
+| `config/` | Container-internal shell configs (bashrc, tmux, terminator, pip) |
+| `setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
+| `test/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
+| `test/unit/` | Template self-tests (bats + kcov) |
+| `test/integration/` | Level-1 `init.sh` end-to-end tests |
+| `.hadolint.yaml` | Shared Hadolint rules |
+| `Makefile` | Repo entry (`make build`, `make run`, `make stop`, etc.) |
+| `Makefile.ci` | Template CI entry (`make test`, `make -f Makefile.ci lint`, etc.) |
+| `init.sh` | First-time symlink setup + new-repo scaffolding |
+| `upgrade.sh` | Subtree version upgrade |
+| `script/ci/ci.sh` | CI pipeline (local + remote) |
+| `dockerfile/Dockerfile.example` | Multi-stage Dockerfile template for new repos |
+| `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, bats-mock) |
+| `.github/workflows/` | Reusable CI workflows (build + release) |
+
+### Dockerfile stages (convention)
+
+Downstream repos follow a standard multi-stage layout, defined in
+`dockerfile/Dockerfile.example`. All stages share a common base image
+parameterized by `ARG BASE_IMAGE`.
+
+| Stage | Parent | Purpose | Shipped? |
+|-------|--------|---------|----------|
+| `sys` | `${BASE_IMAGE}` | User/group, sudo, timezone, locale, APT mirror | intermediate |
+| `base` | `sys` | Development tools and language packages | intermediate |
+| `devel` | `base` | App-specific tools + `entrypoint.sh` + PlotJuggler (env repos) | **yes** (primary artifact) |
+| `test` | `devel` | Ephemeral: ShellCheck + Hadolint + Bats smoke (all from `test-tools:local`) | no (discarded) |
+| `runtime-base` (optional) | `sys` | Minimal runtime deps (sudo, tini) | intermediate |
+| `runtime` (optional) | `runtime-base` | Slim runtime image (application repos only) | yes, when enabled |
+
+Notes:
+- Repos that only ship a developer image (`env/*`) skip `runtime-base` /
+  `runtime` — the section stays commented in `Dockerfile.example`.
+- `test` is always built from `devel`, so runtime assertions inside
+  `test/smoke/<repo>_env.bats` see the same binaries / files a user would
+  find after `docker run ... <repo>:devel`.
+- `Dockerfile.test-tools` builds the lint/test tool bundle (bats + shellcheck +
+  hadolint). The downstream `test` stage consumes it through an `ARG
+  TEST_TOOLS_IMAGE` build arg — defaults to `test-tools:local` (matches the
+  local `./build.sh` flow that builds `Dockerfile.test-tools` into the host
+  Docker daemon). CI overrides it to
+  `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z` (pre-built multi-arch image
+  pushed by `.github/workflows/release-test-tools.yaml` on every tag) so
+  buildx pulls the arch-correct binaries over the wire instead of rebuilding
+  them per run, and sidesteps the cross-step image-store isolation that
+  `docker-container` buildx drivers enforce.
+
+#### Adding extra stages (#215)
+
+Any `FROM <base> AS <stage>` outside the baseline blocklist
+`{sys, base, devel, test}` is auto-emitted as a compose service that
+`extends: devel` (inherits volumes / network / GPU / GUI / cap_add /
+additional_contexts) and overrides only `build.target` / `image` /
+`container_name` / `stdin_open` / `tty` / `profiles`. Use case:
+entrypoint variants like NVIDIA Isaac Sim's `headless` + `gui` on top
+of `devel`.
+
+User flow:
+
+```dockerfile
+# Add to Dockerfile (no setup.conf change needed)
+FROM devel AS headless
+ENTRYPOINT ["/isaac-sim/runheadless.sh"]
+CMD ["-v"]
+
+FROM devel AS gui
+ENTRYPOINT ["/isaac-sim/runapp.sh"]
+```
+
+```bash
+./build.sh                    # regenerates compose.yaml, builds all stages
+./run.sh -t headless          # runs the headless variant
+./run.sh -t gui               # runs the gui variant
+./exec.sh -t headless bash    # exec into running headless container
+```
+
+Constraints:
+
+- Stage names must match `^[a-z][a-z0-9_-]*$` — uppercase / leading
+  digit / dot etc. are rejected (WARN + skip; the rest of the parse
+  continues).
+- Names colliding with the baseline (`sys` / `base` / `devel` / `test`)
+  are a hard error from `setup.sh apply`. So are names colliding with
+  the template-controlled image-tag namespace (`latest`, `v[0-9]*`).
+- Adding / removing a stage triggers `setup.sh check-drift` (via
+  `SETUP_DOCKERFILE_HASH` in `.env`), so wrappers auto-regenerate
+  `compose.yaml` on the next invocation. Unrelated `RUN apt-get
+  install` edits do **not** trigger drift.
+
+#### Per-stage `setup.conf` overrides (#220)
+
+Stages auto-emitted by #215 share devel's runtime config (volumes /
+GPU / network / GUI) by default. When a stage needs different runtime
+settings — e.g. NVIDIA Isaac Sim's `headless` running a WebRTC
+livestream wants `network=bridge` + a port mapping + `gui=off`, while
+`devel` and `gui` keep `network=host` + X11 — add a `[stage:<name>]`
+section to your repo's `setup.conf`:
+
+```ini
+[gui]
+mode = auto
+
+[network]
+mode = host
+
+[stage:headless]
+gui.mode = off
+network.mode = bridge
+network.port_1 = 8080:80
+deploy.gpu_capabilities = gpu compute utility graphics video
+```
+
+Use `./setup_tui.sh` for an interactive editor:
+
+- **Advanced → Per-stage overrides**: drills straight into the editor.
+  The entry only appears when your Dockerfile has at least one
+  non-baseline stage.
+- **Features → Per-stage overrides** (#221): always-visible
+  discoverability surface that lists conditional / power-user
+  features. When the precondition is met it acts as a shortcut into
+  the same editor; when not, it pops a msgbox explaining how to
+  enable.
+
+Allowlist (v1 — keys that can be overridden per-stage):
+
+| Section | Keys |
+|---|---|
+| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
+| `[gui]` | `mode` |
+| `[network]` | `mode`, `ipc`, `network_name`, `port_<N>`, `port_inherit` |
+| `[security]` | `privileged` |
+| `[volumes]` | `mount_<N>`, `mount_inherit` |
+| `[environment]` | `env_<N>`, `env_inherit` |
+
+List fields (`mount_*` / `port_*` / `env_*`) follow **append-default**:
+the stage's items are appended to top-level entries. To replace
+top-level entirely, set `<list>_inherit = false` (e.g.
+`volumes.mount_inherit = false`).
+
+Notes:
+
+- `[stage:devel]` is **reserved** (v1 no-op + WARN). Edit top-level
+  sections to tune devel. Revisit in v2.
+- `[stage:sys|base|test]` is a **hard error** (baseline collision).
+- `[stage:foo]` referencing a stage absent from the Dockerfile is
+  **WARN + skipped** (the rest of `setup.sh apply` continues).
+- Override keys outside the allowlist are **WARN + skipped per-key**.
+
+### Smoke test helpers (for downstream repos)
+
+`test/smoke/test_helper.bash` (loaded by every smoke spec via
+`load "${BATS_TEST_DIRNAME}/test_helper"`) ships a small set of runtime
+assertion helpers. Downstream repos should prefer these over ad-hoc
+`[ -f ... ]` / `command -v` checks so failures produce decorated
+diagnostics pointing at the missing artifact.
+
+| Helper | Usage |
+|--------|-------|
+| `assert_cmd_installed <cmd>` | Fails unless `<cmd>` is on `PATH` |
+| `assert_cmd_runs <cmd> [flag]` | Fails unless `<cmd> <flag>` exits 0 (default flag: `--version`) |
+| `assert_file_exists <path>` | Fails unless `<path>` is a regular file |
+| `assert_dir_exists <path>` | Fails unless `<path>` is a directory |
+| `assert_file_owned_by <user> <path>` | Fails unless `<path>`'s owner is `<user>` |
+| `assert_pip_pkg <pkg>` | Fails unless `pip show <pkg>` returns 0 |
+
+### What stays in each repo (not shared)
+
+- `Dockerfile`
+- `compose.yaml`
+- `.env.example`
+- `script/entrypoint.sh`
+- `doc/` and `README.md`
+- Repo-specific smoke tests
+
+## Per-repo runtime configuration
+
+Each downstream repo drives its runtime config — GPU reservation, GUI
+env/volumes, network mode, extra volume mounts — through a single
+`setup.conf` INI file. `setup.sh` reads it (plus system detection) and
+regenerates both `.env` and `compose.yaml`; users never hand-edit those
+two derived artifacts.
+
+### One conf, six sections
+
+```
+[image]    rules = prefix:docker_, suffix:_ws, @default:unknown
+[build]    apt_mirror_ubuntu, apt_mirror_debian            # Dockerfile build args
+[deploy]   gpu_mode (auto|force|off), gpu_count, gpu_capabilities
+[gui]      mode (auto|force|off)
+[network]  mode (host|bridge|none), ipc, privileged
+[volumes]  mount_1 (workspace, auto-populated on first run)
+           mount_2..mount_N (extra host mounts; devices via /dev path)
+```
+
+Template default lives at `template/setup.conf`; per-repo overrides go
+at `<repo>/setup.conf`. Section-level **replace** strategy: a section
+present in the per-repo file fully replaces the template's section;
+omitted sections fall back to template.
+
+On first `setup.sh` run (no per-repo setup.conf yet), the template file
+is copied to the repo and the detected workspace is written to
+`[volumes] mount_1`. Subsequent runs read `mount_1` as source of truth
+— clear it to opt out of mounting a workspace. Edit via:
+
+```bash
+./setup_tui.sh                      # interactive dialog/whiptail editor
+./setup_tui.sh volumes              # jump directly to one section
+./build.sh --setup            # launches setup_tui.sh under TTY; setup.sh otherwise
+./template/init.sh --gen-conf # plain copy of template/setup.conf to repo root
+```
+
+### Interactive TUI
+
+`./setup_tui.sh` opens the main menu. The backend is `dialog` or `whiptail` (when both are missing it prints a `sudo apt install dialog` hint and exits). Cancel / Esc leaves without saving; saving auto-invokes `setup.sh` to regenerate `.env` + `compose.yaml`.
+
+Main menu structure (#221):
+
+```
+Main
+├─ image            IMAGE_NAME detection rules
+├─ build            APT mirrors + Dockerfile build args
+├─ Runtime  ──→     network / deploy (GPU) / gui / environment
+├─ Mounts   ──→     volumes / devices / tmpfs
+├─ Advanced ──→     security / additional_contexts
+│                   / per_stage (conditional) / Reset
+├─ Features         conditional / power-user features index
+│                   (today: per_stage status row)
+└─ Save & Exit
+```
+
+`./setup_tui.sh <section>` still drills directly into a section editor (e.g. `./setup_tui.sh volumes`), bypassing the main menu.
+
+### When setup.sh runs
+
+`setup.sh` runs only when explicitly triggered — it is not re-run on
+every build or launch:
+
+- **`./template/init.sh`** runs it once after the skeleton lands
+- **`make upgrade` / `./template/upgrade.sh`** re-runs it via init.sh
+  after the subtree pull, so an upgrade always lands with `.env` /
+  `compose.yaml` regenerated against the new baseline
+- **`./build.sh --setup` / `./run.sh --setup`** (or `-s`) re-runs it on demand
+- **First-time bootstrap**: `./build.sh` / `./run.sh` auto-run setup.sh
+  the very first time (when `.env` is missing, e.g. after a fresh CI
+  clone) — no manual `--setup` needed
+
+> **Fresh-clone lint coverage (#216)**: `./run.sh` on a clone with no
+> image cached locally triggers Compose's auto-build, which only walks
+> `target: devel` (or whatever `-t` says) and **skips** the `target:
+> test` stage that runs ShellCheck / Hadolint / Bats smoke. `run.sh`
+> prints an informational `[run] INFO:` block when this is about to
+> happen (TTY only). Pass `--build` to pre-flight `./build.sh test`
+> first if you want full local-CI parity in one command:
+>
+> ```bash
+> ./build.sh test           # explicit lint + smoke pass
+> ./run.sh --build          # same, then compose up
+> ./run.sh                  # default — fast path, lint/smoke skipped
+> ```
+
+`setup.sh apply` rewrites `compose.yaml` from scratch every time but
+preserves `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN` from any
+existing `.env`, so a hand-tuned workspace path or apt mirror survives
+upgrades.
+
+### Drift detection
+
+`setup.sh` stores `SETUP_CONF_HASH`, `SETUP_GUI_DETECTED`, and
+`SETUP_TIMESTAMP` in `.env`. On every `./build.sh` / `./run.sh`,
+stored values are compared against the current setup.conf hash + system
+detection; a `[WARNING]` is printed (non-blocking) when any of the
+following changed since last setup:
+
+- `setup.conf` contents (conf hash)
+- GPU / GUI detection
+- `USER_UID` (user identity change)
+
+Re-run with `--setup` to regenerate `.env` + `compose.yaml`.
+
+### setup.sh subcommands (v0.11.0+)
+
+`setup.sh` is a git-style backend with explicit subcommands. The build / run / TUI scripts call it for you; invoke directly for scripted / non-interactive use:
+
+| Subcommand | Use |
+|---|---|
+| `apply` | Regenerate `.env` + `compose.yaml` from setup.conf + system detection |
+| `check-drift` | Exit 0 in-sync / 1 drifted (drift descriptions on stderr) |
+| `set <section>.<key> <value>` | Write a single key |
+| `show <section>[.<key>]` | Read single key or whole section |
+| `list [<section>]` | INI-style dump |
+| `add <section>.<list> <value>` | Append to list-style section (`mount_*` / `env_*` / `port_*` / …); reuses next empty slot or `max+1` |
+| `remove <section>.<key>` / `<section>.<list> <value>` | Delete by exact key, or by value match |
+| `reset [-y\|--yes]` | Restore template default; archives prior `setup.conf` → `setup.conf.bak`, prior `.env` → `.env.bak` |
+
+Typed keys validate against `_tui_conf.sh` validators (the same ones the TUI uses). `set` / `add` / `remove` / `reset` do **not** regenerate `.env` — chain `apply` afterwards, or `build.sh` / `run.sh` will trigger drift-regen on next invocation.
+
+#### Migration from v0.10.x (BREAKING)
+
+`setup.sh` (no args) and `setup.sh --base-path X --lang Y` (no subcommand) used to silently fall through to `apply`. v0.11.0 removes that fall-through:
+
+| Invocation | Pre-v0.11 | v0.11+ |
+|---|---|---|
+| `setup.sh` | runs apply | prints help, exits 0 |
+| `setup.sh --base-path X --lang Y` | runs apply | exit 1 "Unknown subcommand" |
+| `setup.sh apply [...]` | runs apply | runs apply (unchanged) |
+
+If a downstream repo has custom scripts invoking `setup.sh` directly, prepend `apply`. The bundled `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` are already updated.
+
+### Derived artifacts (gitignored)
+
+- `.env` — runtime variable values + `SETUP_*` drift metadata
+- `compose.yaml` — full compose with baseline + conditional blocks
+
+Open `compose.yaml` anytime to inspect the repo's current effective
+configuration. Both files are regenerated on every `make upgrade`
+(init.sh re-runs `setup.sh apply` after the subtree pull) — never
+hand-edit them; put your overrides in `setup.conf` instead.
 
 ## Quick Start
 
-```bash
-# Build (auto-generates .env on every run)
-./build.sh              # CPU variant (default)
-./build.sh devel-gpu    # GPU variant
-./build.sh --no-env test  # Build without refreshing .env
-
-# Run
-./run.sh                          # CPU variant (default)
-./run.sh devel-gpu                # GPU variant
-./run.sh --data-dir ../agent_foo  # Specify data directory
-./run.sh --no-env -d              # Background start, skip .env refresh
-
-# Exec into running container
-./exec.sh
-```
-
-## Conversation Persistence
-
-Conversation history and session data are persisted via bind mount, surviving container restarts.
-
-`run.sh` automatically scans upward from the project directory for an `agent_*` directory. If found, data is stored there; otherwise it falls back to `./data/`.
-
-```
-# Example: if ../agent_myproject/ exists
-../agent_myproject/
-└── .claude/    # Claude Code conversations, settings, session
-
-# Fallback: no agent_* directory found
-./data/
-└── .claude/
-```
-
-- First startup: OAuth credentials are copied from the host into the data directory
-- Subsequent startups: data directory already has data and is used directly (no overwrite)
-- You can freely copy, backup, or move the data directory
-- Override manually: `./run.sh --data-dir /path/to/dir`
-
-## Running Multiple Instances
-
-Use `--project-name` (`-p`) to create fully isolated instances, each with its own named volumes:
+### Adding to a new repo
 
 ```bash
-# Instance 1
-docker compose -p cc1 --env-file .env run --rm devel
+# 1. Initialize empty repo (skip if you already have one with at least one commit)
+mkdir <repo_name> && cd <repo_name>
+git init
+git commit --allow-empty -m "chore: initial commit"
 
-# Instance 2 (in another terminal)
-docker compose -p cc2 --env-file .env run --rm devel
+# 2. Add subtree
+git subtree add --prefix=template \
+    https://github.com/ycpss91255-docker/template.git main --squash
 
-# Instance 3
-docker compose -p cc3 --env-file .env run --rm devel
+# 3. Initialize symlinks (one command; runs setup.sh under the hood)
+./template/init.sh
 ```
 
-For multiple instances, create separate `agent_*` directories:
+> `git subtree add` requires `HEAD` to exist. On a freshly `git init`-ed repo with no commits, it fails with `ambiguous argument 'HEAD'` and `working tree has modifications`. The empty commit creates `HEAD` so subtree can merge into it.
+
+### Updating
+
+Prerequisites: `git config user.name` / `user.email` must be set, and
+the working tree can't be mid-merge / rebase / cherry-pick / revert —
+upgrade.sh fails fast with an actionable message instead of half-pulling.
 
 ```bash
-mkdir ../agent_proj1 ../agent_proj2
+# Check if update available
+make upgrade-check
 
-./run.sh --data-dir ../agent_proj1
-./run.sh --data-dir ../agent_proj2
+# Upgrade to latest (subtree pull + version file + workflow tag)
+make upgrade
+
+# Or pin a specific version
+make upgrade VERSION=v0.3.0
+# Pinning to a version OLDER than the current local pin (e.g. rolling
+# from v0.12.0-rc1 back to v0.11.0) is refused as an implicit downgrade
+# per SemVer §11. Edit template/.version manually if intentional.
+
+# Fallback if make is unavailable
+./template/upgrade.sh v0.3.0
 ```
 
-Credentials, conversations, and session data are fully isolated. To clean up, simply delete the directory:
+`upgrade.sh` handles the full cycle in one go:
 
+1. `git subtree pull --prefix=template ... --squash`
+2. Post-pull integrity check — `git reset --hard` rollback if subtree
+   markers (`template/.version`, `template/init.sh`,
+   `template/script/docker/setup.sh`) are missing (catches the
+   destructive fast-forward seen on older `git-subtree.sh`)
+3. `./template/init.sh` re-runs to: resync root symlinks
+   (`build.sh` / `run.sh` / `Makefile` …), sync `.gitignore` against
+   the canonical entry set, `git rm --cached` any tracked-but-now-derived
+   files (`.env`, `compose.yaml`, …), and call `setup.sh apply` to
+   regenerate `.env` + `compose.yaml`
+4. `sed` rewrites `.github/workflows/main.yaml`'s
+   `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z` refs
+
+Your per-repo files are never overwritten: `<repo>/setup.conf` stays
+as-is, and `<repo>/config/` (bashrc / tmux / terminator …) is left
+alone — if upstream `template/config/` moved since the last pull,
+upgrade.sh prints a `diff -ruN template/config config` hint so you can
+reconcile manually.
+
+Don't `git subtree pull` by hand — the integrity check, init.sh
+resync, and sed steps are easy to forget.
+
+#### Automated version bumps (optional)
+
+Downstream repos can let Dependabot open PRs whenever a new `template` tag
+ships. Add `.github/dependabot.yml`:
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+```
+
+Dependabot notices the `uses: ycpss91255-docker/template/...@vX.Y.Z` refs in
+`main.yaml`, compares against the template's latest tag, and files a PR. You
+still run `make upgrade VERSION=vX.Y.Z` locally to sync the subtree itself —
+Dependabot only bumps the workflow refs.
+
+## CI Reusable Workflows
+
+Repos replace local `build-worker.yaml` / `release-worker.yaml` with calls to this repo's reusable workflows:
+
+```yaml
+# .github/workflows/main.yaml
+jobs:
+  call-docker-build:
+    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v1
+    with:
+      image_name: my_app
+      build_args: |
+        BASE_IMAGE=python:3.11-slim
+        APP_VERSION=1.0
+        DEBIAN_CODENAME=bookworm
+
+  call-release:
+    needs: call-docker-build
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v1
+    with:
+      archive_name_prefix: my_app
+```
+
+### build-worker.yaml inputs
+
+| Input | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `image_name` | string | yes | - | Container image name |
+| `build_args` | string | no | `""` | Multi-line KEY=VALUE build args |
+| `build_runtime` | boolean | no | `true` | Whether to build runtime stage |
+| `platforms` | string | no | `"linux/amd64"` | Comma-separated target platforms; each runs as a parallel native-runner shard (`linux/amd64` → ubuntu-latest, `linux/arm64` → ubuntu-24.04-arm) |
+| `test_tools_version` | string | no | `"latest"` | Tag for `ghcr.io/ycpss91255-docker/test-tools:<tag>` build-arg; pin to the template release you upgraded from for reproducibility |
+
+### release-worker.yaml inputs
+
+| Input | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `archive_name_prefix` | string | yes | - | Archive name prefix |
+| `extra_files` | string | no | `""` | Space-separated extra files |
+
+### publish-worker.yaml inputs (opt-in, foundational image repos)
+
+Pushes a Dockerfile target stage to a container registry on tag push.
+Opt-in: only repos that consume this workflow publish images (default
+template flow stays test-only). Typical use case: foundational image
+repos that other repos consume via Docker `FROM`.
+
+| Input | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `image_name` | string | yes | - | Image repo name on the registry (e.g. `my_image`); full ref becomes `${registry}/${owner}/${image_name}` |
+| `tag_suffix` | string | no | `""` | Appended to both `:${version}` and `:latest` tags. Convention: `-<matrix-entry-name>` so each variant lands on its own tag |
+| `is_latest` | boolean | no | `false` | When true, also pushes `:latest${tag_suffix}` alongside `:${version}${tag_suffix}`. Multi-variant repos set this only on the canonical default variant |
+| `registry` | string | no | `"ghcr.io"` | Container registry hostname. GHCR uses GITHUB_TOKEN auth automatically |
+| `target` | string | no | `"devel"` | Dockerfile target stage to publish. `devel` for app-base usage; `runtime` for production images |
+| `build_args` | string | no | `""` | Multi-line KEY=VALUE build args (same shape as build-worker) |
+| `platforms` | string | no | `"linux/amd64"` | Comma-separated target platforms; multi-arch publishes a single multi-arch manifest under each tag |
+| `context_path` | string | no | `"."` | Build context (mirrors build-worker) |
+| `dockerfile_path` | string | no | `""` | Optional explicit Dockerfile path |
+| `build_contexts` | string | no | `""` | Optional newline-separated `<name>=<location>` build contexts |
+| `test_tools_version` | string | no | `"latest"` | `ghcr.io/.../test-tools:<tag>` build-arg (pin to your template release for reproducibility) |
+
+Caller example (foundational multi-variant repo):
+
+```yaml
+# .github/workflows/main.yaml
+jobs:
+  call-publish:
+    needs: ci-passed
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        target:
+          - { name: 'standard',  base: 'python:3.11-slim',     is_latest: true }
+          - { name: 'minimal',   base: 'python:3.11-alpine',   is_latest: false }
+    uses: ycpss91255-docker/template/.github/workflows/publish-worker.yaml@vX.Y.Z
+    with:
+      image_name: my_image
+      tag_suffix: "-${{ matrix.target.name }}"
+      is_latest: ${{ matrix.target.is_latest }}
+      target: devel
+      build_args: |
+        BASE_IMAGE=${{ matrix.target.base }}
+```
+
+After a `v0.1.0` tag push, the matrix above yields:
+
+```
+ghcr.io/<org>/my_image:v0.1.0-standard
+ghcr.io/<org>/my_image:latest-standard   # is_latest = true
+ghcr.io/<org>/my_image:v0.1.0-minimal
+```
+
+Downstream app repos then `FROM ghcr.io/<org>/my_image:v0.1.0-standard` in their own Dockerfile, dropping the duplicated sys / base / devel layers.
+
+## Running Template Tests
+
+Using `Makefile.ci` (from template root):
 ```bash
-rm -rf ../agent_proj1
+make -f Makefile.ci test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
+make -f Makefile.ci lint        # ShellCheck only
+make -f Makefile.ci clean       # Remove coverage reports
+make help        # Show repo targets
+make -f Makefile.ci help  # Show CI targets
 ```
 
-## Authentication
-
-Two methods are supported. Both can be used at the same time.
-
-### OAuth (Interactive Login)
-
-For interactive CLI usage. Log in on the host first:
-
+Or directly:
 ```bash
-claude   # Log in to Claude Code
+./script/ci/ci.sh          # Full CI via docker compose
+./script/ci/ci.sh --ci     # Run inside container (used by compose)
 ```
 
-Credentials (`~/.claude`) are mounted read-only into the container and copied into the data directory on first startup. Subsequent startups reuse the existing data.
-
-### API Key (Encrypted)
-
-For programmatic API access. Keys are stored encrypted with GPG (AES-256), never in plaintext.
-
-```bash
-# 1. Create plaintext .env
-cat <<EOF > .env.keys
-ANTHROPIC_API_KEY=sk-ant-xxxxx
-EOF
-
-# 2. Encrypt (you will be prompted to set a passphrase)
-encrypt_env.sh    # available inside container, or ./encrypt_env.sh on host
-
-# 3. Remove plaintext
-rm .env.keys
-```
-
-On container startup, if `.env.gpg` is detected in the workspace, you will be prompted for the passphrase. Decrypted keys are only held in memory as environment variables.
-
-> **Note:** `.env` and `.env.gpg` are already in `.gitignore`.
-
-## Usage as Subtree
-
-This repo can be embedded into another project via `git subtree`, letting the project carry its own Docker dev environment.
-
-### Adding to Your Project
-
-```bash
-git subtree add --prefix=docker/claude_code \
-    https://github.com/ycpss91255-docker/claude_code.git main --squash
-```
-
-Example directory structure after adding:
-
-```text
-my_project/
-├── src/                         # Project source code
-├── docker/claude_code/          # Subtree
-│   ├── build.sh
-│   ├── run.sh
-│   ├── compose.yaml
-│   ├── Dockerfile
-│   └── template/
-└── ...
-```
-
-### Building and Running
-
-```bash
-cd docker/claude_code
-./build.sh && ./run.sh
-```
-
-`build.sh` uses `--base-path` internally, so path detection works correctly regardless of where you run it from.
-
-### Workspace Detection
-
-<details>
-<summary>Click to expand detection behavior when used as subtree</summary>
-
-When the subtree sits at `my_project/docker/claude_code/`:
-
-- **IMAGE_NAME**: directory name is `claude_code` (not `docker_*`), so detection falls through to `.env.example` which has `IMAGE_NAME=claude_code` — works correctly.
-- **WS_PATH**: strategy 1 (sibling scan) and strategy 2 (path traversal) may not match, so strategy 3 (fallback) resolves to the parent directory (`my_project/docker/`).
-
-**Recommendation**: after the first build, edit `WS_PATH` in `.env` to point to your actual workspace. The value is preserved on subsequent builds.
-
-</details>
-
-### Syncing with Upstream
-
-```bash
-git subtree pull --prefix=docker/claude_code \
-    https://github.com/ycpss91255-docker/claude_code.git main --squash
-```
-
-> **Notes**:
-> - Local modifications are tracked by git normally.
-> - `subtree pull` may produce merge conflicts if upstream changed the same files you modified locally.
-> - Do **not** modify `template/` inside the subtree — it is managed by the env repo's own subtree.
-
-## Configuration
-
-`.env` is auto-generated on every `build.sh` / `run.sh` invocation (pass `--no-env` to skip). See [.env.example](.env.example) for details.
-
-| Variable | Description |
-|----------|-------------|
-| `USER_NAME` / `USER_UID` / `USER_GID` | Container user matching host (auto-detected) |
-| `GPU_ENABLED` | Auto-detected, drives `BASE_IMAGE` and `GPU_VARIANT` |
-| `BASE_IMAGE` | `node:20-slim` (CPU) or `nvidia/cuda:13.1.1-cudnn-devel-ubuntu24.04` (GPU) |
-| `WS_PATH` | Host path mounted to `~/work` inside container |
-| `IMAGE_NAME` | Docker image name (default: `claude_code`) |
-
-## Smoke Tests
+## Tests
 
 See [TEST.md](doc/test/TEST.md) for details.
 
-## Architecture
+## Directory Structure
 
 ```
-.
-├── Dockerfile                        # Multi-stage build (sys -> base -> devel -> test)
-├── compose.yaml                      # Services: devel (CPU), devel-gpu, test
-├── build.sh -> template/build.sh     # Build with auto .env generation (symlink)
-├── run.sh -> template/run.sh         # Run with auto .env generation (symlink)
-├── exec.sh -> template/exec.sh       # Exec into running container (symlink)
-├── stop.sh -> template/stop.sh       # Stop and remove containers (symlink)
-├── Makefile -> template/Makefile     # Build targets (symlink)
-├── .hadolint.yaml                    # Hadolint configuration
-├── encrypt_env.sh                    # Helper to encrypt API keys
-├── post_setup.sh                     # Derives BASE_IMAGE from GPU_ENABLED
-├── .env.example                      # Template for .env
-├── .template_version                 # Subtree version tracking
+template/
+├── init.sh                           # Initialize repo (new or existing)
+├── upgrade.sh                        # Upgrade template subtree version
 ├── script/
-│   └── entrypoint.sh                 # DinD startup, OAuth copy, API key decryption
+│   ├── docker/                       # Docker operation scripts (symlinked by repos)
+│   │   ├── build.sh
+│   │   ├── run.sh
+│   │   ├── exec.sh
+│   │   ├── stop.sh
+│   │   ├── setup.sh                  # .env generator
+│   │   ├── _lib.sh                   # Shared helpers (_load_env, _compose, _compose_project)
+│   │   ├── i18n.sh                   # Shared language detection (_detect_lang, _LANG)
+│   │   └── Makefile
+│   └── ci/
+│       └── ci.sh                     # CI pipeline (local + remote)
+├── dockerfile/
+│   ├── Dockerfile.test-tools         # Pre-built lint/test tools image
+│   └── Dockerfile.example            # Dockerfile template for new repos (sys → base → devel → test → [runtime])
+├── setup.conf                        # Single runtime config (per-repo override mirror: <repo>/setup.conf)
+├── config/                           # Container-internal shell/tool configs
+│   ├── image_name.conf               # Default IMAGE_NAME detection rules
+│   ├── pip/
+│   │   ├── setup.sh
+│   │   └── requirements.txt
+│   └── shell/
+│       ├── bashrc
+│       ├── terminator/
+│       │   ├── setup.sh
+│       │   └── config
+│       └── tmux/
+│           ├── setup.sh
+│           └── tmux.conf
 ├── test/
-│   └── smoke/
-│       └── claude_env.bats           # Bats smoke tests (repo-specific)
-├── doc/                              # Translated documentation
-│   ├── README.zh-TW.md
-│   ├── README.zh-CN.md
-│   └── README.ja.md
-├── .github/
-│   └── workflows/
-│       └── main.yaml                 # CI/CD (calls template reusable workflows)
-├── template/                         # Shared scripts and config (git subtree)
+│   ├── smoke/                        # Shared smoke tests + runtime assertion helpers
+│   │   ├── test_helper.bash          #  → assert_cmd_installed / _runs / file / dir / owned_by / pip_pkg
+│   │   ├── script_help.bats
+│   │   └── display_env.bats
+│   ├── unit/                         # Template self-tests (bats + kcov)
+│   │   ├── test_helper.bash
+│   │   ├── bashrc_spec.bats
+│   │   ├── ci_spec.bats              # ci.sh _install_deps
+│   │   ├── lib_spec.bats             # _lib.sh
+│   │   ├── pip_setup_spec.bats
+│   │   ├── setup_spec.bats
+│   │   ├── smoke_helper_spec.bats    # Runtime assertion helpers
+│   │   ├── template_spec.bats
+│   │   ├── terminator_config_spec.bats
+│   │   ├── terminator_setup_spec.bats
+│   │   ├── tmux_conf_spec.bats
+│   │   └── tmux_setup_spec.bats
+│   └── integration/
+│       └── init_new_repo_spec.bats   # Level-1 init.sh end-to-end
+├── Makefile.ci                       # Template CI entry (make test/lint/...)
+├── compose.yaml                      # Docker CI runner
+├── .hadolint.yaml                    # Shared Hadolint rules
+├── codecov.yml
+├── .github/workflows/
+│   ├── self-test.yaml                # Template CI
+│   ├── build-worker.yaml             # Reusable build + smoke-test workflow
+│   ├── release-worker.yaml           # Reusable release (source archive) workflow
+│   ├── publish-worker.yaml           # Reusable image publish workflow (opt-in; pushes to GHCR)
+│   └── release-test-tools.yaml       # Template's own test-tools image release
+├── doc/
+│   ├── readme/                       # README translations (zh-TW / zh-CN / ja)
+│   ├── test/TEST.md                  # Test catalog (spec tables)
+│   └── changelog/CHANGELOG.md        # Release notes
+├── .gitignore
+├── LICENSE
 └── README.md
 ```
-
-### Dockerfile Stages
-
-| Stage | Purpose |
-|-------|---------|
-| `sys` | User/group creation, locale, timezone, Node.js (GPU only) |
-| `base` | Dev tools, Python, build tools, Docker, jq, ripgrep |
-| `devel` | Claude Code, entrypoint, non-root user |
-| `test` | Bats smoke tests (ephemeral, discarded after verification) |
-
-### Compose Services
-
-| Service | Description |
-|---------|-------------|
-| `devel` | CPU variant (default) |
-| `devel-gpu` | GPU variant with NVIDIA device reservation |
-| `test` | Smoke test (profile-gated) |
-
-### Entrypoint Flow
-
-1. Start `dockerd` (DinD) via sudo, wait until ready (up to 30s)
-2. Copy OAuth credentials from read-only mount into `data/` directory (first run only)
-3. Decrypt `.env.gpg` and export API keys as environment variables (if present)
-4. Execute CMD (`bash`)
-
-### Pre-installed Tools
-
-| Tool | Purpose |
-|------|---------|
-| Claude Code | Anthropic AI CLI |
-| Docker (DinD) | Isolated Docker daemon inside container |
-| Node.js 20 | Runtime for CLI tools |
-| Python 3 | Scripting and development |
-| git, curl, wget | Version control and downloads |
-| jq, ripgrep | JSON processing and code search |
-| make, g++, cmake | Build toolchain |
-| tree | Directory visualization |
-
-GPU variant additionally includes: CUDA 13.1.1, cuDNN, OpenCL, Vulkan.
-
-### Container Capabilities
-
-Both services require `SYS_ADMIN`, `NET_ADMIN`, `MKNOD` capabilities with `seccomp:unconfined` for DinD to function. The inner Docker daemon is fully isolated from the host.
