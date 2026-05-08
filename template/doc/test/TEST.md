@@ -1,13 +1,13 @@
 # TEST.md
 
-Template self-tests: **1048 tests** total (994 unit + 54 integration).
+Template self-tests: **1037 tests** total (983 unit + 54 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
 > `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
 > build time (via `./build.sh test`) inside both this repo and every
 > downstream repo, and are documented in [Smoke Tests](#smoke-tests)
-> below. They are **not** included in the 1011 figure because they are
+> below. They are **not** included in the 1037 figure because they are
 > build-time assertions, not self-tests.
 
 ## Test Files
@@ -406,23 +406,16 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `setup.sh default _base_path uses /..` | Path resolution |
 | `setup.sh default _base_path uses double parent traversal` | Repo root traversal |
 
-### test/unit/bashrc_spec.bats (18)
+### test/unit/bashrc_spec.bats (7)
 
 | Test | Description |
 |------|-------------|
 | `defines alias_func` | Function definition |
-| `defines swc` | Function definition |
 | `defines color_git_branch` | Function definition |
-| `defines ros_complete` | Function definition |
-| `defines ros_source` | Function definition |
 | `defines ebc alias` | Alias definition |
 | `defines sbc alias` | Alias definition |
 | `alias_func is called` | Function call |
 | `color_git_branch is called` | Function call |
-| `ros_complete is called` | Function call |
-| `ros_source is called` | Function call |
-| `swc searches for catkin devel/setup.bash` | Catkin search |
-| `ros_source references ROS_DISTRO` | ROS env var |
 | `color_git_branch sets PS1` | PS1 setting |
 
 ### test/unit/pip_setup_spec.bats (3)

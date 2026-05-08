@@ -66,7 +66,7 @@ graph TB
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
         symlinks["build.sh → template/script/docker/build.sh<br/>run.sh → template/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
-        repo_test["test/smoke/<br/>ros_env.bats (repo-specific)"]
+        repo_test["test/smoke/<br/>app_env.bats (repo-specific)"]
         main_yaml["main.yaml<br/>→ calls reusable workflows"]
     end
 
@@ -534,18 +534,18 @@ jobs:
   call-docker-build:
     uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v1
     with:
-      image_name: ros_noetic
+      image_name: my_app
       build_args: |
-        ROS_DISTRO=noetic
-        ROS_TAG=ros-base
-        UBUNTU_CODENAME=focal
+        BASE_IMAGE=python:3.11-slim
+        APP_VERSION=1.0
+        DEBIAN_CODENAME=bookworm
 
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
     uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v1
     with:
-      archive_name_prefix: ros_noetic
+      archive_name_prefix: my_app
 ```
 
 ### build-worker.yaml inputs
@@ -570,12 +570,11 @@ jobs:
 Pushes a Dockerfile target stage to a container registry on tag push.
 Opt-in: only repos that consume this workflow publish images (default
 template flow stays test-only). Typical use case: foundational image
-repos (`ros_distro`, `ros2_distro`) that other repos consume via
-Docker `FROM`.
+repos that other repos consume via Docker `FROM`.
 
 | Input | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `image_name` | string | yes | - | Image repo name on the registry (e.g. `ros_distro`); full ref becomes `${registry}/${owner}/${image_name}` |
+| `image_name` | string | yes | - | Image repo name on the registry (e.g. `my_image`); full ref becomes `${registry}/${owner}/${image_name}` |
 | `tag_suffix` | string | no | `""` | Appended to both `:${version}` and `:latest` tags. Convention: `-<matrix-entry-name>` so each variant lands on its own tag |
 | `is_latest` | boolean | no | `false` | When true, also pushes `:latest${tag_suffix}` alongside `:${version}${tag_suffix}`. Multi-variant repos set this only on the canonical default variant |
 | `registry` | string | no | `"ghcr.io"` | Container registry hostname. GHCR uses GITHUB_TOKEN auth automatically |
@@ -601,13 +600,11 @@ jobs:
     strategy:
       matrix:
         target:
-          - { name: 'noetic-desktop-full',  base: 'osrf/ros:noetic-desktop-full-focal',   is_latest: true }
-          - { name: 'noetic-ros-base',      base: 'ros:noetic-ros-base-focal',            is_latest: false }
-          - { name: 'kinetic-desktop-full', base: 'osrf/ros:kinetic-desktop-full-xenial', is_latest: false }
-          - { name: 'kinetic-ros-base',     base: 'ros:kinetic-ros-base-xenial',          is_latest: false }
+          - { name: 'standard',  base: 'python:3.11-slim',     is_latest: true }
+          - { name: 'minimal',   base: 'python:3.11-alpine',   is_latest: false }
     uses: ycpss91255-docker/template/.github/workflows/publish-worker.yaml@vX.Y.Z
     with:
-      image_name: ros_distro
+      image_name: my_image
       tag_suffix: "-${{ matrix.target.name }}"
       is_latest: ${{ matrix.target.is_latest }}
       target: devel
@@ -618,14 +615,12 @@ jobs:
 After a `v0.1.0` tag push, the matrix above yields:
 
 ```
-ghcr.io/<org>/ros_distro:v0.1.0-noetic-desktop-full
-ghcr.io/<org>/ros_distro:latest-noetic-desktop-full   # is_latest = true
-ghcr.io/<org>/ros_distro:v0.1.0-noetic-ros-base
-ghcr.io/<org>/ros_distro:v0.1.0-kinetic-desktop-full
-ghcr.io/<org>/ros_distro:v0.1.0-kinetic-ros-base
+ghcr.io/<org>/my_image:v0.1.0-standard
+ghcr.io/<org>/my_image:latest-standard   # is_latest = true
+ghcr.io/<org>/my_image:v0.1.0-minimal
 ```
 
-Downstream app repos (e.g. `urg_node`) then `FROM ghcr.io/<org>/ros_distro:v0.1.0-humble-desktop-full` in their own Dockerfile, dropping the duplicated sys / base / devel layers.
+Downstream app repos then `FROM ghcr.io/<org>/my_image:v0.1.0-standard` in their own Dockerfile, dropping the duplicated sys / base / devel layers.
 
 ## Running Template Tests
 

@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.21.0-rc1] - 2026-05-08
+
+Release Candidate for v0.21.0. Single change: ROS-specific content
+removal from template (#240) to honour template's positioning as
+generic Docker scaffolding. The runtime smoke framework (the
+follow-up issue in the v0.21.0 plan) ships in v0.21.0-rc2 once
+this RC validates clean against the 13 active downstream repos.
+
+### Removed
+- **ROS-specific shell helpers from `config/shell/bashrc`** (#240).
+  Removed `swc` (catkin `devel/setup.bash` searcher), `ros1_source`,
+  `ros2_source`, `ros1_complete`, `ros2_complete`, `_ros_detect`,
+  `_ros_auto_source`, plus the `_ROS1_DISTROS` / `_ROS2_DISTROS`
+  distro lists and the auto-source invocation at the bottom of the
+  rc file. Template is positioned as generic Docker scaffolding;
+  ROS-specific behaviour (auto-sourcing `/opt/ros/*/setup.bash` at
+  shell startup, multi-distro warning) belongs in downstream repos
+  (`env/ros_distro`, `env/ros2_distro`) that consume the template.
+  Migration of the helpers to those repos is tracked separately at
+  `ycpss91255-docker/docker_harness` and lands on the same release
+  cycle so consumers don't lose the behaviour at next subtree pull.
+
+### Changed
+- **Test count**: `test/unit/bashrc_spec.bats` 18 -> 7 (removed 11
+  ROS-related tests covering the helpers above). Total self-tests
+  1048 -> 1037 (994 unit + 54 integration -> 983 + 54).
+- **Neutralised ROS-flavoured examples in template-internal docs +
+  comments + test fixtures** (#240): README + 3 translation copies
+  (build-worker / release-worker example block, publish-worker
+  matrix example, mermaid diagram repo label, ros_env.bats ->
+  app_env.bats), `.github/workflows/publish-worker.yaml` example
+  comments (ros_distro tag scheme -> generic 2-variant example),
+  `setup.conf` annotations (network host / privileged / shm_size /
+  env / tmpfs / devices sections), `script/docker/setup.sh` env_1
+  inline doc comment, `test/unit/compose_gen_spec.bats` fixture
+  variable names (5 #236 tests use `BUILD_TARGET` / `ROOT` / `BASE`
+  instead of `ROS_DISTRO` / `/opt/ros`). The behaviours under test
+  are unchanged; only the example variable names neutralised so
+  template's perceived audience isn't locked to ROS users. Existing
+  CHANGELOG historical entries (e.g. v0.20.1 describing the #236
+  fix using ROS_DISTRO as the example) are left intact as
+  historical record.
+
 ## [v0.20.1] - 2026-05-08
 
 ### Fixed

@@ -1166,8 +1166,8 @@ _resolve_stage_list() {
 # Resolves issue #236: previously, sibling cross-references in
 # `[environment] env_N` were emitted literally and compose's `${VAR}`
 # substitution does NOT consult sibling environment entries -- so e.g.
-#   env_1 = ROS_DISTRO=humble
-#   env_2 = LD_LIBRARY_PATH=/foo/${ROS_DISTRO}/lib
+#   env_1 = BUILD_TARGET=production
+#   env_2 = LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib
 # would ship `LD_LIBRARY_PATH=/foo//lib` to the container.
 _expand_env_cross_refs() {
   local _input="$1"

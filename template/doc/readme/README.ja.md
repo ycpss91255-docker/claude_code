@@ -63,10 +63,10 @@ graph TB
         workflows["再利用可能な Workflows<br/>build-worker.yaml<br/>release-worker.yaml"]
     end
 
-    subgraph consumer["Docker Repo（例: ros_noetic）"]
+    subgraph consumer["Docker Repo（例: my_app）"]
         symlinks["build.sh → template/script/docker/build.sh<br/>run.sh → template/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
-        repo_test["test/smoke/<br/>ros_env.bats（repo 固有）"]
+        repo_test["test/smoke/<br/>app_env.bats（repo 固有）"]
         main_yaml["main.yaml<br/>→ 再利用可能な workflows を呼び出し"]
     end
 
@@ -531,18 +531,18 @@ jobs:
   call-docker-build:
     uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v1
     with:
-      image_name: ros_noetic
+      image_name: my_app
       build_args: |
-        ROS_DISTRO=noetic
-        ROS_TAG=ros-base
-        UBUNTU_CODENAME=focal
+        BASE_IMAGE=python:3.11-slim
+        APP_VERSION=1.0
+        DEBIAN_CODENAME=bookworm
 
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
     uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v1
     with:
-      archive_name_prefix: ros_noetic
+      archive_name_prefix: my_app
 ```
 
 ### build-worker.yaml パラメータ
