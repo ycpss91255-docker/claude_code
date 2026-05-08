@@ -1,6 +1,8 @@
-**English** | **[繁體中文](doc/README.zh-TW.md)** | **[简体中文](doc/README.zh-CN.md)** | **[日本語](doc/README.ja.md)**
-
 # Claude Code Docker Environment
+
+[![CI](https://github.com/ycpss91255-docker/claude_code/actions/workflows/main.yaml/badge.svg)](https://github.com/ycpss91255-docker/claude_code/actions/workflows/main.yaml)
+
+**[English](README.md)** | **[繁體中文](doc/README.zh-TW.md)** | **[简体中文](doc/README.zh-CN.md)** | **[日本語](doc/README.ja.md)**
 
 Docker-in-Docker (DinD) development container for Claude Code, with Anthropic's Claude Code CLI pre-installed. Available in CPU and NVIDIA GPU variants. Runs as non-root user with host UID/GID matching.
 
@@ -294,16 +296,15 @@ See [TEST.md](doc/test/TEST.md) for details.
 .
 ├── Dockerfile                        # Multi-stage build (sys -> base -> devel -> test)
 ├── compose.yaml                      # Services: devel (CPU), devel-gpu, test
-├── build.sh -> template/build.sh     # Build with auto .env generation (symlink)
-├── run.sh -> template/run.sh         # Run with auto .env generation (symlink)
-├── exec.sh -> template/exec.sh       # Exec into running container (symlink)
-├── stop.sh -> template/stop.sh       # Stop and remove containers (symlink)
-├── Makefile -> template/Makefile     # Build targets (symlink)
+├── build.sh -> template/script/docker/build.sh     # Symlink
+├── run.sh -> template/script/docker/run.sh         # Symlink
+├── exec.sh -> template/script/docker/exec.sh       # Symlink
+├── stop.sh -> template/script/docker/stop.sh       # Symlink
+├── Makefile -> template/script/docker/Makefile     # Symlink
 ├── .hadolint.yaml                    # Hadolint configuration
 ├── encrypt_env.sh                    # Helper to encrypt API keys
 ├── post_setup.sh                     # Derives BASE_IMAGE from GPU_ENABLED
-├── .env.example                      # Template for .env
-├── .template_version                 # Subtree version tracking
+├── .env.example                      # IMAGE_NAME fallback
 ├── script/
 │   └── entrypoint.sh                 # DinD startup, OAuth copy, API key decryption
 ├── test/
