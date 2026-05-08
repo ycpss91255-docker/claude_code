@@ -3,7 +3,40 @@
 
 set -euo pipefail
 
+# Default FILE_PATH = the directory the wrapper symlink lives in (i.e.
+# the repo root in normal usage). `-C <dir>` / `--chdir <dir>` overrides
+# it so the wrapper operates on a different repo without changing the
+# caller's cwd. Critical for Claude Code's sandbox `excludedCommands`
+# matching: top-level command stays `./build.sh ...` rather than
+# `(cd <dir> && ...)` or `bash -c "cd <dir> && ..."`, neither of which
+# the bash AST parser unwraps into the `./build.sh *` prefix
+# (refs docker_harness#53). The pre-pass runs before _lib.sh is sourced
+# so all path-dependent operations (including the _lib.sh lookup) honor
+# the override.
 FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_chdir_i=1
+while (( _chdir_i <= $# )); do
+  case "${!_chdir_i}" in
+    -C|--chdir)
+      _chdir_next=$((_chdir_i + 1))
+      if (( _chdir_next > $# )) || [[ -z "${!_chdir_next:-}" ]]; then
+        printf '[build] ERROR: -C/--chdir requires a value\n' >&2
+        exit 2
+      fi
+      _chdir_arg="${!_chdir_next}"
+      if [[ ! -d "${_chdir_arg}" ]]; then
+        printf '[build] ERROR: -C target is not a directory: %s\n' "${_chdir_arg}" >&2
+        exit 2
+      fi
+      FILE_PATH="$(cd -- "${_chdir_arg}" && pwd -P)"
+      _chdir_i=$((_chdir_next + 1))
+      ;;
+    *)
+      _chdir_i=$((_chdir_i + 1))
+      ;;
+  esac
+done
+unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
 # _lib.sh lives at template/script/docker/_lib.sh in normal consumer
 # repos, OR alongside build.sh when the Dockerfile `test` stage COPYs
@@ -49,10 +82,13 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
+用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 選項:
   -h, --help     顯示此說明
+  -C, --chdir DIR
+                 對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C / make -C。
+                 須在其他選項與 TARGET 之前指定。
   -s, --setup    強制重跑 setup.sh 重新生成 .env + compose.yaml
                  （預設：.env 不存在時自動 bootstrap；存在時僅印 drift warning）
   --reset-conf   用 template 預設值覆蓋 setup.conf（先備份到 setup.conf.bak
@@ -71,10 +107,13 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
+用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 选项:
   -h, --help     显示此说明
+  -C, --chdir DIR
+                 对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C / make -C。
+                 须在其他选项与 TARGET 之前指定。
   -s, --setup    强制重跑 setup.sh 重新生成 .env + compose.yaml
                  （默认：.env 不存在时自动 bootstrap；存在时仅打印 drift warning）
   --reset-conf   用 template 默认值覆盖 setup.conf（先备份到 setup.conf.bak
@@ -93,10 +132,13 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./build.sh [-h] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
+使用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 オプション:
   -h, --help     このヘルプを表示
+  -C, --chdir DIR
+                 DIR 配下の repo に対して実行（呼び出し側の cwd は変えない）。
+                 git -C / make -C と同様。他のオプションや TARGET より前に指定。
   -s, --setup    setup.sh を強制実行して .env + compose.yaml を再生成
                  （デフォルト：.env が無ければ自動 bootstrap、あれば drift warning のみ）
   --reset-conf   setup.conf をテンプレのデフォルトで上書き（setup.conf.bak
@@ -116,10 +158,14 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./build.sh [-h] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
+Usage: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [TARGET]
 
 Options:
   -h, --help     Show this help
+  -C, --chdir DIR
+                 Operate on the repo at DIR without changing the caller's cwd.
+                 Mirrors git -C / make -C. Must come before other options and
+                 the TARGET.
   -s, --setup    Force rerun setup.sh to regenerate .env + compose.yaml
                  (default: auto-bootstrap if .env missing; warn on drift if present)
   --reset-conf   Overwrite setup.conf with template defaults (backs up the
@@ -173,6 +219,13 @@ main() {
     case "$1" in
       -h|--help)
         usage
+        ;;
+      -C|--chdir)
+        # Already consumed by the file-scope pre-pass that overrides
+        # FILE_PATH; skip flag + value here. The pre-pass already
+        # validated DIR exists and "-C" has a value, so we can shift
+        # blindly.
+        shift 2
         ;;
       -s|--setup)
         RUN_SETUP=true

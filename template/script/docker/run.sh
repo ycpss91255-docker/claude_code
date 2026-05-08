@@ -3,7 +3,33 @@
 
 set -euo pipefail
 
+# `-C <dir>` / `--chdir <dir>` pre-pass — see build.sh for the full
+# rationale (refs docker_harness#53). Override FILE_PATH before _lib.sh
+# is sourced so all path-dependent operations honor the target repo.
 FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_chdir_i=1
+while (( _chdir_i <= $# )); do
+  case "${!_chdir_i}" in
+    -C|--chdir)
+      _chdir_next=$((_chdir_i + 1))
+      if (( _chdir_next > $# )) || [[ -z "${!_chdir_next:-}" ]]; then
+        printf '[run] ERROR: -C/--chdir requires a value\n' >&2
+        exit 2
+      fi
+      _chdir_arg="${!_chdir_next}"
+      if [[ ! -d "${_chdir_arg}" ]]; then
+        printf '[run] ERROR: -C target is not a directory: %s\n' "${_chdir_arg}" >&2
+        exit 2
+      fi
+      FILE_PATH="$(cd -- "${_chdir_arg}" && pwd -P)"
+      _chdir_i=$((_chdir_next + 1))
+      ;;
+    *)
+      _chdir_i=$((_chdir_i + 1))
+      ;;
+  esac
+done
+unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
 # _lib.sh lookup: template/script/docker/_lib.sh in consumer repos, or
 # sibling _lib.sh in /lint/ (Dockerfile test stage). See build.sh.
@@ -76,12 +102,14 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--build] [--dry-run]
+用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [-s|--setup] [--build] [--dry-run]
               [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
               [-t|--target TARGET] [CMD...]
 
 選項:
   -h, --help        顯示此說明
+  -C, --chdir DIR   對 DIR 下的 repo 執行（不改變呼叫者 cwd）。須在 CMD 之前指定；
+                    若 CMD 中需要字面 -C，可用 -- 分隔。類似 git -C / make -C。
   -t, --target T    Compose service 名稱（預設: devel；例: runtime）
   -d, --detach      背景執行（docker compose up -d，不接受 CMD）
   -s, --setup       強制重跑 setup.sh 重新生成 .env + compose.yaml
@@ -100,12 +128,14 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--build] [--dry-run]
+用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [-s|--setup] [--build] [--dry-run]
               [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
               [-t|--target TARGET] [CMD...]
 
 选项:
   -h, --help        显示此说明
+  -C, --chdir DIR   对 DIR 下的 repo 执行（不改变调用者 cwd）。须在 CMD 之前指定；
+                    若 CMD 中需要字面 -C，可用 -- 分隔。类似 git -C / make -C。
   -t, --target T    Compose service 名称（默认: devel；例: runtime）
   -d, --detach      后台运行（docker compose up -d，不接受 CMD）
   -s, --setup       强制重跑 setup.sh 重新生成 .env + compose.yaml
@@ -124,12 +154,15 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./run.sh [-h] [-d|--detach] [-s|--setup] [--build] [--dry-run]
+使用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [-s|--setup] [--build] [--dry-run]
                [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
                [-t|--target TARGET] [CMD...]
 
 オプション:
   -h, --help        このヘルプを表示
+  -C, --chdir DIR   DIR 配下の repo に対して実行（呼び出し側の cwd は変えない）。
+                    CMD の前に指定。CMD に字面の -C が必要なら -- で区切る。
+                    git -C / make -C と同様。
   -t, --target T    Compose サービス名（デフォルト: devel；例: runtime）
   -d, --detach      バックグラウンド実行（docker compose up -d、CMD は受け付けない）
   -s, --setup       setup.sh を強制実行して .env + compose.yaml を再生成
@@ -149,12 +182,15 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./run.sh [-h] [-d|--detach] [-s|--setup] [--build] [--dry-run]
+Usage: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [-s|--setup] [--build] [--dry-run]
                [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
                [-t|--target TARGET] [CMD...]
 
 Options:
   -h, --help        Show this help
+  -C, --chdir DIR   Operate on the repo at DIR without changing the caller's
+                    cwd. Must come before the CMD; use -- to separate if you
+                    need a literal -C inside CMD. Mirrors git -C / make -C.
   -t, --target T    Compose service name (default: devel; e.g. runtime)
   -d, --detach      Run in background (docker compose up -d; no CMD accepted)
   -s, --setup       Force rerun setup.sh to regenerate .env + compose.yaml
@@ -211,6 +247,12 @@ main() {
     case "$1" in
       -h|--help)
         usage
+        ;;
+      -C|--chdir)
+        # Already consumed by the file-scope pre-pass that overrides
+        # FILE_PATH; skip flag + value here. Pre-pass already validated
+        # DIR exists, so blind shift 2 is safe.
+        shift 2
         ;;
       -d|--detach)
         DETACH=true

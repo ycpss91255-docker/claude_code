@@ -3,7 +3,33 @@
 
 set -euo pipefail
 
+# `-C <dir>` / `--chdir <dir>` pre-pass — see build.sh for the full
+# rationale (refs docker_harness#53). Override FILE_PATH before _lib.sh
+# is sourced so all path-dependent operations honor the target repo.
 FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_chdir_i=1
+while (( _chdir_i <= $# )); do
+  case "${!_chdir_i}" in
+    -C|--chdir)
+      _chdir_next=$((_chdir_i + 1))
+      if (( _chdir_next > $# )) || [[ -z "${!_chdir_next:-}" ]]; then
+        printf '[exec] ERROR: -C/--chdir requires a value\n' >&2
+        exit 2
+      fi
+      _chdir_arg="${!_chdir_next}"
+      if [[ ! -d "${_chdir_arg}" ]]; then
+        printf '[exec] ERROR: -C target is not a directory: %s\n' "${_chdir_arg}" >&2
+        exit 2
+      fi
+      FILE_PATH="$(cd -- "${_chdir_arg}" && pwd -P)"
+      _chdir_i=$((_chdir_next + 1))
+      ;;
+    *)
+      _chdir_i=$((_chdir_i + 1))
+      ;;
+  esac
+done
+unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
 # _lib.sh lookup: template/script/docker/_lib.sh in consumer repos, or
 # sibling _lib.sh in /lint/ (Dockerfile test stage). See build.sh.
@@ -42,10 +68,12 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
+用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
 
 選項:
   -h, --help        顯示此說明
+  -C, --chdir DIR   對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C / make -C。
+                    須在 CMD 之前指定。
   -t, --target T    服務名稱（預設: devel）
   --instance NAME   進入命名 instance（預設為 default instance）
   --lang LANG       設定訊息語言（預設: en）
@@ -63,10 +91,12 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
+用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
 
 选项:
   -h, --help        显示此说明
+  -C, --chdir DIR   对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C / make -C。
+                    须在 CMD 之前指定。
   -t, --target T    服务名称（默认: devel）
   --instance NAME   进入命名 instance（默认为 default instance）
   --lang LANG       设置消息语言（默认: en）
@@ -84,10 +114,12 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
+使用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
 
 オプション:
   -h, --help        このヘルプを表示
+  -C, --chdir DIR   DIR 配下の repo に対して実行（呼び出し側の cwd は変えない）。
+                    git -C / make -C と同様。CMD の前に指定。
   -t, --target T    サービス名（デフォルト: devel）
   --instance NAME   名前付き instance に入る（デフォルトは default instance）
   --lang LANG       メッセージ言語を設定（デフォルト: en）
@@ -105,10 +137,12 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./exec.sh [-h] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
+Usage: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
 
 Options:
   -h, --help        Show this help
+  -C, --chdir DIR   Operate on the repo at DIR without changing the caller's
+                    cwd. Mirrors git -C / make -C. Must come before the CMD.
   -t, --target T    Service name (default: devel)
   --instance NAME   Enter a named instance (default: default instance)
   --lang LANG       Set message language (default: en)
@@ -150,6 +184,11 @@ main() {
     case "$1" in
       -h|--help)
         usage
+        ;;
+      -C|--chdir)
+        # Already consumed by the file-scope pre-pass that overrides
+        # FILE_PATH; skip flag + value here.
+        shift 2
         ;;
       -t|--target)
         TARGET="${2:?"--target requires a value"}"

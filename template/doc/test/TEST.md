@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1045 tests** total (991 unit + 54 integration).
+Template self-tests: **1065 tests** total (1011 unit + 54 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -172,7 +172,7 @@ runtime after #243) forwarding those inputs, and no leftover
 | `build_contexts` input forwards to docker/build-push-action `build-contexts:` (#207: input declared with empty default, 4 build steps forward, default preserves zero-diff) | 3 |
 | #243 stage rename + runtime-test smoke: `target: devel-test` (renamed from `test`), no leftover `target: test`, `target: runtime-test` exists, runtime-test gated on `inputs.build_runtime` (>=2 occurrences shared with runtime gate) | 4 |
 
-### test/unit/build_sh_spec.bats (35)
+### test/unit/build_sh_spec.bats (40)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -187,11 +187,15 @@ direct, not `setup_tui.sh`), defensive guard when setup produces no
 `.env`, TARGETARCH build-arg forwarding, `--no-cache`, `--clean-tools`,
 positional `TARGET`, `--lang` argument validation, fallback
 `_detect_lang` branches (zh_TW/zh_CN/ja), real (non-dry-run) docker
-build invocation, and **runtime log-line i18n** (bootstrap /
+build invocation, **runtime log-line i18n** (bootstrap /
 drift-regen / err_no_env messages translate in all four languages via
-the local `_msg()` table; English remains the default).
+the local `_msg()` table; English remains the default), and
+**`-C` / `--chdir` flag** (docker_harness#53: pre-pass overrides
+FILE_PATH to redirect the wrapper to a different repo, both short and
+long form, value-required and directory-existence guards, usage help
+mention).
 
-### test/unit/run_sh_spec.bats (41)
+### test/unit/run_sh_spec.bats (46)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -205,12 +209,14 @@ routing, `--instance`, already-running guard, Wayland xhost path,
 `--lang` / `--instance` argument validation, fallback `_detect_lang`
 branches, **runtime log-line i18n** (bootstrap + already-running
 error translate in all four languages via the local `_msg()` table),
-and **#216 auto-build soft guard / `--build` opt-in** (image
+**#216 auto-build soft guard / `--build` opt-in** (image
 present → silent, image absent + TTY → INFO, image absent + no TTY →
 silent, per-target image inspect, `--build` invokes `./build.sh test`
-before compose up, `--build` after check-drift).
+before compose up, `--build` after check-drift), and **`-C` / `--chdir`
+flag** (docker_harness#53: redirect FILE_PATH, short + long form,
+value-required and directory guards, usage help mention).
 
-### test/unit/exec_sh_spec.bats (18)
+### test/unit/exec_sh_spec.bats (23)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -223,10 +229,13 @@ Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--target` / `--instance`
 value validation, English-default not-running error, Chinese /
 Simplified Chinese / Japanese not-running error text, instance-specific
 vs default start hints, `--dry-run` bypassing the guard, compose exec
-routing when container is running, and fallback `_detect_lang`
-branches when `template/` is absent.
+routing when container is running, fallback `_detect_lang`
+branches when `template/` is absent, and **`-C` / `--chdir` flag**
+(docker_harness#53: redirect FILE_PATH so .env / project name come
+from the alt repo, short + long form, value-required and directory
+guards, usage help mention).
 
-### test/unit/stop_sh_spec.bats (16)
+### test/unit/stop_sh_spec.bats (21)
 
 Unit tests for `stop.sh` argument parsing, the `--all` multi-instance
 teardown, and i18n. `docker ps -a` output is PATH-shimmed via
@@ -237,8 +246,11 @@ Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--instance` value
 validation, default teardown via `docker compose down`, named-instance
 suffix in project name, `--all` no-instances English message,
 Chinese / Simplified Chinese / Japanese translations of the
-no-instances message, `--all` multi-project teardown loop, and
-fallback `_detect_lang` branches.
+no-instances message, `--all` multi-project teardown loop, fallback
+`_detect_lang` branches, and **`-C` / `--chdir` flag**
+(docker_harness#53: redirect FILE_PATH so .env / project name come
+from the alt repo, short + long form, value-required and directory
+guards, usage help mention).
 
 ### test/unit/compose_gen_spec.bats (50)
 

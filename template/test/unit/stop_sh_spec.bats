@@ -180,3 +180,61 @@ teardown() {
   assert_output --partial "使用法"
   rm -rf "${_tmp}"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# -C / --chdir flag (issue docker_harness#53) — see build_sh_spec.
+# ════════════════════════════════════════════════════════════════════
+
+@test "stop.sh -C <dir> redirects FILE_PATH to <dir>" {
+  local ALT="${TEMP_DIR}/alt"
+  mkdir -p "${ALT}/template/script/docker"
+  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=altimg"
+    echo "DOCKER_HUB_USER=altuser"
+  } > "${ALT}/.env"
+
+  run bash "${SANDBOX}/stop.sh" -C "${ALT}" --dry-run
+  assert_success
+  # docker compose down's project name comes from .env; alt path proves
+  # FILE_PATH was redirected to ALT.
+  assert_output --partial "altuser-altimg"
+  refute_output --partial "mockuser-mockimg"
+}
+
+@test "stop.sh --chdir <dir> long form is equivalent to -C" {
+  local ALT="${TEMP_DIR}/alt2"
+  mkdir -p "${ALT}/template/script/docker"
+  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=altimg2"
+    echo "DOCKER_HUB_USER=altuser2"
+  } > "${ALT}/.env"
+
+  run bash "${SANDBOX}/stop.sh" --chdir "${ALT}" --dry-run
+  assert_success
+  assert_output --partial "altuser2-altimg2"
+}
+
+@test "stop.sh -C without a value exits 2" {
+  run bash "${SANDBOX}/stop.sh" -C
+  assert_failure 2
+  assert_output --partial "requires a value"
+}
+
+@test "stop.sh -C with a non-existent directory exits 2" {
+  run bash "${SANDBOX}/stop.sh" -C /definitely/does/not/exist
+  assert_failure 2
+  assert_output --partial "not a directory"
+}
+
+@test "stop.sh -C is mentioned in usage help" {
+  run bash "${SANDBOX}/stop.sh" --help
+  assert_success
+  assert_output --partial "-C"
+  assert_output --partial "--chdir"
+}

@@ -542,3 +542,67 @@ EOS
   assert_success
   refute_output --partial "proceed?"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# -C / --chdir flag (issue docker_harness#53)
+#
+# The pre-pass at file scope must override FILE_PATH so _lib.sh + setup.sh
+# + .env / compose.yaml all resolve against DIR instead of the wrapper's
+# symlink dir. Critical for Claude Code's sandbox excludedCommands match
+# (top-level token stays `./build.sh ...` rather than subshell / bash -c).
+# ════════════════════════════════════════════════════════════════════
+
+@test "build.sh -C <dir> redirects FILE_PATH to <dir>" {
+  # Build a second sandbox tree mirroring the primary one, then invoke
+  # the *primary* build.sh with -C pointing at the alt tree. The mock
+  # setup.sh stamps MOCK_SETUP_LOG with whatever --base-path it received,
+  # so the log proves which tree FILE_PATH resolved to.
+  local ALT="${TEMP_DIR}/alt"
+  mkdir -p "${ALT}/template/script/docker" "${ALT}/template/dockerfile"
+  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  cp "${SANDBOX}/template/script/docker/setup.sh" "${ALT}/template/script/docker/setup.sh"
+  chmod +x "${ALT}/template/script/docker/setup.sh"
+  touch "${ALT}/template/dockerfile/Dockerfile.test-tools"
+
+  run bash "${SANDBOX}/build.sh" -C "${ALT}" --dry-run
+  assert_success
+  assert [ -f "${MOCK_SETUP_LOG}" ]
+  run cat "${MOCK_SETUP_LOG}"
+  assert_output --partial "setup.sh invoked --base-path ${ALT}"
+  refute_output --partial "setup.sh invoked --base-path ${SANDBOX}"
+}
+
+@test "build.sh --chdir <dir> long form is equivalent to -C" {
+  local ALT="${TEMP_DIR}/alt2"
+  mkdir -p "${ALT}/template/script/docker" "${ALT}/template/dockerfile"
+  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  cp "${SANDBOX}/template/script/docker/setup.sh" "${ALT}/template/script/docker/setup.sh"
+  chmod +x "${ALT}/template/script/docker/setup.sh"
+  touch "${ALT}/template/dockerfile/Dockerfile.test-tools"
+
+  run bash "${SANDBOX}/build.sh" --chdir "${ALT}" --dry-run
+  assert_success
+  run cat "${MOCK_SETUP_LOG}"
+  assert_output --partial "setup.sh invoked --base-path ${ALT}"
+}
+
+@test "build.sh -C without a value exits 2" {
+  run bash "${SANDBOX}/build.sh" -C
+  assert_failure 2
+  assert_output --partial "requires a value"
+}
+
+@test "build.sh -C with a non-existent directory exits 2" {
+  run bash "${SANDBOX}/build.sh" -C /definitely/does/not/exist
+  assert_failure 2
+  assert_output --partial "not a directory"
+}
+
+@test "build.sh -C is mentioned in usage help" {
+  run bash "${SANDBOX}/build.sh" --help
+  assert_success
+  assert_output --partial "-C"
+  assert_output --partial "--chdir"
+}
