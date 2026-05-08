@@ -140,17 +140,26 @@ teardown() {
   assert_output "template/script/docker/Makefile"
 }
 
-@test "new repo: config/ is a real directory copied from template/config" {
+@test "new repo: config/ is an empty placeholder (template#254 layered override)" {
   bash template/init.sh
   # Must NOT be a symlink — edits should stay in the user's own
   # repo, not leak into the subtree where subtree pulls would fight
-  # them. Must be a real directory seeded with the template content.
+  # them. Must be a real directory.
   assert [ ! -L "${REPO_DIR}/config" ]
   assert [ -d "${REPO_DIR}/config" ]
-  assert [ -d "${REPO_DIR}/config/shell" ]
-  # Sanity-check one of the seeded files actually made it across.
-  assert [ -f "${REPO_DIR}/config/pip/setup.sh" ] \
-    || assert [ -d "${REPO_DIR}/config/shell/bashrc" ]
+  # Pre-#254 init.sh seeded a FULL copy of template/config/ here.
+  # Post-#254 (template v0.22.0+) init.sh creates an empty
+  # placeholder with just a .gitkeep -- the Dockerfile's layered
+  # COPY chain reads template/config/ as defaults and <repo>/config/
+  # as overrides, so an empty <repo>/config/ means "no overrides,
+  # use all template defaults". Downstream adds files only when
+  # they want to override a specific template file.
+  assert [ -f "${REPO_DIR}/config/.gitkeep" ]
+  # Confirm no full-tree seed: shell/, pip/, etc. should NOT be
+  # auto-populated. (Existing repos with a pre-#254 full copy still
+  # work via the next test's preserve-existing path.)
+  run find "${REPO_DIR}/config" -mindepth 1 -maxdepth 1 -not -name '.gitkeep'
+  assert_output ""
 }
 
 @test "new repo: init.sh preserves pre-existing config/ directory (no clobber)" {
@@ -164,16 +173,16 @@ teardown() {
   assert [ -f "${REPO_DIR}/config/custom/marker" ]
 }
 
-@test "new repo: init.sh drops stale config symlink before copying" {
+@test "new repo: init.sh drops stale config symlink before creating placeholder" {
   # An older init.sh created config → template/config as a symlink.
-  # Re-running the new init.sh on such a repo must replace the
-  # symlink with a real copy (cp -r through a symlink would otherwise
-  # silently pollute the subtree target).
+  # Re-running the post-#254 init.sh on such a repo must replace the
+  # symlink with the empty placeholder (mkdir through a symlink
+  # would otherwise pollute the subtree target).
   ln -s template/config "${REPO_DIR}/config"
   bash template/init.sh
   assert [ ! -L "${REPO_DIR}/config" ]
   assert [ -d "${REPO_DIR}/config" ]
-  assert [ -d "${REPO_DIR}/config/shell" ]
+  assert [ -f "${REPO_DIR}/config/.gitkeep" ]
 }
 
 @test "Dockerfile.example references CONFIG_SRC=\"config\" (not template/config)" {
@@ -182,6 +191,44 @@ teardown() {
   assert_success
   run grep -F 'ARG CONFIG_SRC="template/config"' /source/dockerfile/Dockerfile.example
   assert_failure
+}
+
+@test "Dockerfile.example has layered config COPY chain (template#254): template/config first, then config" {
+  # Layered file-level override: layer 1 brings template/config/
+  # defaults, layer 2 overlays <repo>/config/. Files in layer 2
+  # override same-path files from layer 1; files only in layer 1
+  # remain. Order matters -- if layer 2 came first, layer 1 would
+  # overwrite the overrides. Test asserts both lines exist AND the
+  # order is correct.
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # Both COPY lines exist with --chown / --chmod metadata.
+  run grep -E '^COPY --chown=.* template/config "\$\{CONFIG_DIR\}"$' "${_df}"
+  assert_success
+  run grep -E '^COPY --chown=.* "\$\{CONFIG_SRC\}" "\$\{CONFIG_DIR\}"$' "${_df}"
+  assert_success
+  # Order: template/config COPY line number must be LESS than
+  # config-src COPY line number.
+  local _line1 _line2
+  _line1=$(grep -nE '^COPY --chown=.* template/config "\$\{CONFIG_DIR\}"$' "${_df}" | head -1 | cut -d: -f1)
+  _line2=$(grep -nE '^COPY --chown=.* "\$\{CONFIG_SRC\}" "\$\{CONFIG_DIR\}"$' "${_df}" | head -1 | cut -d: -f1)
+  [[ "${_line1}" -lt "${_line2}" ]] || {
+    echo "expected template/config COPY (line ${_line1}) BEFORE config-src COPY (line ${_line2})"
+    return 1
+  }
+}
+
+@test "Dockerfile.example sets up bashrc.d drop-in directory (template#254)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The shell-setup RUN block must mkdir ~/.bashrc.d AND copy
+  # *.sh from CONFIG_DIR/shell/bashrc.d/ into it. The cp -n form
+  # tolerates missing source files (template/config/shell/bashrc.d/
+  # is empty by default; only an explicit .gitkeep ships).
+  run grep -F 'mkdir -p "${HOME}/.bashrc.d"' "${_df}"
+  assert_success
+  run grep -F 'cp -n "${CONFIG_DIR}"/shell/bashrc.d/*.sh "${HOME}/.bashrc.d/"' "${_df}"
+  assert_success
 }
 
 @test "new repo: template/.version exists (no legacy VERSION / .template_version)" {
