@@ -7,6 +7,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.23.0] - 2026-05-08
+
+Promoted from `v0.23.0-rc1` (#258). RC tag CI green (Self Test +
+release-test-tools); no fixups needed between rc1 and stable.
+
+Adds the layered `config/` override mechanism + `bashrc.d/` drop-in
+directory (#254). Purely additive at the framework level: no
+downstream Dockerfile changes required to consume the new tag —
+`make -f Makefile.ci upgrade VERSION=v0.23.0` is enough.
+
+## [v0.23.0-rc1] - 2026-05-08
+
+First Release Candidate for v0.23.0. Adds the layered `config/`
+override mechanism + `bashrc.d/` drop-in directory (#254). Purely
+additive at the framework level: no downstream Dockerfile changes
+required to consume the new tag — `make -f Makefile.ci upgrade
+VERSION=v0.23.0-rc1` is enough.
+
+### Added
+- **Layered `config/` override at build time** (#254). Mirrors
+  the `setup.conf` repo-override pattern, just at file granularity:
+  `Dockerfile.example`'s `COPY ${CONFIG_SRC} ${CONFIG_DIR}` (the
+  pre-existing `<repo>/config/` copy) is preceded by a new
+  `COPY template/config ${CONFIG_DIR}` layer. The first COPY brings
+  template/config/ defaults; the second overlays
+  `<repo>/config/` on top -- file-level merge, downstream files
+  override matching paths from template, files only in template
+  fall through unchanged. Files only in `<repo>/config/` are
+  added.
+
+  Mental model:
+  - `setup.conf`: repo skips a section -> falls through to
+    template default; repo lists a section -> repo's section
+    replaces template's section (whole section).
+  - `config/` (new): repo skips a file -> falls through to
+    template default; repo provides a file -> repo's file
+    replaces template's file (whole file).
+
+  Docker handles the merge natively via two sequential `COPY` of
+  the same destination. No build-context magic, no setup.sh
+  pre-merge -- just two `COPY` lines.
+
+- **`bashrc.d/` drop-in directory** (#254, supersedes #253).
+  `template/config/shell/` gains a `bashrc.d/` directory (empty
+  placeholder via `.gitkeep`). `template/config/shell/bashrc` gains
+  a bootstrap loop that sources `${HOME}/.bashrc.d/*.sh` at
+  interactive shell start. `Dockerfile.example` gains a
+  `mkdir -p ${HOME}/.bashrc.d` +
+  `cp -n ${CONFIG_DIR}/shell/bashrc.d/*.sh ${HOME}/.bashrc.d/` step
+  in the existing shell-setup RUN block. Empty bashrc.d/ is a
+  clean no-op (the for loop has no iterations + `cp -n` with
+  `2>/dev/null || true` for missing source).
+
+  Use case: downstream `<repo>/config/shell/bashrc.d/<name>.sh`
+  ships per-repo PATH additions, aliases, helpers without forking
+  the template's `bashrc` file. Layered with #254's COPY chain so
+  template-side helpers (in `template/config/shell/bashrc.d/`) and
+  downstream-side helpers (in `<repo>/config/shell/bashrc.d/`)
+  both end up in `${HOME}/.bashrc.d/` after build.
+
+- 3 new tests in `test/unit/bashrc_spec.bats` (7 -> 10) covering
+  the bashrc.d bootstrap loop and `.gitkeep` placeholder.
+- 2 new tests in `test/integration/init_new_repo_spec.bats`
+  (36 -> 38) asserting Dockerfile.example's two-layer COPY chain
+  ordering and the bashrc.d setup step.
+
+### Changed
+- **`init.sh` new-repo seed behaviour** (#254, soft-breaking):
+  pre-#254 `init.sh` seeded `<repo>/config/` as a FULL copy of
+  `template/config/`. Post-#254 it creates an EMPTY placeholder
+  with just a `.gitkeep`, leaving the layered COPY chain in
+  Dockerfile.example to do the merge at build time. Existing
+  repos with a pre-#254 full-copy `<repo>/config/` keep working
+  unchanged -- their copy still overlays every template default
+  at build time, identical to pre-#254 behaviour. They can
+  manually trim files in `<repo>/config/` that match template
+  default to start receiving template-side improvements
+  automatically.
+- `test/integration/init_new_repo_spec.bats` test
+  "config/ is a real directory copied from template/config" ->
+  "config/ is an empty placeholder" (new shape). The
+  preserve-existing-config and stale-symlink tests still pass
+  unchanged.
+- Total self-tests 1065 -> 1070 (+3 bashrc_spec, +2
+  init_new_repo_spec). Unit 1011 -> 1014; integration 54 -> 56.
+
 ## [v0.22.0] - 2026-05-08
 
 Minor release adding `-C` / `--chdir` to the four wrappers for worktree-path

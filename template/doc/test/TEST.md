@@ -1,13 +1,13 @@
 # TEST.md
 
-Template self-tests: **1065 tests** total (1011 unit + 54 integration).
+Template self-tests: **1070 tests** total (1014 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
 > `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
 > build time (via `./build.sh test`) inside both this repo and every
 > downstream repo, and are documented in [Smoke Tests](#smoke-tests)
-> below. They are **not** included in the 1045 figure because they are
+> below. They are **not** included in the 1070 figure because they are
 > build-time assertions, not self-tests.
 
 ## Test Files
@@ -420,7 +420,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `setup.sh default _base_path uses /..` | Path resolution |
 | `setup.sh default _base_path uses double parent traversal` | Repo root traversal |
 
-### test/unit/bashrc_spec.bats (7)
+### test/unit/bashrc_spec.bats (10)
 
 | Test | Description |
 |------|-------------|
@@ -654,7 +654,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_untrack_canonical_in_repo: idempotent — second run succeeds without error` | Re-run safety |
 | `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep |
 
-### test/integration/init_new_repo_spec.bats (36)
+### test/integration/init_new_repo_spec.bats (38)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The

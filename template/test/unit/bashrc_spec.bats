@@ -55,3 +55,34 @@ setup() {
   run grep -q "PS1=" "${RC}"
   assert_success
 }
+
+# ════════════════════════════════════════════════════════════════════
+# bashrc.d drop-in bootstrap loop (template#254 v0.22.0)
+# ════════════════════════════════════════════════════════════════════
+
+@test "bashrc has bashrc.d bootstrap loop sourcing ~/.bashrc.d/*.sh" {
+  # Layered config + drop-in pattern: at interactive shell start,
+  # source any *.sh under ~/.bashrc.d/ so template-side helpers
+  # (from template/config/shell/bashrc.d/) AND downstream-side
+  # helpers (from <repo>/config/shell/bashrc.d/) both get loaded.
+  run grep -qF 'for _bashrc_d_f in "${HOME}/.bashrc.d/"*.sh' "${RC}"
+  assert_success
+  run grep -qF '[[ -r "${_bashrc_d_f}" ]] && source "${_bashrc_d_f}"' "${RC}"
+  assert_success
+}
+
+@test "bashrc.d bootstrap loop guards on directory existing" {
+  # Empty bashrc.d/ (or missing) must not error the bootstrap. The
+  # outer if guards the for loop; the inner [[ -r ]] guards the
+  # source call so a stray broken symlink doesn't tank shell start.
+  run grep -qF 'if [[ -d "${HOME}/.bashrc.d" ]]; then' "${RC}"
+  assert_success
+}
+
+@test "bashrc.d/ directory exists in template/config/shell/" {
+  # Empty placeholder so the dir exists in subtree (git doesn't
+  # track empty dirs). Template-side helpers can drop *.sh here
+  # later without touching Dockerfile.example.
+  assert [ -d "/source/config/shell/bashrc.d" ]
+  assert [ -f "/source/config/shell/bashrc.d/.gitkeep" ]
+}
