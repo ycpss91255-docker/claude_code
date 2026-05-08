@@ -2,6 +2,8 @@
 
 # Claude Code Docker 环境
 
+[![CI](https://github.com/ycpss91255-docker/claude_code/actions/workflows/main.yaml/badge.svg)](https://github.com/ycpss91255-docker/claude_code/actions/workflows/main.yaml) [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../LICENSE)
+
 Claude Code 的 Docker-in-Docker (DinD) 开发容器，预先安装 Anthropic 的 Claude Code CLI。提供 CPU 与 NVIDIA GPU 两种版本，以非 root 用户执行并自动对应主机的 UID/GID。
 
 ## 目录
