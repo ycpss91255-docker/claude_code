@@ -7,6 +7,9 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- Align English `README.md` with the template framework reference applied in `ycpss91255-docker/ros1_bridge#63` (merge `148c411`): add CI status badge under the H1 title, move the 4-language switch link below the title, and refresh the Directory Structure block so wrapper-symlink targets point at `template/script/docker/<name>` and the obsolete `.template_version` row is dropped (the version pin moved to `template/.version` in template v0.16.0). Translations under `doc/` are intentionally untouched and will be fanned out in a follow-up PR.
+
 ### Fixed
 - Restore `.env.example` (removed inadvertently during the APT mirror
   refactor) so `setup.sh`'s IMAGE_NAME detection has its documented
