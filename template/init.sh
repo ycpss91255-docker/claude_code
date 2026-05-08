@@ -73,34 +73,63 @@ _create_symlinks() {
 
 # _populate_config
 #
-# On first init (no <repo>/config/), copy `template/config/` out as a
-# real directory the user owns and can edit freely. Rationale:
+# On first init (no <repo>/config/), create an empty placeholder
+# directory at `<repo>/config/` with a `.gitkeep`. The Dockerfile's
+# layered COPY chain (template#254) reads `template/config/` first
+# as the default layer and `<repo>/config/` second as the override
+# overlay; an empty <repo>/config/ means "no overrides, take all
+# template defaults". Downstream adds files under <repo>/config/
+# only when they want to override a specific template default.
+#
+# Rationale (compared to the pre-#254 full-copy seed):
 #   * a symlink would make edits spill into the subtree and fight
 #     `git subtree pull`;
-#   * a plain Dockerfile COPY from `template/config/` would deny the
-#     user any per-repo override path at all.
-# Copy gives the user a clean, repo-local editing surface; subsequent
-# template upgrades leave this directory untouched and `upgrade.sh`
-# prints a diff hint when the upstream baseline moves so the user can
-# reconcile manually.
+#   * a plain Dockerfile COPY from `template/config/` alone would
+#     deny the user any per-repo override path at all;
+#   * a full-copy seed (pre-#254) gives the user a clean
+#     repo-local editing surface but freezes their config at the
+#     init-time template version -- subsequent template-side
+#     improvements drift, requiring manual diff/reconcile;
+#   * an EMPTY placeholder (post-#254) lets the layered COPY do
+#     the merge at build time. Repos opt into per-file overrides
+#     only when they need them; everything else flows through
+#     from template/config/ on every build, keeping
+#     <repo>/config/ small and the override-vs-default contract
+#     visible in `git status` / `git diff`.
+#
+# Existing repos with a full <repo>/config/ snapshot from a
+# pre-v0.22.0 init keep working unchanged: their copy still
+# overrides every template default at build time, identical to
+# pre-#254 behaviour. They can manually trim files that match
+# template default to start receiving template-side improvements.
 _populate_config() {
-  # User already has a real config/ — preserve (contains their edits).
+  # User already has a real config/ — preserve (contains their edits
+  # or pre-#254 full-copy snapshot, both layered correctly).
   if [[ -d config && ! -L config ]]; then
     _log "  Keeping existing config/ directory"
     return 0
   fi
   # Stale symlink from an earlier init.sh version — drop it before
-  # copying. Without rm, `cp -r` would dereference and write INTO the
-  # symlink's target (i.e. pollute the subtree).
+  # creating the placeholder. Without rm, `mkdir` would fail if the
+  # symlink target is a real dir, or pollute the subtree if it's a
+  # template/config/ symlink.
   if [[ -L config ]]; then
     rm -f config
   fi
-  if [[ ! -d "${TEMPLATE_REL}/config" ]]; then
-    _log "  Skipping config/ seed (${TEMPLATE_REL}/config not found)"
-    return 0
-  fi
-  cp -r "${TEMPLATE_REL}/config" config
-  _log "  Copied config/ from ${TEMPLATE_REL}/config (yours to edit)"
+  # Create empty placeholder + .gitkeep so the dir exists in git
+  # (Docker COPY of <repo>/config/ requires the path to exist).
+  mkdir -p config
+  cat > config/.gitkeep <<'EOF'
+# Placeholder so this directory exists in git. The Dockerfile's
+# layered COPY (template#254) reads template/config/ first then
+# overlays <repo>/config/ on top. Drop files under <repo>/config/
+# only when you want to override a specific template default
+# (e.g. <repo>/config/shell/bashrc to override template's bashrc,
+# or <repo>/config/shell/bashrc.d/your-snippet.sh to add a drop-in).
+# Files NOT placed here keep flowing through from template/config/
+# on every build.
+EOF
+  _log "  Created empty config/ placeholder (template/config/ is the default layer; <repo>/config/ overlays per-file)"
 }
 
 _detect_template_version() {

@@ -111,9 +111,18 @@ ARG USER="${USER_NAME}"
 ARG GROUP="${USER_GROUP}"
 ARG ENTRYPOINT_FILE="script/entrypoint.sh"
 ARG CONFIG_DIR="/tmp/config"
-# <repo>/config is a per-repo copy of template/config seeded by
-# init.sh. Edit files there freely; template upgrades do not touch
-# this directory (upgrade.sh prints a diff hint when upstream moves).
+# Layered config/ override (template#254): two sequential COPYs into
+# /tmp/config/. The first brings template/config/ defaults; the
+# second overlays <repo>/config/ on top. File-level merge -- files in
+# <repo>/config/ replace same-path files in /tmp/config/; files only
+# in template/config/ stay; files only in <repo>/config/ are added.
+# Mental model is the same as setup.conf section-replace, just at
+# file granularity. <repo>/config/ becomes opt-in (init.sh seeds an
+# empty .gitkeep for new repos, not the full tree); existing repos
+# with a full <repo>/config/ snapshot from earlier seed continue to
+# work (their copy overrides every template default, identical to
+# pre-v0.22.0 behaviour). Trim <repo>/config/ files that match
+# template default to start receiving template-side improvements.
 ARG CONFIG_SRC="config"
 
 # Add your application-specific packages here
@@ -125,6 +134,11 @@ ARG CONFIG_SRC="config"
 #     rm -rf /var/lib/apt/lists/*
 
 COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
+# Layer 1: template/config/ defaults (subtree-managed, updates with
+# template/upgrade.sh).
+COPY --chown="${USER}":"${GROUP}" --chmod=0755 template/config "${CONFIG_DIR}"
+# Layer 2: <repo>/config/ overrides (per-repo, survives subtree
+# pull). Files here overlay matching paths from layer 1.
 COPY --chown="${USER}":"${GROUP}" --chmod=0755 "${CONFIG_SRC}" "${CONFIG_DIR}"
 
 USER "${USER}"
@@ -132,9 +146,14 @@ USER "${USER}"
 # Setup pip packages
 RUN "${CONFIG_DIR}"/pip/setup.sh
 
-# Setup shell, terminator, tmux
+# Setup shell, terminator, tmux. The bashrc append picks up the
+# bashrc.d bootstrap loop (template#254) which sources any *.sh
+# drop-ins under ~/.bashrc.d/ at interactive shell start.
 RUN cat "${CONFIG_DIR}"/shell/bashrc >> "${HOME}/.bashrc" && \
     chown "${USER}":"${GROUP}" "${HOME}/.bashrc" && \
+    mkdir -p "${HOME}/.bashrc.d" && \
+    cp -n "${CONFIG_DIR}"/shell/bashrc.d/*.sh "${HOME}/.bashrc.d/" 2>/dev/null || true && \
+    chown -R "${USER}":"${GROUP}" "${HOME}/.bashrc.d" && \
     "${CONFIG_DIR}"/shell/terminator/setup.sh && \
     "${CONFIG_DIR}"/shell/tmux/setup.sh && \
     sudo rm -rf "${CONFIG_DIR}"

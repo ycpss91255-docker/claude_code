@@ -35,3 +35,15 @@ color_git_branch() {
 
 alias_func
 color_git_branch
+
+# Source any drop-in snippets in ~/.bashrc.d/. Both template helpers
+# (shipped via template/config/shell/bashrc.d/) and downstream
+# repo-local helpers (shipped via <repo>/config/shell/bashrc.d/) end
+# up here. See ycpss91255-docker/template#254 for the layered
+# config/ override + bashrc.d drop-in design.
+if [[ -d "${HOME}/.bashrc.d" ]]; then
+  for _bashrc_d_f in "${HOME}/.bashrc.d/"*.sh; do
+    [[ -r "${_bashrc_d_f}" ]] && source "${_bashrc_d_f}"
+  done
+  unset _bashrc_d_f
+fi
