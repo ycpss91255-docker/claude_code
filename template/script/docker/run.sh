@@ -331,7 +331,8 @@ main() {
   # ── #216: soft guard for the auto-build path ──
   # Compose's auto-build (when image is missing locally) only walks
   # `target: devel` (or whatever -t says) and silently skips the
-  # `target: test` stage that runs ShellCheck / Hadolint / Bats smoke.
+  # `target: devel-test` stage that runs ShellCheck / Hadolint / Bats
+  # smoke. (Pre-#243 this stage was named `test`.)
   # On a fresh clone this means new contributors who reach for
   # ./run.sh first land in a working dev container without ever
   # hitting the lint/smoke gates that ./build.sh test enforces.

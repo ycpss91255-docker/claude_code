@@ -10,22 +10,29 @@
 # isolation that broke the old test-tools:local CI pattern.
 #
 # Stages:
-#   sys     - User/group, locale, timezone
-#   base    - Development tools and packages
-#   devel   - Application-specific tools + entrypoint
-#   test    - Lint + smoke test (ephemeral, discarded after build)
-#   runtime - Minimal runtime image (optional)
+#   sys           - User/group, locale, timezone
+#   devel-base    - Development tools and packages
+#   devel         - Application-specific tools + entrypoint
+#   devel-test    - Lint + bats smoke test (ephemeral, discarded after build)
+#   runtime-base  - Minimal runtime base (sudo + tini), optional
+#   runtime       - Minimal runtime image (optional)
+#   runtime-test  - Runtime install-check smoke (ephemeral, optional)
 #
 # Adding extra stages (#215): any `FROM <base> AS <stage>` outside the
-# baseline blocklist {sys, base, devel, test} is auto-emitted as a
-# compose service that extends `devel` (inherits volumes / network /
-# GPU / GUI / cap_add / additional_contexts) and overrides only
-# build.target / image / container_name / stdin_open / tty / profiles.
-# Stage names must match `^[a-z][a-z0-9_-]*$` and must not collide
-# with `latest` / `v[0-9]*` (reserved release tag namespace). Use case:
-# entrypoint variants like `headless` + `gui` for the same baseline.
-# No setup.conf change needed; run any wrapper to regenerate
-# compose.yaml, then `./run.sh -t <stage>`.
+# baseline blocklist {sys, devel-base, devel, devel-test, runtime-test}
+# is auto-emitted as a compose service that extends `devel` (inherits
+# volumes / network / GPU / GUI / cap_add / additional_contexts) and
+# overrides only build.target / image / container_name / stdin_open /
+# tty / profiles. Stage names must match `^[a-z][a-z0-9_-]*$` and must
+# not collide with `latest` / `v[0-9]*` (reserved release tag
+# namespace). Use case: entrypoint variants like `headless` + `gui`
+# for the same baseline. No setup.conf change needed; run any wrapper
+# to regenerate compose.yaml, then `./run.sh -t <stage>`.
+#
+# Backward-compat: the legacy stage names `base` and `test` are still
+# accepted by the blocklist during the v0.21.x transition (downstream
+# Dockerfiles renamed to `devel-base` / `devel-test` over a coordinated
+# rollout). They will be removed from the blocklist in a future major.
 
 ARG BASE_IMAGE="ubuntu:24.04"
 ARG TEST_TOOLS_IMAGE="test-tools:local"
@@ -75,8 +82,8 @@ RUN if getent group "${USER_GID}" >/dev/null; then \
     fi && \
     echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-############################## base ##############################
-FROM sys AS base
+############################## devel-base ##############################
+FROM sys AS devel-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -98,7 +105,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 ############################## devel ##############################
-FROM base AS devel
+FROM devel-base AS devel
 
 ARG USER="${USER_NAME}"
 ARG GROUP="${USER_GROUP}"
@@ -139,11 +146,11 @@ EXPOSE 22
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
 
-############################## test ##############################
+############################## devel-test ##############################
 # Resolves to test-tools:local (local build.sh) or ghcr.io/.../test-tools:vX.Y.Z (CI).
 FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage
 
-FROM devel AS test
+FROM devel AS devel-test
 
 USER root
 
@@ -203,3 +210,38 @@ RUN bats /smoke_test/
 # WORKDIR "${HOME}/work"
 # ENTRYPOINT ["/entrypoint.sh"]
 # CMD ["bash"]
+
+############################## runtime-test (optional) ##############################
+# Install-check smoke for the runtime image. Mirrors `FROM devel AS
+# devel-test` -- ephemeral stage, build-only, never pushed. CI builds
+# this target after `target: runtime`; build failure surfaces a smoke
+# failure visibly in the GHA log.
+#
+# Default smoke command is generic install-check (USER set + bash on
+# PATH). Override per repo via `build_args: RUNTIME_SMOKE_CMD=<command>`
+# to test domain binaries.
+#
+# Constraint: command must be CLI-only -- no GUI tools that init
+# QApplication / OGRE on `--version` / `--help` (rqt, rviz2,
+# gazebo-classic). Prefer `<binary> --help`, `command -v <binary>`,
+# package manager queries (`ros2 pkg list | grep ...`, `rospack
+# find ...`) over invoking the GUI binary itself.
+#
+# `sh -c` wrapper required: `RUN ${ARG}` does word-splitting on the
+# substituted value and treats shell operators (&&, ||, etc.) as
+# literal arguments to the first word. Wrapping with
+# `sh -c "${RUNTIME_SMOKE_CMD}"` passes the value as a single string
+# for sh to parse, preserving operators and nested quotes.
+#
+# Only enable when the runtime stage above is also enabled. The
+# `if: build_runtime` gate in build-worker.yaml mirrors this -- if
+# your repo doesn't ship a runtime stage, leave both runtime and
+# runtime-test commented out and set `build_runtime: false` in
+# main.yaml.
+#
+# FROM runtime AS runtime-test
+#
+# ARG RUNTIME_SMOKE_CMD='whoami && bash --version'
+# # Inherit USER from runtime (non-root). install-check doesn't need
+# # privilege; if downstream override needs root, prefix with sudo.
+# RUN sh -c "${RUNTIME_SMOKE_CMD}"

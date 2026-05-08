@@ -940,12 +940,15 @@ EOF
   assert_output "0"
 }
 
-@test "build-worker.yaml: test build passes TEST_TOOLS_IMAGE from inputs" {
+@test "build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from inputs" {
   local _yaml="/source/.github/workflows/build-worker.yaml"
   [[ -f "${_yaml}" ]] || skip "build-worker.yaml not present in /source"
+  # Pre-#243 the step was named "Build test stage"; renamed to
+  # "Build devel-test stage" for symmetry with the new runtime-test
+  # stage. The TEST_TOOLS_IMAGE plumbing didn't move.
   run awk '
-    /- name: Build test stage/ { inside = 1 }
-    inside && /^[[:space:]]*- name:/ && !/Build test stage/ { inside = 0 }
+    /- name: Build devel-test stage/ { inside = 1 }
+    inside && /^[[:space:]]*- name:/ && !/Build devel-test stage/ { inside = 0 }
     inside { print }
   ' "${_yaml}"
   assert_success
@@ -982,6 +985,59 @@ EOF
   # Legacy tag reference must be gone:
   run grep -c 'COPY --from=test-tools:local' "${_df}"
   assert_output "0"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Dockerfile.example: runtime-test stage syntax (#243 / v0.21.1 fix)
+#
+# v0.21.0 shipped the runtime-test block with `RUN ${RUNTIME_SMOKE_CMD}`
+# and `USER root`. Both were buggy:
+#   1. Bare `RUN ${ARG}` word-splits the substituted value: shell
+#      operators (&&, ||) and nested quotes get treated as literal
+#      args to the first command. Concrete failure: with default
+#      ARG `bash -lc "whoami && bash --version && exit 0"`, bash
+#      tokenized as `whoami '&&' bash '--version'` and whoami saw
+#      `--version` as an arg, printing its own version info instead
+#      of running the chain. Discovered during sick_humble's manual
+#      v0.21.0 rollout.
+#   2. `USER root` triggered hadolint DL3002 (last USER should not
+#      be root). runtime-test is ephemeral, but hadolint can't
+#      know that; the lint failure was real.
+#
+# v0.21.1 fix: drop USER root (inherit non-root from runtime), and
+# wrap the ARG in `sh -c "..."` so the value is passed as a single
+# string for sh to parse. The grep tests below lock both invariants
+# so the bug can't regress.
+# ════════════════════════════════════════════════════════════════════
+
+@test "Dockerfile.example runtime-test uses sh -c wrapper (regression: v0.21.0 ARG word-split bug)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The runtime-test block is commented out (opt-in for repos with a
+  # runtime stage). The RUN line in the comment must use sh -c.
+  run grep -E '^# RUN sh -c "\$\{RUNTIME_SMOKE_CMD\}"$' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example runtime-test does NOT use bare RUN \${RUNTIME_SMOKE_CMD} (v0.21.0 bug regression guard)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # Regression guard: bare form word-splits operators / nested quotes.
+  run grep -E '^# RUN \$\{RUNTIME_SMOKE_CMD\}$' "${_df}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
+@test "Dockerfile.example runtime-test does NOT set USER root (DL3002 regression guard)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # Hadolint DL3002 fires on `USER root` if it ends up the last USER
+  # in the Dockerfile. runtime-test inherits non-root from runtime;
+  # leave it that way. Downstream override via sudo if privileged
+  # smoke is genuinely needed.
+  #
+  # Match the commented-out form in Dockerfile.example.
+  run grep -E '^# USER root$' "${_df}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
 }
 
 # ════════════════════════════════════════════════════════════════════

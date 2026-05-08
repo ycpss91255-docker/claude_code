@@ -846,8 +846,13 @@ _compute_conf_hash() {
 # Returns:
 #   0 — valid; auto-emit as compose service
 #   1 — invalid format (caller WARNs + skips, continues parsing other stages)
-#   2 — collides with template-managed baseline {sys, base, devel, test};
-#       hard error (caller exits non-zero)
+#   2 — collides with template-managed baseline
+#       {sys, devel-base, devel, devel-test, runtime-test}; hard error
+#       (caller exits non-zero). For backward compatibility during the
+#       v0.21.x transition the legacy names {base, test} are also
+#       accepted as baseline (downstream Dockerfiles renamed to
+#       devel-base / devel-test over a coordinated rollout); they will
+#       be removed from the blocklist in a future major release.
 #   3 — collides with template-controlled image-tag namespace
 #       ({latest} | v[0-9]*); hard error
 #
@@ -864,8 +869,11 @@ _validate_stage_name() {
   # collision.
 
   # 1. baseline collision (template-managed stages)
+  #    Forward-looking: sys / devel-base / devel / devel-test / runtime-test
+  #    Legacy (backward-compat during v0.21.x transition): base / test
   case "${_stage}" in
-    sys|base|devel|test) return 2 ;;
+    sys|devel-base|devel|devel-test|runtime-test) return 2 ;;
+    base|test) return 2 ;;
   esac
   # 2. reserved tag namespace (template-controlled tag slots)
   case "${_stage}" in
@@ -880,8 +888,10 @@ _validate_stage_name() {
 # _parse_dockerfile_stages <dockerfile_path>
 #
 # Reads `^FROM <base> AS <stage>` lines from the Dockerfile, dedups,
-# filters out the baseline blocklist {sys, base, devel, test}, and
-# echoes the surviving stages one per line preserving file order.
+# filters out the baseline blocklist {sys, devel-base, devel,
+# devel-test, runtime-test} (plus the legacy {base, test} accepted
+# during the v0.21.x transition), and echoes the surviving stages
+# one per line preserving file order.
 #
 # Match rules:
 #   - Line must start with `FROM` (case-sensitive — Docker spec is
@@ -905,7 +915,8 @@ _parse_dockerfile_stages() {
     [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+)[[:space:]]*$ ]] || continue
     _stage="${BASH_REMATCH[1]}"
     case "${_stage}" in
-      sys|base|devel|test) continue ;;
+      sys|devel-base|devel|devel-test|runtime-test) continue ;;
+      base|test) continue ;;
     esac
     case "${_seen}" in
       *" ${_stage} "*) continue ;;  # already emitted (dedup)
@@ -1166,8 +1177,8 @@ _resolve_stage_list() {
 # Resolves issue #236: previously, sibling cross-references in
 # `[environment] env_N` were emitted literally and compose's `${VAR}`
 # substitution does NOT consult sibling environment entries -- so e.g.
-#   env_1 = ROS_DISTRO=humble
-#   env_2 = LD_LIBRARY_PATH=/foo/${ROS_DISTRO}/lib
+#   env_1 = BUILD_TARGET=production
+#   env_2 = LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib
 # would ship `LD_LIBRARY_PATH=/foo//lib` to the container.
 _expand_env_cross_refs() {
   local _input="$1"
@@ -1258,7 +1269,7 @@ generate_compose_yaml() {
   # need `runtime: nvidia` at service level to bypass the modern
   # --gpus flow (which `deploy.resources.reservations.devices`
   # translates to). Empty = omit so Docker uses the default runc.
-  # Only emitted for the devel service; test doesn't run.
+  # Only emitted for the devel service; devel-test doesn't run.
   _emit_runtime_line() {
     [[ -z "${_runtime}" ]] && return 0
     printf '    runtime: %s\n' "${_runtime}"
@@ -1858,7 +1869,7 @@ YAML
     build:
       context: .
       dockerfile: Dockerfile
-      target: test
+      target: devel-test
 YAML
     _emit_additional_contexts_block
     _emit_build_network_line

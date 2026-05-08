@@ -65,7 +65,7 @@ _TUI_MSG_EN[features.menu]="Conditional / power-user features"
 _TUI_MSG_EN[features.back]="Back to main menu"
 _TUI_MSG_EN[features.per_stage_enabled]="Per-stage overrides — enabled (%s stages)"
 _TUI_MSG_EN[features.per_stage_hidden]="Per-stage overrides — hidden (no non-baseline stages)"
-_TUI_MSG_EN[features.per_stage_hidden_info]=$'Per-stage overrides (#220)\n\nStatus: hidden\nReason: Dockerfile defines no non-baseline stage (sys, base, devel,\n        test are reserved baseline names).\n\nEnable: add `FROM ... AS <stage>` for any custom name, then return\n        to this menu — the entry will activate automatically.'
+_TUI_MSG_EN[features.per_stage_hidden_info]=$'Per-stage overrides (#220)\n\nStatus: hidden\nReason: Dockerfile defines no non-baseline stage (sys, devel-base,\n        devel, devel-test, runtime-test are reserved baseline names;\n        legacy base / test still accepted during v0.21.x transition).\n\nEnable: add `FROM ... AS <stage>` for any custom name, then return\n        to this menu — the entry will activate automatically.'
 _TUI_MSG_EN[advanced.title]="Advanced"
 _TUI_MSG_EN[advanced.menu]="Select an advanced section"
 _TUI_MSG_EN[advanced.back]="Back to main menu"
@@ -73,7 +73,7 @@ _TUI_MSG_EN[advanced.reset]="Reset to defaults"
 _TUI_MSG_EN[advanced.per_stage]="Per-stage overrides (#220)"
 _TUI_MSG_EN[per_stage.title]="Per-stage overrides"
 _TUI_MSG_EN[per_stage.menu]="Pick a stage to edit, or Back"
-_TUI_MSG_EN[per_stage.empty]=$'No non-baseline stages found in Dockerfile.\n\nPer-stage overrides apply to `FROM ... AS <name>` stages outside\nthe baseline blocklist {sys, base, devel, test}. Add a stage to your\nDockerfile first, then return here to override its runtime config.'
+_TUI_MSG_EN[per_stage.empty]=$'No non-baseline stages found in Dockerfile.\n\nPer-stage overrides apply to `FROM ... AS <name>` stages outside\nthe baseline blocklist {sys, devel-base, devel, devel-test,\nruntime-test} (legacy {base, test} also accepted during v0.21.x\ntransition). Add a stage to your Dockerfile first, then return here\nto override its runtime config.'
 _TUI_MSG_EN[per_stage.back]="Back"
 _TUI_MSG_EN[per_stage.overrides_set]="overrides set"
 _TUI_MSG_EN[per_stage.inherits_all]="(inherits all)"
@@ -256,7 +256,7 @@ _TUI_MSG_ZH_TW[features.menu]="條件式／進階使用功能"
 _TUI_MSG_ZH_TW[features.back]="回主選單"
 _TUI_MSG_ZH_TW[features.per_stage_enabled]="Per-stage overrides — 已啟用（%s 個 stage）"
 _TUI_MSG_ZH_TW[features.per_stage_hidden]="Per-stage overrides — 隱藏（無非 baseline stage）"
-_TUI_MSG_ZH_TW[features.per_stage_hidden_info]=$'Per-stage overrides (#220)\n\n狀態：隱藏\n原因：Dockerfile 沒有非 baseline stage（sys、base、devel、test\n      為保留的 baseline 名稱）。\n\n啟用方式：在 Dockerfile 加上 `FROM ... AS <stage>`（任意自訂\n         名稱），再回到此選單，項目會自動啟用。'
+_TUI_MSG_ZH_TW[features.per_stage_hidden_info]=$'Per-stage overrides (#220)\n\n狀態：隱藏\n原因：Dockerfile 沒有非 baseline stage（sys、devel-base、devel、\n      devel-test、runtime-test 為保留的 baseline 名稱；舊名 base、\n      test 在 v0.21.x 過渡期仍被接受）。\n\n啟用方式：在 Dockerfile 加上 `FROM ... AS <stage>`（任意自訂\n         名稱），再回到此選單，項目會自動啟用。'
 _TUI_MSG_ZH_TW[advanced.title]="Advanced"
 _TUI_MSG_ZH_TW[advanced.menu]="選擇進階區段"
 _TUI_MSG_ZH_TW[advanced.back]="回主選單"
@@ -264,7 +264,7 @@ _TUI_MSG_ZH_TW[advanced.reset]="重置為預設值"
 _TUI_MSG_ZH_TW[advanced.per_stage]="Per-stage overrides (#220)"
 _TUI_MSG_ZH_TW[per_stage.title]="Per-stage overrides"
 _TUI_MSG_ZH_TW[per_stage.menu]="選擇要編輯的 stage，或返回"
-_TUI_MSG_ZH_TW[per_stage.empty]=$'Dockerfile 中沒有非 baseline 的 stage。\n\nPer-stage overrides 套用於 baseline {sys, base, devel, test} 以外的\n`FROM ... AS <name>` stage。請先在 Dockerfile 中加入額外 stage，\n再回來這裡 override 該 stage 的 runtime 設定。'
+_TUI_MSG_ZH_TW[per_stage.empty]=$'Dockerfile 中沒有非 baseline 的 stage。\n\nPer-stage overrides 套用於 baseline {sys, devel-base, devel,\ndevel-test, runtime-test}（v0.21.x 過渡期同時接受舊名 {base, test}）\n以外的 `FROM ... AS <name>` stage。請先在 Dockerfile 中加入額外\nstage，再回來這裡 override 該 stage 的 runtime 設定。'
 _TUI_MSG_ZH_TW[per_stage.back]="返回"
 _TUI_MSG_ZH_TW[per_stage.overrides_set]="個 override"
 _TUI_MSG_ZH_TW[per_stage.inherits_all]="(全部繼承)"
@@ -445,7 +445,7 @@ _TUI_MSG_ZH_CN[features.menu]="条件式／进阶使用功能"
 _TUI_MSG_ZH_CN[features.back]="回主菜单"
 _TUI_MSG_ZH_CN[features.per_stage_enabled]="Per-stage overrides — 已启用（%s 个 stage）"
 _TUI_MSG_ZH_CN[features.per_stage_hidden]="Per-stage overrides — 隐藏（无非 baseline stage）"
-_TUI_MSG_ZH_CN[features.per_stage_hidden_info]=$'Per-stage overrides (#220)\n\n状态：隐藏\n原因：Dockerfile 没有非 baseline stage（sys、base、devel、test\n      为保留的 baseline 名称）。\n\n启用方式：在 Dockerfile 加上 `FROM ... AS <stage>`（任意自定\n         名称），再回到此菜单，项目会自动启用。'
+_TUI_MSG_ZH_CN[features.per_stage_hidden_info]=$'Per-stage overrides (#220)\n\n状态：隐藏\n原因：Dockerfile 没有非 baseline stage（sys、devel-base、devel、\n      devel-test、runtime-test 为保留的 baseline 名称；旧名 base、\n      test 在 v0.21.x 过渡期仍被接受）。\n\n启用方式：在 Dockerfile 加上 `FROM ... AS <stage>`（任意自定\n         名称），再回到此菜单，项目会自动启用。'
 _TUI_MSG_ZH_CN[advanced.title]="Advanced"
 _TUI_MSG_ZH_CN[advanced.menu]="选择进阶区段"
 _TUI_MSG_ZH_CN[advanced.back]="回主菜单"
@@ -453,7 +453,7 @@ _TUI_MSG_ZH_CN[advanced.reset]="重置为默认值"
 _TUI_MSG_ZH_CN[advanced.per_stage]="Per-stage overrides (#220)"
 _TUI_MSG_ZH_CN[per_stage.title]="Per-stage overrides"
 _TUI_MSG_ZH_CN[per_stage.menu]="选择要编辑的 stage，或返回"
-_TUI_MSG_ZH_CN[per_stage.empty]=$'Dockerfile 中没有非 baseline 的 stage。\n\nPer-stage overrides 应用于 baseline {sys, base, devel, test} 以外的\n`FROM ... AS <name>` stage。请先在 Dockerfile 中加入额外 stage，\n再回来这里 override 该 stage 的 runtime 设定。'
+_TUI_MSG_ZH_CN[per_stage.empty]=$'Dockerfile 中没有非 baseline 的 stage。\n\nPer-stage overrides 应用于 baseline {sys, devel-base, devel,\ndevel-test, runtime-test}（v0.21.x 过渡期同时接受旧名 {base, test}）\n以外的 `FROM ... AS <name>` stage。请先在 Dockerfile 中加入额外\nstage，再回来这里 override 该 stage 的 runtime 设定。'
 _TUI_MSG_ZH_CN[per_stage.back]="返回"
 _TUI_MSG_ZH_CN[per_stage.overrides_set]="个 override"
 _TUI_MSG_ZH_CN[per_stage.inherits_all]="(全部继承)"
@@ -629,7 +629,7 @@ _TUI_MSG_JA[features.menu]="条件付き／上級者向け機能"
 _TUI_MSG_JA[features.back]="メインメニューへ戻る"
 _TUI_MSG_JA[features.per_stage_enabled]="Per-stage overrides — 有効（%s ステージ）"
 _TUI_MSG_JA[features.per_stage_hidden]="Per-stage overrides — 非表示（非ベースライン stage なし）"
-_TUI_MSG_JA[features.per_stage_hidden_info]=$'Per-stage overrides (#220)\n\nステータス：非表示\n理由：Dockerfile に非ベースライン stage がありません（sys、base、\n      devel、test はベースラインの予約名です）。\n\n有効化：Dockerfile に `FROM ... AS <stage>` を追加（任意のカスタム名）\n        してからこのメニューに戻ると、項目が自動的に有効になります。'
+_TUI_MSG_JA[features.per_stage_hidden_info]=$'Per-stage overrides (#220)\n\nステータス：非表示\n理由：Dockerfile に非ベースライン stage がありません（sys、devel-base、\n      devel、devel-test、runtime-test はベースラインの予約名です；\n      旧名 base / test も v0.21.x 移行期間中は受け付けます）。\n\n有効化：Dockerfile に `FROM ... AS <stage>` を追加（任意のカスタム名）\n        してからこのメニューに戻ると、項目が自動的に有効になります。'
 _TUI_MSG_JA[advanced.title]="Advanced"
 _TUI_MSG_JA[advanced.menu]="Advanced セクションを選択"
 _TUI_MSG_JA[advanced.back]="メインメニューへ戻る"
@@ -637,7 +637,7 @@ _TUI_MSG_JA[advanced.reset]="デフォルトにリセット"
 _TUI_MSG_JA[advanced.per_stage]="Per-stage overrides (#220)"
 _TUI_MSG_JA[per_stage.title]="Per-stage overrides"
 _TUI_MSG_JA[per_stage.menu]="編集する stage を選択するか、戻る"
-_TUI_MSG_JA[per_stage.empty]=$'Dockerfile に非 baseline の stage がありません。\n\nPer-stage overrides は baseline {sys, base, devel, test} 以外の\n`FROM ... AS <name>` stage に適用されます。先に Dockerfile に\nstage を追加してから、このメニューで runtime 設定を override してください。'
+_TUI_MSG_JA[per_stage.empty]=$'Dockerfile に非 baseline の stage がありません。\n\nPer-stage overrides は baseline {sys, devel-base, devel, devel-test,\nruntime-test}（v0.21.x 移行期間中は旧名 {base, test} も受け付け）以外\nの `FROM ... AS <name>` stage に適用されます。先に Dockerfile に\nstage を追加してから、このメニューで runtime 設定を override\nしてください。'
 _TUI_MSG_JA[per_stage.back]="戻る"
 _TUI_MSG_JA[per_stage.overrides_set]="件の override"
 _TUI_MSG_JA[per_stage.inherits_all]="(すべて継承)"
@@ -1675,7 +1675,8 @@ _list_dockerfile_stages_available() {
     [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+)[[:space:]]*$ ]] || continue
     _stage="${BASH_REMATCH[1]}"
     case "${_stage}" in
-      sys|base|devel|test) continue ;;
+      sys|devel-base|devel|devel-test|runtime-test) continue ;;
+      base|test) continue ;;
     esac
     case "${_seen}" in
       *" ${_stage} "*) continue ;;

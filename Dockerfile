@@ -1,6 +1,6 @@
 ARG BASE_IMAGE="node:20-slim"
 
-############################## test tool sources ##############################
+############################## devel-test tool sources ##############################
 FROM bats/bats:latest AS bats-src
 
 FROM alpine:latest AS bats-extensions
@@ -95,8 +95,8 @@ RUN if [ "${GPU_VARIANT}" = "true" ]; then \
         rm -rf /var/lib/apt/lists/*; \
     fi
 
-############################## base ##############################
-FROM sys AS base
+############################## devel-base ##############################
+FROM sys AS devel-base
 
 ARG GPU_VARIANT="false"
 
@@ -142,7 +142,7 @@ RUN if [ "${GPU_VARIANT}" = "true" ]; then \
     fi
 
 ############################## devel ##############################
-FROM base AS devel
+FROM devel-base AS devel
 
 ARG USER
 ARG GROUP
@@ -163,8 +163,8 @@ WORKDIR "${HOME}/work"
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
 
-############################## test (ephemeral) ##############################
-FROM devel AS test
+############################## devel-test (ephemeral) ##############################
+FROM devel AS devel-test
 
 USER root
 

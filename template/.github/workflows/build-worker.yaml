@@ -206,7 +206,7 @@ jobs:
           EOF
           mkdir -p /tmp/workspace
 
-      - name: Build test stage (includes smoke tests)
+      - name: Build devel-test stage (includes lint + bats smoke)
         # The downstream Dockerfile consumes TEST_TOOLS_IMAGE as the
         # source of `COPY --from=${TEST_TOOLS_IMAGE}`; buildx auto-pulls
         # the image from GHCR on `COPY --from=<name:tag>` when the tag
@@ -222,12 +222,18 @@ jobs:
         # cutting their own release should pin explicitly for
         # reproducibility (the earlier GITHUB_WORKFLOW_REF auto-parse
         # was wrong: that ref is the caller's own tag, not template's).
+        #
+        # Stage rename note (#243): target was `test` prior to v0.21.0;
+        # renamed to `devel-test` for symmetry with the new
+        # `runtime-test` stage. Downstream Dockerfiles must rename
+        # `FROM devel AS test` -> `FROM devel AS devel-test` to keep
+        # CI green after upgrading to template v0.21.0+.
         uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.context_path }}
           file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
           build-contexts: ${{ inputs.build_contexts }}
-          target: test
+          target: devel-test
           platforms: ${{ matrix.platform }}
           push: false
           build-args: |
@@ -254,6 +260,37 @@ jobs:
             USER_UID=1000
             USER_GID=1000
             HARDWARE=${{ matrix.hardware }}
+            ${{ inputs.build_args }}
+
+      - name: Build runtime-test stage (install check)
+        # Mirrors the devel-test pattern (#243): ephemeral stage
+        # FROM runtime, runs an inline `RUN <smoke>` so build failure
+        # surfaces a smoke failure. Default smoke is generic
+        # install-check (whoami + bash --version); downstream override
+        # via `build_args: RUNTIME_SMOKE_CMD=<command>` to test domain
+        # binaries.
+        #
+        # Constraint: smoke command must be CLI-only -- no GUI tools
+        # that init QApplication / OGRE on `--version` / `--help`
+        # (rqt, rviz2, gazebo-classic). Prefer `<binary> --help`,
+        # `command -v <binary>`, package manager queries.
+        #
+        # Gated by `inputs.build_runtime` so agent/* repos with no
+        # runtime stage skip cleanly.
+        if: ${{ inputs.build_runtime }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: runtime-test
+          platforms: ${{ matrix.platform }}
+          push: false
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
             ${{ inputs.build_args }}
 
       - name: Build runtime stage
