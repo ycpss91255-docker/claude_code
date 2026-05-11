@@ -237,7 +237,7 @@ my_project/
 │   ├── run.sh
 │   ├── compose.yaml
 │   ├── Dockerfile
-│   └── template/
+│   └── .base/
 └── ...
 ```
 
@@ -274,7 +274,7 @@ git subtree pull --prefix=docker/claude_code \
 > **Notes**:
 > - Local modifications are tracked by git normally.
 > - `subtree pull` may produce merge conflicts if upstream changed the same files you modified locally.
-> - Do **not** modify `template/` inside the subtree — it is managed by the env repo's own subtree.
+> - Do **not** modify `.base/` inside the subtree — it is managed by the env repo's own subtree.
 
 ## Configuration
 
@@ -298,11 +298,11 @@ See [TEST.md](doc/test/TEST.md) for details.
 .
 ├── Dockerfile                        # Multi-stage build (sys -> base -> devel -> test)
 ├── compose.yaml                      # Services: devel (CPU), devel-gpu, test
-├── build.sh -> template/script/docker/build.sh     # Symlink
-├── run.sh -> template/script/docker/run.sh         # Symlink
-├── exec.sh -> template/script/docker/exec.sh       # Symlink
-├── stop.sh -> template/script/docker/stop.sh       # Symlink
-├── Makefile -> template/script/docker/Makefile     # Symlink
+├── build.sh -> .base/script/docker/build.sh     # Symlink
+├── run.sh -> .base/script/docker/run.sh         # Symlink
+├── exec.sh -> .base/script/docker/exec.sh       # Symlink
+├── stop.sh -> .base/script/docker/stop.sh       # Symlink
+├── Makefile -> .base/script/docker/Makefile     # Symlink
 ├── .hadolint.yaml                    # Hadolint configuration
 ├── encrypt_env.sh                    # Helper to encrypt API keys
 ├── post_setup.sh                     # Derives BASE_IMAGE from GPU_ENABLED
@@ -319,7 +319,7 @@ See [TEST.md](doc/test/TEST.md) for details.
 ├── .github/
 │   └── workflows/
 │       └── main.yaml                 # CI/CD (calls template reusable workflows)
-├── template/                         # Shared scripts and config (git subtree)
+├── .base/                         # Shared scripts and config (git subtree)
 └── README.md
 ```
 

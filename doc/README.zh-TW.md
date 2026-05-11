@@ -235,7 +235,7 @@ my_project/
 │   ├── run.sh
 │   ├── compose.yaml
 │   ├── Dockerfile
-│   └── template/
+│   └── .base/
 └── ...
 ```
 
@@ -272,7 +272,7 @@ git subtree pull --prefix=docker/claude_code \
 > **注意事項**：
 > - 本地修改會由 git 正常追蹤。
 > - 若上游修改了與你本地相同的檔案，`subtree pull` 可能會產生合併衝突。
-> - **不要**修改 subtree 內的 `template/` — 它由 env repo 自身的 subtree 管理。
+> - **不要**修改 subtree 內的 `.base/` — 它由 env repo 自身的 subtree 管理。
 
 ## 設定
 
@@ -296,11 +296,11 @@ git subtree pull --prefix=docker/claude_code \
 .
 ├── Dockerfile                        # 多階段建置 (sys -> base -> devel -> test)
 ├── compose.yaml                      # 服務：devel (CPU)、devel-gpu、test
-├── build.sh -> template/build.sh     # 建置並自動產生 .env（symlink）
-├── run.sh -> template/run.sh         # 執行並自動產生 .env（symlink）
-├── exec.sh -> template/exec.sh       # 進入執行中的容器（symlink）
-├── stop.sh -> template/stop.sh       # 停止並移除容器（symlink）
-├── Makefile -> template/Makefile     # 建置目標（symlink）
+├── build.sh -> .base/build.sh     # 建置並自動產生 .env（symlink）
+├── run.sh -> .base/run.sh         # 執行並自動產生 .env（symlink）
+├── exec.sh -> .base/exec.sh       # 進入執行中的容器（symlink）
+├── stop.sh -> .base/stop.sh       # 停止並移除容器（symlink）
+├── Makefile -> .base/Makefile     # 建置目標（symlink）
 ├── .hadolint.yaml                    # Hadolint 設定
 ├── encrypt_env.sh                    # API 金鑰加密工具
 ├── post_setup.sh                     # 根據 GPU_ENABLED 決定 BASE_IMAGE
@@ -318,7 +318,7 @@ git subtree pull --prefix=docker/claude_code \
 ├── .github/
 │   └── workflows/
 │       └── main.yaml                 # CI/CD（呼叫 template 的 reusable workflows）
-├── template/                         # 共用腳本與設定（git subtree）
+├── .base/                         # 共用腳本與設定（git subtree）
 └── README.md
 ```
 

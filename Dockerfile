@@ -176,7 +176,7 @@ COPY --from=lint-tools /usr/local/bin/hadolint /usr/local/bin/hadolint
 COPY .hadolint.yaml /lint/.hadolint.yaml
 COPY Dockerfile /lint/Dockerfile
 COPY *.sh /lint/
-COPY template/script/docker/*.sh /lint/
+COPY .base/script/docker/*.sh /lint/
 RUN shellcheck -S warning /lint/*.sh
 RUN cd /lint && hadolint Dockerfile
 
@@ -189,8 +189,8 @@ RUN ln -sf /opt/bats/bin/bats /usr/local/bin/bats
 ENV BATS_LIB_PATH="/usr/lib/bats"
 
 # Smoke test
-COPY template/test/smoke/test_helper.bash /smoke_test/test_helper.bash
-COPY template/test/smoke/script_help.bats /smoke_test/script_help.bats
+COPY .base/test/smoke/test_helper.bash /smoke_test/test_helper.bash
+COPY .base/test/smoke/script_help.bats /smoke_test/script_help.bats
 COPY test/smoke/ /smoke_test/
 
 ARG USER

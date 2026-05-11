@@ -235,7 +235,7 @@ my_project/
 │   ├── run.sh
 │   ├── compose.yaml
 │   ├── Dockerfile
-│   └── template/
+│   └── .base/
 └── ...
 ```
 
@@ -272,7 +272,7 @@ git subtree pull --prefix=docker/claude_code \
 > **注意事項**：
 > - ローカルの変更は git によって通常通り追跡されます。
 > - 上流がローカルで変更したファイルと同じファイルを変更した場合、`subtree pull` でマージコンフリクトが発生する可能性があります。
-> - subtree 内の `template/` は**変更しないでください** — env リポジトリ自体の subtree によって管理されています。
+> - subtree 内の `.base/` は**変更しないでください** — env リポジトリ自体の subtree によって管理されています。
 
 ## 設定
 
@@ -296,11 +296,11 @@ git subtree pull --prefix=docker/claude_code \
 .
 ├── Dockerfile                        # マルチステージビルド (sys -> base -> devel -> test)
 ├── compose.yaml                      # サービス：devel (CPU)、devel-gpu、test
-├── build.sh -> template/build.sh     # ビルド、.env 自動生成（symlink）
-├── run.sh -> template/run.sh         # 実行、.env 自動生成（symlink）
-├── exec.sh -> template/exec.sh       # 実行中のコンテナに入る（symlink）
-├── stop.sh -> template/stop.sh       # コンテナの停止と削除（symlink）
-├── Makefile -> template/Makefile     # ビルドターゲット（symlink）
+├── build.sh -> .base/build.sh     # ビルド、.env 自動生成（symlink）
+├── run.sh -> .base/run.sh         # 実行、.env 自動生成（symlink）
+├── exec.sh -> .base/exec.sh       # 実行中のコンテナに入る（symlink）
+├── stop.sh -> .base/stop.sh       # コンテナの停止と削除（symlink）
+├── Makefile -> .base/Makefile     # ビルドターゲット（symlink）
 ├── .hadolint.yaml                    # Hadolint 設定
 ├── encrypt_env.sh                    # API キー暗号化ヘルパー
 ├── post_setup.sh                     # GPU_ENABLED から BASE_IMAGE を導出
@@ -318,7 +318,7 @@ git subtree pull --prefix=docker/claude_code \
 ├── .github/
 │   └── workflows/
 │       └── main.yaml                 # CI/CD（template の reusable workflows を呼び出し）
-├── template/                         # 共有スクリプトと設定（git subtree）
+├── .base/                         # 共有スクリプトと設定（git subtree）
 └── README.md
 ```
 
