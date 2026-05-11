@@ -1,9 +1,13 @@
-.PHONY: test lint coverage init upgrade upgrade-check clean help
+.PHONY: test test-behavioural lint coverage init upgrade upgrade-check clean help
 
 # ── Development ──────────────────────────────────────────────────────────────
 
 test: ## Run ShellCheck + Bats (no kcov — fast dev loop)
 	./script/ci/ci.sh
+
+test-behavioural: ## Run behavioural runtime-test specs (opt-in; mounts host docker.sock)
+	docker build -t test-tools:local -f dockerfile/Dockerfile.test-tools .
+	TEST_TOOLS_IMAGE=test-tools:local docker compose run --rm ci-behavioural
 
 lint: ## Run ShellCheck only
 	./script/ci/ci.sh --lint-only

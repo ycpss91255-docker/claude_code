@@ -1,13 +1,13 @@
 # TEST.md
 
-Template self-tests: **1070 tests** total (1014 unit + 56 integration).
+Template self-tests: **1080 tests** total (1024 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
 > `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
 > build time (via `./build.sh test`) inside both this repo and every
 > downstream repo, and are documented in [Smoke Tests](#smoke-tests)
-> below. They are **not** included in the 1070 figure because they are
+> below. They are **not** included in the 1080 figure because they are
 > build-time assertions, not self-tests.
 
 ## Test Files
@@ -289,7 +289,7 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
 
-### test/unit/template_spec.bats (137)
+### test/unit/template_spec.bats (147)
 
 | Test | Description |
 |------|-------------|
@@ -746,6 +746,33 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 | `init.sh existing-repo: idempotent — second run produces no .gitignore changes` | Re-run no-op |
 | `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
 | `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |
+
+## Behavioural Tests (opt-in)
+
+Specs that drive `docker buildx build --target runtime-test` against
+synthesized fixtures so the runtime smoke gate in `Dockerfile.example`
+is genuinely exercised end-to-end — not just static-grep asserted
+in `template_spec.bats`. Issue #249.
+
+Excluded from the `1080` self-test total because they require host
+docker access (mounted via the `ci-behavioural` compose service)
+which the default `ci` service does NOT provide. Run with `make
+-f Makefile.ci test-behavioural` locally, or via the dedicated
+`Behavioural Test` job in `self-test.yaml` on CI. Each test
+invokes one `docker buildx build` (~5-15s amd64, ~30-60s arm64
+QEMU); the dedicated `template-behavioural` buildx builder
+(created/pruned per ci.sh run) isolates the cache from the host's
+default context.
+
+### test/behavioural/runtime_test_smoke_spec.bats (5)
+
+| Test | Description |
+|------|-------------|
+| `runtime-test build succeeds with default smoke command` | Baseline `whoami && bash --version` ARG default works |
+| `runtime-test build succeeds with && chain override (#243 word-split regression)` | Wrapper preserves shell operators |
+| `runtime-test build succeeds with bash parameter expansion override (#249 dash-source regression)` | `${var:offset:length}` works (would fail under `sh -c`) |
+| `runtime-test build succeeds with bash [[ test operator override (#249)` | `[[` works (sister bash-only regression guard) |
+| `runtime-test build FAILS when smoke command exits non-zero (gate-fires assertion)` | Negative case: the gate actually gates |
 
 ## Smoke Tests
 

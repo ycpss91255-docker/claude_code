@@ -988,7 +988,8 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Dockerfile.example: runtime-test stage syntax (#243 / v0.21.1 fix)
+# Dockerfile.example: runtime-test stage syntax (#243 / v0.21.1 fix /
+# v0.23.1 follow-up)
 #
 # v0.21.0 shipped the runtime-test block with `RUN ${RUNTIME_SMOKE_CMD}`
 # and `USER root`. Both were buggy:
@@ -1006,24 +1007,49 @@ EOF
 #
 # v0.21.1 fix: drop USER root (inherit non-root from runtime), and
 # wrap the ARG in `sh -c "..."` so the value is passed as a single
-# string for sh to parse. The grep tests below lock both invariants
-# so the bug can't regress.
+# string for the shell to parse.
+#
+# v0.23.1 follow-up: `sh -c` (dash) doesn't support `source` or
+# bash parameter expansion, blocking any override that sourced
+# bash-syntax files (e.g. `. /opt/ros/$DISTRO/setup.bash`). Switched
+# to `bash -c` -- bash is present in every Ubuntu/Debian runtime
+# image the template targets, the dependency is safe, and downstream
+# overrides can now use natural shell semantics. Discovered during
+# the v0.21.1 runtime-test framework's downstream rollout
+# (ycpss91255-docker/docker_harness#57); see also
+# ycpss91255-docker/template#249.
+#
+# The grep tests below lock all three invariants (positive: bash -c
+# wrapper present; negative: no bare ARG substitution; negative:
+# no stale sh -c wrapper) so the bug can't regress.
 # ════════════════════════════════════════════════════════════════════
 
-@test "Dockerfile.example runtime-test uses sh -c wrapper (regression: v0.21.0 ARG word-split bug)" {
+@test "Dockerfile.example runtime-test uses bash -c wrapper (regression: #243 word-split + #57 dash-source bugs)" {
   local _df="/source/dockerfile/Dockerfile.example"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # The runtime-test block is commented out (opt-in for repos with a
-  # runtime stage). The RUN line in the comment must use sh -c.
-  run grep -E '^# RUN sh -c "\$\{RUNTIME_SMOKE_CMD\}"$' "${_df}"
+  # runtime stage). The RUN line in the comment must use bash -c so
+  # downstream RUNTIME_SMOKE_CMD overrides can use bash semantics
+  # (source / . of bash-syntax files, parameter expansion, etc.).
+  run grep -E '^# RUN bash -c "\$\{RUNTIME_SMOKE_CMD\}"$' "${_df}"
   assert_success
 }
 
-@test "Dockerfile.example runtime-test does NOT use bare RUN \${RUNTIME_SMOKE_CMD} (v0.21.0 bug regression guard)" {
+@test "Dockerfile.example runtime-test does NOT use bare RUN \${RUNTIME_SMOKE_CMD} (v0.21.0 word-split regression guard)" {
   local _df="/source/dockerfile/Dockerfile.example"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # Regression guard: bare form word-splits operators / nested quotes.
   run grep -E '^# RUN \$\{RUNTIME_SMOKE_CMD\}$' "${_df}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
+@test "Dockerfile.example runtime-test does NOT use sh -c wrapper (v0.21.1 -> v0.23.1 dash-source regression guard)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # Regression guard: sh -c (dash) cannot parse bash-syntax files in
+  # `source` / `.` overrides. Blocks all ROS-style smoke commands.
+  # See ycpss91255-docker/docker_harness#57 + #249 for context.
+  run grep -E '^# RUN sh -c "\$\{RUNTIME_SMOKE_CMD\}"$' "${_df}"
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
 }
 
@@ -1038,6 +1064,127 @@ EOF
   # Match the commented-out form in Dockerfile.example.
   run grep -E '^# USER root$' "${_df}"
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Dockerfile.example: builder + runtime split pattern (#239)
+#
+# Lifts the three lessons proven empirically in
+# ycpss91255-docker/ros1_bridge#60 (saved ~1.1 GB/arch on runtime):
+#   1. runtime MUST NOT be FROM devel -- forces devel to delete its
+#      own source to avoid runtime bloat, breaking the dev workflow.
+#   2. Runtime apt: install only the ldd-identified missing libs.
+#      Bulk-installing builder deps defeats the runtime/devel split.
+#   3. `source FILE` in entrypoints needs trailing `--` (ROS 1 catkin
+#      / _setup_util.py argparse pitfall when CMD has --flag args).
+#
+# Tests below grep for marker text proving each lesson is documented
+# inline so the commented-out reference pattern can't silently lose
+# them.
+# ════════════════════════════════════════════════════════════════════
+
+@test "Dockerfile.example top stage-list documents builder stage (#239)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The top-of-file "Stages:" comment is the first thing a user
+  # reading the template sees. builder must appear there or the
+  # downstream pattern is invisible.
+  run grep -E '^#   builder ' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example documents 3 builder/runtime split lessons (#239)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # Three explicit lesson markers (text must persist verbatim in
+  # the commented-out reference block so the lift from ros1_bridge#60
+  # stays load-bearing).
+  run grep -F 'runtime` MUST NOT be `FROM devel`' "${_df}"
+  assert_success
+  run grep -F 'install only the libs `ldd` proves are missing' "${_df}"
+  assert_success
+  run grep -F 'source FILE` in entrypoints needs a trailing `--`' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example has commented-out builder + runtime + COPY --from=builder reference (#239)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The concrete commented-out skeleton downstream can uncomment.
+  # All three lines must be commented (#-prefixed) so the example
+  # doesn't try to build by default; downstream uncomments when
+  # opting in via main.yaml build_runtime: true.
+  run grep -E '^# FROM devel-base AS builder$' "${_df}"
+  assert_success
+  run grep -E '^# FROM \$\{BASE_IMAGE\} AS runtime-base$' "${_df}"
+  assert_success
+  run grep -E '^# COPY --from=builder ' "${_df}"
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# pip relocation: config/pip/ -> dockerfile/setup/pip/ (#261)
+#
+# config/ is the user-facing override surface post-#254 (layered COPY:
+# template/config/ defaults + <repo>/config/ overlay = runtime files
+# in the user's interactive shell). pip/setup.sh was the odd one out --
+# build-time install scaffolding that ran once then got wiped by
+# `sudo rm -rf ${CONFIG_DIR}`, never user-facing. Mental-model
+# violation against #254's drop-in semantics + forced every downstream
+# to keep pip/setup.sh in their <repo>/config/ snapshot. #261 moves
+# it to template/dockerfile/setup/pip/ -- a separate dir intended for
+# build-time scaffolding only, copied into ${SETUP_DIR} (no layered
+# override, single source of truth), cleared alongside CONFIG_DIR.
+#
+# Tests below lock the new path + the Dockerfile.example pattern (new
+# ARG + COPY + RUN + cleanup) so the relocation can't silently revert.
+# ════════════════════════════════════════════════════════════════════
+
+@test "template ships dockerfile/setup/pip/setup.sh + requirements.txt (#261)" {
+  [[ -f /source/dockerfile/setup/pip/setup.sh ]]
+  [[ -x /source/dockerfile/setup/pip/setup.sh ]]
+  [[ -f /source/dockerfile/setup/pip/requirements.txt ]]
+}
+
+@test "template no longer ships config/pip/ (#261 relocation regression guard)" {
+  # If a future change moves pip/ back under config/, this fires. The
+  # whole point of #261 was to keep config/ pure runtime-override
+  # surface; resurrecting config/pip/ undoes that.
+  [[ ! -e /source/config/pip ]]
+}
+
+@test "Dockerfile.example declares ARG SETUP_DIR for build-time scaffolding (#261)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  run grep -E '^ARG SETUP_DIR="/tmp/setup"$' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example COPYs template/dockerfile/setup into SETUP_DIR (#261)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  run grep -E '^COPY --chmod=0755 template/dockerfile/setup "\$\{SETUP_DIR\}"$' "${_df}"
+  assert_success
+}
+
+@test "Dockerfile.example RUN pip uses SETUP_DIR not CONFIG_DIR (#261)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # Positive: new location
+  run grep -E '^RUN "\$\{SETUP_DIR\}"/pip/setup\.sh$' "${_df}"
+  assert_success
+  # Negative regression guard: no leftover ${CONFIG_DIR}/pip/setup.sh
+  run grep -E '^RUN "\$\{CONFIG_DIR\}"/pip/setup\.sh$' "${_df}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
+@test "Dockerfile.example cleans up SETUP_DIR alongside CONFIG_DIR (#261)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # SETUP_DIR must be removed in the same image layer as CONFIG_DIR
+  # (both are build-time-only). Match the literal cleanup line.
+  run grep -E '^    sudo rm -rf "\$\{CONFIG_DIR\}" "\$\{SETUP_DIR\}"$' "${_df}"
+  assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════

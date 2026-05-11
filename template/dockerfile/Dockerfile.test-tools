@@ -66,8 +66,14 @@ RUN apk add --no-cache curl xz && \
 # make (#175): integration tests exercise `make upgrade-check` end-to-end
 # to verify the Makefile recipe wraps upgrade.sh exit 1 (update available)
 # as success — busybox's ash has no `make`, so install GNU make.
+# docker-cli + docker-cli-buildx (#249): the behavioural test suite
+# (test/behavioural/*.bats) drives `docker buildx build --target
+# runtime-test ...` against synthesized fixtures to assert the runtime
+# smoke gate actually gates. Only active when the ci-behavioural
+# compose service is invoked (it mounts the host docker.sock); the
+# default `ci` service ignores docker even when CLI is present.
 FROM alpine:latest
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils make
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils make docker-cli docker-cli-buildx
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
 COPY --from=bats-extensions /bats /usr/lib/bats

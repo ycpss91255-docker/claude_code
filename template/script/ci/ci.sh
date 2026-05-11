@@ -105,7 +105,7 @@ _run_shellcheck() {
   shellcheck -x "${REPO_ROOT}/script/ci/ci.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
   shellcheck -x "${REPO_ROOT}/upgrade.sh"
-  shellcheck -x "${REPO_ROOT}/config/pip/setup.sh"
+  shellcheck -x "${REPO_ROOT}/dockerfile/setup/pip/setup.sh"
   shellcheck -x "${REPO_ROOT}/config/shell/terminator/setup.sh"
   shellcheck -x "${REPO_ROOT}/config/shell/tmux/setup.sh"
 }
@@ -188,10 +188,58 @@ _run_via_compose() {
     "${_service}"
 }
 
+# ── Behavioural runtime-test specs (#249) ────────────────────────────────────
+#
+# Opt-in path. Requires the ci-behavioural compose service (mounts host
+# /var/run/docker.sock + sets MOUNT_DOCKER_SOCK=1). Drives
+# `docker buildx build --target runtime-test` against synthesized
+# fixtures so the runtime smoke gate is actually exercised end-to-end,
+# not just static-grep asserted.
+
+readonly _BEHAVIOURAL_BUILDER="template-behavioural"
+
+_behavioural_setup() {
+  [[ -S /var/run/docker.sock ]] \
+    || _die "behavioural mode requires /var/run/docker.sock; run via 'make test-behavioural' (ci-behavioural service)."
+  command -v docker >/dev/null 2>&1 \
+    || _die "behavioural mode requires docker CLI in the test-tools image (test-tools < v0.23.2 lacks it)."
+
+  # Dedicated buildx builder isolates the cache from the host's default
+  # context, so prune at the end only touches our cache (not the user's
+  # other docker work). `--use` switches active builder for this process.
+  if ! docker buildx inspect "${_BEHAVIOURAL_BUILDER}" >/dev/null 2>&1; then
+    docker buildx create --name "${_BEHAVIOURAL_BUILDER}" --driver docker-container --bootstrap >/dev/null
+  fi
+  docker buildx use "${_BEHAVIOURAL_BUILDER}"
+}
+
+_behavioural_teardown() {
+  # Prune only the dedicated builder's cache. Leaves the host's default
+  # context untouched so the user's other docker workflows aren't
+  # disturbed. `|| true` because builder may already be gone if
+  # something earlier aborted partway through.
+  docker buildx prune --builder "${_BEHAVIOURAL_BUILDER}" -af >/dev/null 2>&1 || true
+}
+
+_run_behavioural() {
+  _behavioural_setup
+  trap _behavioural_teardown EXIT
+
+  local -a _bats_args=()
+  local _jobs
+  _jobs="$(nproc 2>/dev/null || echo 1)"
+  if command -v parallel >/dev/null 2>&1; then
+    _bats_args=(--jobs "${_jobs}")
+  fi
+
+  bats "${_bats_args[@]}" "${REPO_ROOT}/test/behavioural/"
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
   local mode="compose"
+  local behavioural=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -199,6 +247,7 @@ main() {
       --ci) mode="ci"; shift ;;
       --lint-only) mode="lint"; shift ;;
       --coverage) mode="coverage"; shift ;;
+      --behavioural) behavioural=1; shift ;;
       *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
   done
@@ -208,6 +257,14 @@ main() {
       # Running inside container. Default path skips kcov for speed
       # (the dev loop is far more frequent than the coverage check).
       # Pass COVERAGE=1 via the outer `--coverage` flag to include it.
+      # `--behavioural` swaps the bats invocation to drive
+      # `docker buildx build` against runtime-test fixtures (#249).
+      if [[ "${behavioural}" == "1" ]]; then
+        _install_deps
+        _run_behavioural
+        _fix_permissions
+        return 0
+      fi
       _install_deps
       _run_shellcheck
       if [[ "${COVERAGE:-0}" == "1" ]]; then
