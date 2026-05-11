@@ -10,7 +10,7 @@ setup() {
   # Create a fake requirements.txt alongside the script for testing
   FAKE_SCRIPT_DIR="${TEMP_DIR}/pip"
   mkdir -p "${FAKE_SCRIPT_DIR}"
-  cp /source/config/pip/setup.sh "${FAKE_SCRIPT_DIR}/setup.sh"
+  cp /source/dockerfile/setup/pip/setup.sh "${FAKE_SCRIPT_DIR}/setup.sh"
   echo "# empty requirements" > "${FAKE_SCRIPT_DIR}/requirements.txt"
 }
 
