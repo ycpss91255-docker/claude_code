@@ -31,37 +31,54 @@ while (( _chdir_i <= $# )); do
 done
 unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
-# _lib.sh lookup: template/script/docker/_lib.sh in consumer repos, or
+# _lib.sh lookup: .base/script/docker/_lib.sh in consumer repos, or
 # sibling _lib.sh in /lint/ (Dockerfile test stage). See build.sh.
-if [[ -f "${FILE_PATH}/template/script/docker/_lib.sh" ]]; then
+if [[ -f "${FILE_PATH}/.base/script/docker/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/template/script/docker/_lib.sh"
+  source "${FILE_PATH}/.base/script/docker/_lib.sh"
 elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
   # shellcheck disable=SC1091
   source "${FILE_PATH}/_lib.sh"
 else
   printf "[exec] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/template/script/docker/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/.base/script/docker/_lib.sh" >&2
   printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
   exit 1
 fi
 
-_msg() {
-  local _key="${1:?}"
-  case "${_LANG}:${_key}" in
-    zh-TW:err_not_running)     echo "[exec] 錯誤：容器 '%s' 未在執行中。" ;;
-    zh-CN:err_not_running)     echo "[exec] 错误：容器 '%s' 未在运行中。" ;;
-    ja:err_not_running)        echo "[exec] エラー: コンテナ '%s' は実行されていません。" ;;
-    *:err_not_running)         echo "[exec] ERROR: Container '%s' is not running." ;;
-    zh-TW:hint_start_instance) echo "[exec] 請先以 './run.sh --instance %s' 啟動。" ;;
-    zh-CN:hint_start_instance) echo "[exec] 请先以 './run.sh --instance %s' 启动。" ;;
-    ja:hint_start_instance)    echo "[exec] まず './run.sh --instance %s' で起動してください。" ;;
-    *:hint_start_instance)     echo "[exec] Start it first with './run.sh --instance %s'." ;;
-    zh-TW:hint_start_default)  echo "[exec] 請先以 './run.sh' 啟動（或使用 './run.sh --instance NAME' 啟動並行實例）。" ;;
-    zh-CN:hint_start_default)  echo "[exec] 请先以 './run.sh' 启动（或使用 './run.sh --instance NAME' 启动并行实例）。" ;;
-    ja:hint_start_default)     echo "[exec] まず './run.sh' で起動してください（または './run.sh --instance NAME' で並列インスタンスを起動）。" ;;
-    *:hint_start_default)      echo "[exec] Start it first with './run.sh' (or use './run.sh --instance NAME' for a parallel one)." ;;
+# i18n message tables — split by semantic category (#278 PR-2).
+# Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
+# are added by the _log_* caller (English-only; level keyword no longer
+# translated — see #283).
+_msg_errors() {
+  case "${_LANG}:${1:?}" in
+    # %s expanded by printf -v at the callsite (container name).
+    zh-TW:not_running)  echo "容器 '%s' 未在執行中。" ;;
+    zh-CN:not_running)  echo "容器 '%s' 未在运行中。" ;;
+    ja:not_running)     echo "コンテナ '%s' は実行されていません。" ;;
+    *:not_running)      echo "Container '%s' is not running." ;;
   esac
+}
+
+_msg_hints() {
+  case "${_LANG}:${1:?}" in
+    # %s expanded at the callsite (instance name).
+    zh-TW:start_instance)  echo "請先以 './run.sh --instance %s' 啟動。" ;;
+    zh-CN:start_instance)  echo "请先以 './run.sh --instance %s' 启动。" ;;
+    ja:start_instance)     echo "まず './run.sh --instance %s' で起動してください。" ;;
+    *:start_instance)      echo "Start it first with './run.sh --instance %s'." ;;
+    zh-TW:start_default)   echo "請先以 './run.sh' 啟動（或使用 './run.sh --instance NAME' 啟動並行實例）。" ;;
+    zh-CN:start_default)   echo "请先以 './run.sh' 启动（或使用 './run.sh --instance NAME' 启动并行实例）。" ;;
+    ja:start_default)      echo "まず './run.sh' で起動してください（または './run.sh --instance NAME' で並列インスタンスを起動）。" ;;
+    *:start_default)       echo "Start it first with './run.sh' (or use './run.sh --instance NAME' for a parallel one)." ;;
+  esac
+}
+
+# Dispatcher — keeps a single _msg call site shape across the script.
+_msg() {
+  local _category="${1:?_msg requires category}"
+  local _key="${2:?_msg requires key}"
+  "_msg_${_category}" "${_key}"
 }
 
 usage() {
@@ -229,14 +246,19 @@ main() {
   local _container_name="${IMAGE_NAME}${INSTANCE_SUFFIX}"
   if [[ "${DRY_RUN}" != true ]] \
       && ! docker ps --format '{{.Names}}' | grep -qx "${_container_name}"; then
+    # Compose the error + matching hint into a single multi-line _log_err
+    # block (the hint depends on whether INSTANCE was supplied).
+    local _not_running _hint
     # shellcheck disable=SC2059
-    printf "$(_msg err_not_running)\n" "${_container_name}" >&2
+    printf -v _not_running "$(_msg errors not_running)" "${_container_name}"
     if [[ -n "${INSTANCE}" ]]; then
       # shellcheck disable=SC2059
-      printf "$(_msg hint_start_instance)\n" "${INSTANCE}" >&2
+      printf -v _hint "$(_msg hints start_instance)" "${INSTANCE}"
     else
-      printf "%s\n" "$(_msg hint_start_default)" >&2
+      _hint="$(_msg hints start_default)"
     fi
+    _log_err exec "${_not_running}
+${_hint}"
     exit 1
   fi
 

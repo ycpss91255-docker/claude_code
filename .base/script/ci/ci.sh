@@ -22,6 +22,9 @@ readonly SCRIPT_DIR
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 readonly REPO_ROOT
 
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../docker/_lib.sh"
+
 # ── Help ─────────────────────────────────────────────────────────────────────
 
 usage() {
@@ -53,7 +56,7 @@ EOF
 
 # ── CI container setup ───────────────────────────────────────────────────────
 
-_die() { printf "[ci] ERROR: %s\n" "$*" >&2; exit 1; }
+_die() { _log_err ci "$*"; exit 1; }
 
 _install_deps() {
   command -v bats >/dev/null 2>&1 && return 0

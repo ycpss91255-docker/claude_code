@@ -31,71 +31,102 @@ while (( _chdir_i <= $# )); do
 done
 unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
-# _lib.sh lookup: template/script/docker/_lib.sh in consumer repos, or
+# _lib.sh lookup: .base/script/docker/_lib.sh in consumer repos, or
 # sibling _lib.sh in /lint/ (Dockerfile test stage). See build.sh.
-if [[ -f "${FILE_PATH}/template/script/docker/_lib.sh" ]]; then
+if [[ -f "${FILE_PATH}/.base/script/docker/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/template/script/docker/_lib.sh"
+  source "${FILE_PATH}/.base/script/docker/_lib.sh"
 elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
   # shellcheck disable=SC1091
   source "${FILE_PATH}/_lib.sh"
 else
   printf "[run] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/template/script/docker/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/.base/script/docker/_lib.sh" >&2
   printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
   exit 1
 fi
 
-_msg() {
-  local _key="${1:?}"
-  case "${_LANG}:${_key}" in
-    zh-TW:bootstrap_info)     echo "[run] 資訊：首次執行 — 初始化中..." ;;
-    zh-CN:bootstrap_info)     echo "[run] 信息：首次运行 — 初始化中..." ;;
-    ja:bootstrap_info)        echo "[run] 情報: 初回実行 — ブートストラップ中..." ;;
-    *:bootstrap_info)         echo "[run] INFO: First run — bootstrapping..." ;;
-    zh-TW:drift_regen)        echo "[run] 重新產生 .env / compose.yaml（setup.conf 已變更）" ;;
-    zh-CN:drift_regen)        echo "[run] 重新生成 .env / compose.yaml（setup.conf 已变更）" ;;
-    ja:drift_regen)           echo "[run] .env / compose.yaml を再生成中（setup.conf が変更されました）" ;;
-    *:drift_regen)            echo "[run] regenerating .env / compose.yaml (setup.conf drifted)" ;;
-    zh-TW:err_no_env)         echo "[run] 錯誤：setup 未產生 .env。" ;;
-    zh-CN:err_no_env)         echo "[run] 错误：setup 未生成 .env。" ;;
-    ja:err_no_env)            echo "[run] エラー: setup が .env を生成しませんでした。" ;;
-    *:err_no_env)             echo "[run] ERROR: setup did not produce .env." ;;
-    zh-TW:err_rerun_setup)    echo "[run] 請改以 './run.sh --setup' 重新執行以開啟編輯器。" ;;
-    zh-CN:err_rerun_setup)    echo "[run] 请改以 './run.sh --setup' 重新运行以打开编辑器。" ;;
-    ja:err_rerun_setup)       echo "[run] './run.sh --setup' で再実行してエディタを開いてください。" ;;
-    *:err_rerun_setup)        echo "[run] Re-run with './run.sh --setup' to open the editor." ;;
-    zh-TW:err_already_running) echo "[run] 錯誤：容器 '%s' 已在執行中。" ;;
-    zh-CN:err_already_running) echo "[run] 错误：容器 '%s' 已在运行中。" ;;
-    ja:err_already_running)   echo "[run] エラー: コンテナ '%s' はすでに実行中です。" ;;
-    *:err_already_running)    echo "[run] ERROR: Container '%s' is already running." ;;
-    zh-TW:err_stop_hint)      echo "[run] 請以 './stop.sh%s' 停止" ;;
-    zh-CN:err_stop_hint)      echo "[run] 请以 './stop.sh%s' 停止" ;;
-    ja:err_stop_hint)         echo "[run] './stop.sh%s' で停止してください" ;;
-    *:err_stop_hint)          echo "[run] Either stop it with './stop.sh%s'" ;;
-    zh-TW:err_parallel_hint)  echo "[run] 或使用 './run.sh --instance NAME' 啟動並行實例。" ;;
-    zh-CN:err_parallel_hint)  echo "[run] 或使用 './run.sh --instance NAME' 启动并行实例。" ;;
-    ja:err_parallel_hint)     echo "[run] または './run.sh --instance NAME' で並列インスタンスを起動してください。" ;;
-    *:err_parallel_hint)      echo "[run] or start a parallel instance with './run.sh --instance NAME'." ;;
-    # #216: --build invokes ./build.sh test before compose up
-    zh-TW:pre_build_invoking) echo "正在執行 ./build.sh test（lint + smoke）..." ;;
-    zh-CN:pre_build_invoking) echo "正在执行 ./build.sh test（lint + smoke）..." ;;
-    ja:pre_build_invoking)    echo "./build.sh test を実行中（lint + smoke）..." ;;
-    *:pre_build_invoking)     echo "Running ./build.sh test (lint + smoke) before compose up..." ;;
-    # #216: soft guard — image missing, compose will auto-build
-    zh-TW:auto_build_image_missing) echo "本機尚無此 image" ;;
-    zh-CN:auto_build_image_missing) echo "本机尚无此 image" ;;
-    ja:auto_build_image_missing)    echo "ローカルに image なし" ;;
-    *:auto_build_image_missing)     echo "Image not found locally" ;;
-    zh-TW:auto_build_skips_lint)    echo "Compose 即將 auto-build 此 image — 但**不會**跑 ShellCheck / Hadolint / Bats smoke。" ;;
-    zh-CN:auto_build_skips_lint)    echo "Compose 即将 auto-build 此 image — 但**不会**跑 ShellCheck / Hadolint / Bats smoke。" ;;
-    ja:auto_build_skips_lint)       echo "Compose が auto-build しますが、ShellCheck / Hadolint / Bats smoke は**実行されません**。" ;;
-    *:auto_build_skips_lint)        echo "Compose will auto-build this image — but it will skip ShellCheck / Hadolint / Bats smoke." ;;
-    zh-TW:auto_build_full_hint)     echo "完整驗證請執行: ./build.sh test   (或 ./run.sh --build 由本指令呼叫)" ;;
-    zh-CN:auto_build_full_hint)     echo "完整验证请执行: ./build.sh test   (或 ./run.sh --build 由本指令调用)" ;;
-    ja:auto_build_full_hint)        echo "完全な検証は: ./build.sh test を実行してください（または ./run.sh --build で本コマンド経由）" ;;
-    *:auto_build_full_hint)         echo "For full verification: ./build.sh test  (or ./run.sh --build to do it now)" ;;
+# i18n message tables — split by semantic category (#278 PR-2).
+# Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
+# are added by the _log_* caller (English-only; level keyword no longer
+# translated — see #283).
+_msg_bootstrap() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:info)  echo "首次執行 — 初始化中..." ;;
+    zh-CN:info)  echo "首次运行 — 初始化中..." ;;
+    ja:info)     echo "初回実行 — ブートストラップ中..." ;;
+    *:info)      echo "First run — bootstrapping..." ;;
   esac
+}
+
+_msg_drift() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:regen)  echo "重新產生 .env / compose.yaml（setup.conf 已變更）" ;;
+    zh-CN:regen)  echo "重新生成 .env / compose.yaml（setup.conf 已变更）" ;;
+    ja:regen)     echo ".env / compose.yaml を再生成中（setup.conf が変更されました）" ;;
+    *:regen)      echo "regenerating .env / compose.yaml (setup.conf drifted)" ;;
+  esac
+}
+
+_msg_errors() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:no_env)            echo "setup 未產生 .env。" ;;
+    zh-CN:no_env)            echo "setup 未生成 .env。" ;;
+    ja:no_env)               echo "setup が .env を生成しませんでした。" ;;
+    *:no_env)                echo "setup did not produce .env." ;;
+    zh-TW:rerun_setup)       echo "請改以 './run.sh --setup' 重新執行以開啟編輯器。" ;;
+    zh-CN:rerun_setup)       echo "请改以 './run.sh --setup' 重新运行以打开编辑器。" ;;
+    ja:rerun_setup)          echo "'./run.sh --setup' で再実行してエディタを開いてください。" ;;
+    *:rerun_setup)           echo "Re-run with './run.sh --setup' to open the editor." ;;
+    # %s expanded by printf -v at the callsite (container name).
+    zh-TW:already_running)   echo "容器 '%s' 已在執行中。" ;;
+    zh-CN:already_running)   echo "容器 '%s' 已在运行中。" ;;
+    ja:already_running)      echo "コンテナ '%s' はすでに実行中です。" ;;
+    *:already_running)       echo "Container '%s' is already running." ;;
+  esac
+}
+
+_msg_hints() {
+  case "${_LANG}:${1:?}" in
+    # %s expanded by printf -v at the callsite (optional --instance arg).
+    zh-TW:stop_hint)      echo "請以 './stop.sh%s' 停止" ;;
+    zh-CN:stop_hint)      echo "请以 './stop.sh%s' 停止" ;;
+    ja:stop_hint)         echo "'./stop.sh%s' で停止してください" ;;
+    *:stop_hint)          echo "Either stop it with './stop.sh%s'" ;;
+    zh-TW:parallel_hint)  echo "或使用 './run.sh --instance NAME' 啟動並行實例。" ;;
+    zh-CN:parallel_hint)  echo "或使用 './run.sh --instance NAME' 启动并行实例。" ;;
+    ja:parallel_hint)     echo "または './run.sh --instance NAME' で並列インスタンスを起動してください。" ;;
+    *:parallel_hint)      echo "or start a parallel instance with './run.sh --instance NAME'." ;;
+  esac
+}
+
+# #216 --build flow + auto-build soft-guard messages.
+_msg_build() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:invoking)      echo "正在執行 ./build.sh test（lint + smoke）..." ;;
+    zh-CN:invoking)      echo "正在执行 ./build.sh test（lint + smoke）..." ;;
+    ja:invoking)         echo "./build.sh test を実行中（lint + smoke）..." ;;
+    *:invoking)          echo "Running ./build.sh test (lint + smoke) before compose up..." ;;
+    zh-TW:image_missing) echo "本機尚無此 image" ;;
+    zh-CN:image_missing) echo "本机尚无此 image" ;;
+    ja:image_missing)    echo "ローカルに image なし" ;;
+    *:image_missing)     echo "Image not found locally" ;;
+    zh-TW:skips_lint)    echo "Compose 即將 auto-build 此 image — 但**不會**跑 ShellCheck / Hadolint / Bats smoke。" ;;
+    zh-CN:skips_lint)    echo "Compose 即将 auto-build 此 image — 但**不会**跑 ShellCheck / Hadolint / Bats smoke。" ;;
+    ja:skips_lint)       echo "Compose が auto-build しますが、ShellCheck / Hadolint / Bats smoke は**実行されません**。" ;;
+    *:skips_lint)        echo "Compose will auto-build this image — but it will skip ShellCheck / Hadolint / Bats smoke." ;;
+    zh-TW:full_hint)     echo "完整驗證請執行: ./build.sh test   (或 ./run.sh --build 由本指令呼叫)" ;;
+    zh-CN:full_hint)     echo "完整验证请执行: ./build.sh test   (或 ./run.sh --build 由本指令调用)" ;;
+    ja:full_hint)        echo "完全な検証は: ./build.sh test を実行してください（または ./run.sh --build で本コマンド経由）" ;;
+    *:full_hint)         echo "For full verification: ./build.sh test  (or ./run.sh --build to do it now)" ;;
+  esac
+}
+
+# Dispatcher — keeps a single _msg call site shape across the script.
+_msg() {
+  local _category="${1:?_msg requires category}"
+  local _key="${2:?_msg requires key}"
+  "_msg_${_category}" "${_key}"
 }
 
 usage() {
@@ -315,7 +346,7 @@ main() {
     exit 2
   fi
 
-  local _setup="${FILE_PATH}/template/script/docker/setup.sh"
+  local _setup="${FILE_PATH}/.base/script/docker/setup.sh"
   local _tui="${FILE_PATH}/setup_tui.sh"
 
   # _run_interactive: prefer setup_tui.sh when an interactive TTY is
@@ -343,21 +374,21 @@ main() {
   elif [[ ! -f "${FILE_PATH}/.env" ]] \
       || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
-    printf "%s\n" "$(_msg bootstrap_info)"
+    _log_info run "$(_msg bootstrap info)"
     "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
   else
     # Drift → auto-regen via subprocess (see build.sh for the full
     # rationale; subprocess avoids the #101 _msg shadow class).
     if ! "${_setup}" check-drift --base-path "${FILE_PATH}" --lang "${_LANG}"; then
-      printf "%s\n" "$(_msg drift_regen)"
+      _log_info run "$(_msg drift regen)"
       "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
     fi
   fi
 
   # Defensive: bootstrap must leave .env in place. See build.sh.
   if [[ ! -f "${FILE_PATH}/.env" ]]; then
-    printf "%s\n" "$(_msg err_no_env)" >&2
-    printf "%s\n" "$(_msg err_rerun_setup)" >&2
+    _log_err  run "$(_msg errors no_env)"
+    _log_info run "$(_msg errors rerun_setup)"
     exit 1
   fi
 
@@ -392,7 +423,7 @@ main() {
   if [[ "${PRE_BUILD}" == true && "${DRY_RUN}" != true ]]; then
     local _build_sh="${FILE_PATH}/build.sh"
     if [[ -x "${_build_sh}" ]]; then
-      printf "[run] %s\n" "$(_msg pre_build_invoking)"
+      _log_info run "$(_msg build invoking)"
       "${_build_sh}" test
     fi
   elif [[ "${DRY_RUN}" != true ]]; then
@@ -403,9 +434,9 @@ main() {
       # (interactive). RUN_FORCE_TTY=1 is a test-only override so unit
       # tests can exercise the TTY branch without a real PTY.
       if [[ "${RUN_FORCE_TTY:-0}" == "1" ]] || [[ -t 2 ]]; then
-        printf "[run] %s: %s\n" "$(_msg auto_build_image_missing)" "${_full_tag}" >&2
-        printf "[run] %s\n"     "$(_msg auto_build_skips_lint)"   >&2
-        printf "[run] %s\n"     "$(_msg auto_build_full_hint)"    >&2
+        _log_warn run "$(_msg build image_missing): ${_full_tag}"
+        _log_warn run "$(_msg build skips_lint)"
+        _log_warn run "$(_msg build full_hint)"
       fi
     fi
   fi
@@ -426,12 +457,22 @@ main() {
   if [[ "${DETACH}" != true && "${TARGET}" == "devel" \
       && "${DRY_RUN}" != true ]]; then
     if docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
+      # Compose the multi-line body once (i18n templates carry %s for
+      # container name + optional instance arg) and emit via _log_err so
+      # the whole block gets the ERROR colour / stderr routing.
+      local _instance_arg=""
+      if [[ -n "${INSTANCE}" ]]; then
+        _instance_arg=" --instance ${INSTANCE}"
+      fi
+      local _already _stop _parallel
       # shellcheck disable=SC2059
-      printf "$(_msg err_already_running)\n" "${CONTAINER_NAME}" >&2
+      printf -v _already "$(_msg errors already_running)" "${CONTAINER_NAME}"
       # shellcheck disable=SC2059
-      printf "$(_msg err_stop_hint)\n" \
-        "$([[ -n "${INSTANCE}" ]] && printf ' --instance %s' "${INSTANCE}")" >&2
-      printf "%s\n" "$(_msg err_parallel_hint)" >&2
+      printf -v _stop "$(_msg hints stop_hint)" "${_instance_arg}"
+      _parallel="$(_msg hints parallel_hint)"
+      _log_err run "${_already}
+${_stop}
+${_parallel}"
       exit 1
     fi
   fi

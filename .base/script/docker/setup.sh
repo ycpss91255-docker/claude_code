@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # setup.sh - Auto-detect system parameters and generate .env + compose.yaml
 #
-# Reads <repo>/setup.conf (or template/setup.conf default) for the repo's
+# Reads <repo>/setup.conf (or .base/setup.conf default) for the repo's
 # runtime configuration ([image] rules, [build] apt_mirror, [deploy] GPU,
 # [gui], [network], [volumes]), runs system detection (UID/GID, hardware,
 # docker hub user, GPU, GUI, workspace path), then emits:
@@ -15,7 +15,7 @@
 # Usage: setup.sh [-h|--help] [--base-path <path>] [--lang en|zh-TW|zh-CN|ja]
 
 # ── i18n messages ──────────────────────────────────────────────
-# Resolve the symlink (<repo>/setup.sh → template/script/docker/setup.sh)
+# Resolve the symlink (<repo>/setup.sh → .base/script/docker/setup.sh)
 # so sibling sources (i18n.sh / _tui_conf.sh) are located in the
 # template directory regardless of how the script was invoked.
 _SETUP_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
@@ -207,7 +207,7 @@ Subcommands:
 Options:
   -h, --help            Show this help and exit.
   --base-path PATH      Repo root to operate on. Defaults to the repo
-                        containing this script (template/../..).
+                        containing this script (.base/../..).
   --lang LANG           Set message language (en|zh-TW|zh-CN|ja).
                         Defaults to $SETUP_LANG or auto-detected from
                         $LANG.
@@ -334,7 +334,7 @@ detect_gui() {
 #
 # Reads one section [<section>] from <file> into parallel arrays.
 # Skips comments (#) and empty lines. Trims key/value whitespace.
-# If a key is defined both in <base_path>/setup.conf and in template/setup.conf,
+# If a key is defined both in <base_path>/setup.conf and in .base/setup.conf,
 # caller should use _load_setup_conf which handles the merge (replace strategy).
 _parse_ini_section() {
   local _file="${1:?"${FUNCNAME[0]}: missing file"}"
@@ -387,7 +387,7 @@ _parse_ini_section() {
 #
 # #201: collapsed back to 2-file model. <repo>/setup.conf is the user
 # override (committed, not gitignored, survives template upgrade because
-# template subtree pull never touches it — it lives outside template/).
+# template subtree pull never touches it — it lives outside .base/).
 _load_setup_conf() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local _section="${2:?"${FUNCNAME[0]}: missing section"}"
