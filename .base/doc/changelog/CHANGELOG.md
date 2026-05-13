@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.27.0] - 2026-05-13
+
+Promoted from `v0.27.0-rc1` (#304). rc1 tag CI green (Self Test + release-test-tools). RC validation pass: all 8 active downstream repos (4 agent + ros1_bridge + urg_node_humble + 2 env multi-distro) merged `chore/template-v0.27.0-rc1` PRs (ai_agent#51, claude_code#50, codex_cli#49, gemini_cli#49, ros1_bridge#90, urg_node_humble#46, ros2_distro#17, ros_distro#17) with CI green on each. The 5 sensor-app repos (realsense_humble / realsense_noetic / sick_humble / sick_noetic / urg_node_noetic) remain on pre-`.base/` v0.24.0 awaiting #263 pip migration; they continue to be deferred from this fanout.
+
+**Validation summary**:
+- Workflow validator parse-through: zero `0s "workflow file issue"` failures across all 8 fanout PRs (the v0.26.0-rc1 incident class did not recur — `actionlint` locally before tagging caught any regression risk; #305 will lift this gate into base PR CI).
+- #273 Phase 2 shell classifier behavioural parity: every fanout PR correctly fell through to the full matrix (subtree-pull touches `.base/.version` + `main.yaml` `@vX.Y.Z` refs — non-doc paths — so the new shell classifier reports `code_changed=true` identically to Phase 1).
+- #272 GHA buildx cache: organic warm-cache validation from the v0.26.0 fanout pair (`ros1_bridge#88` cold ~18m26s → `ros1_bridge#89` warm ~2m17s on the same SHA family) measures **−87.7% wall-time drop**, far exceeding the #272 acceptance criterion of ≥30%.
+
+Bundles all rc1 content; no further changes between rc1 and stable.
+
 ## [v0.27.0-rc1] - 2026-05-13
 
 First Release Candidate for v0.27.0. Post-v0.26.0 MINOR bump bundling wrapper UX wins (`exec.sh --` separator / `setup.sh --quiet`) + the `#273 Phase 2` pure-shell rewrite of the doc-only fast-pass classifier (drops the `dorny/paths-filter@v3` dependency for non-GitHub-CI portability) + the `#290` `_setup_msg` i18n refactor (mirrors #278 PR-2 for the setup-side; level keyword goes English-only consistent with #283 design) + the `#291` wrapper UX cheat sheet doc.
