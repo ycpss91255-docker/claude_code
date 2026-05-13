@@ -193,3 +193,123 @@ setup() {
   _bc="$(grep -A 3 '^      build_contexts:' "${WF}" | grep 'default:' | head -1)"
   [[ "${_bc}" == *'""'* ]]
 }
+
+# ── #272: GHA buildx cache (per-(repo, variant, arch)) ────────────────
+
+@test "build-worker.yaml: declares cache_variant input with empty default (#272)" {
+  # New optional input for repos that call build-worker.yaml multiple
+  # times with the same image_name but different build_args (the
+  # env/ros{,2}_distro pattern). Default empty so existing single-call
+  # callers see no scope-key shape change.
+  run grep -A 3 '^      cache_variant:' "${WF}"
+  assert_success
+  assert_output --partial 'required: false'
+  assert_output --partial 'type: string'
+  assert_output --partial 'default: ""'
+}
+
+@test "build-worker.yaml: Compute cache scope step emits id: cache with scope key in GITHUB_OUTPUT (#272)" {
+  # The step computes `${image_name}[-${cache_variant}]-${hardware}-cache`
+  # once at the top of the build job; all 4 build steps reference the
+  # output. Asserts presence + id so downstream `steps.cache.outputs.key`
+  # references resolve.
+  run grep -E '^        id: cache$' "${WF}"
+  assert_success
+  run grep -E '^          echo "key=\$\{base\}-\$\{\{ matrix\.hardware \}\}-cache" >> "\$\{GITHUB_OUTPUT\}"$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: 4 build steps all set cache-from=type=gha (#272)" {
+  # Every docker/build-push-action call must read from the same GHA
+  # scope so feature-branch builds reuse the base branch's cache and
+  # subsequent steps within the same shard share intermediate layers.
+  run grep -c '^          cache-from: type=gha,scope=\${{ steps\.cache\.outputs\.key }}$' "${WF}"
+  assert_success
+  assert_output "4"
+}
+
+@test "build-worker.yaml: 4 build steps all set cache-to=type=gha,...,mode=max (#272)" {
+  # mode=max exports all intermediate stage layers (including the heavy
+  # builder / source-build stages). The 10 GB GHA quota tradeoff is
+  # accepted; LRU eviction is expected to keep hot paths cached.
+  run grep -c '^          cache-to: type=gha,scope=\${{ steps\.cache\.outputs\.key }},mode=max$' "${WF}"
+  assert_success
+  assert_output "4"
+}
+
+@test "build-worker.yaml: cache_variant default preserves zero-diff for single-call callers (#272)" {
+  # Single-distro repos (agent/* + ros1_bridge-${distro} pattern) leave
+  # cache_variant unset; the scope key reduces to
+  # ${image_name}-${hardware}-cache, which is already per-(repo, arch)
+  # and matches the existing matrix shape.
+  local _cv
+  _cv="$(grep -A 3 '^      cache_variant:' "${WF}" | grep 'default:' | head -1)"
+  [[ "${_cv}" == *'""'* ]]
+}
+
+# ── #273 Phase 1: doc-only PR fast-pass ────────────────────────────────
+
+@test "build-worker.yaml: declares path-filter job (#273)" {
+  # New job runs the doc-only classifier; outputs code_changed
+  # consumed by compute-matrix / build / docker-build downstream.
+  run grep -E '^  path-filter:$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: path-filter uses dorny/paths-filter@v3 (#273 Phase 1)" {
+  # Phase 1 PoC uses the dorny action. Phase 2 rewrites this as pure
+  # shell so the classifier stays portable across CI hosts (internal
+  # GitLab mirrors etc) without binding to a GitHub-only action.
+  run grep -E '^        uses: dorny/paths-filter@v3$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: path-filter only classifies on pull_request events" {
+  # Push / tag / workflow_dispatch always run full matrix.
+  run grep -E "if: github\\.event_name == 'pull_request'" "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: doc-only allowlist covers all 6 documented paths (#273)" {
+  # **/*.md, doc/**, LICENSE, .gitignore, .github/CODEOWNERS,
+  # .github/dependabot.yml — match the issue body / design comment.
+  run grep -F "'!**/*.md'" "${WF}"
+  assert_success
+  run grep -F "'!doc/**'" "${WF}"
+  assert_success
+  run grep -F "'!LICENSE'" "${WF}"
+  assert_success
+  run grep -F "'!.gitignore'" "${WF}"
+  assert_success
+  run grep -F "'!.github/CODEOWNERS'" "${WF}"
+  assert_success
+  run grep -F "'!.github/dependabot.yml'" "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: compute-matrix and build are gated on code_changed (#273)" {
+  # Both heavy jobs need needs.path-filter.outputs.code_changed == 'true'.
+  # Count = 2 means both jobs have the gate.
+  run grep -c "if: needs\\.path-filter\\.outputs\\.code_changed == 'true'" "${WF}"
+  assert_success
+  assert_output "2"
+}
+
+@test "build-worker.yaml: docker-build aggregator short-circuits to success on doc-only (#273)" {
+  # The aggregator must report success when code_changed == 'false'
+  # so branch protection's required check still resolves green even
+  # though the matrix was skipped.
+  run grep -F 'needs.path-filter.outputs.code_changed }}" = "false"' "${WF}"
+  assert_success
+  # And it still needs both path-filter + build so the conditional
+  # has both data sources.
+  run grep -E '^    needs: \[path-filter, build\]$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: non-pull_request event resolves code_changed=true (#273)" {
+  # Push to main / tag / workflow_dispatch must always run the full
+  # matrix — the doc-only fast-pass is PR-only.
+  run grep -F 'echo "code_changed=true"' "${WF}"
+  assert_success
+}

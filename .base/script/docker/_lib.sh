@@ -17,7 +17,7 @@ fi
 _DOCKER_LIB_SOURCED=1
 
 # i18n.sh lives next to _lib.sh in every deployment surface (consumer
-# repo's template/script/docker/, and the /lint/ stage where the
+# repo's .base/script/docker/, and the /lint/ stage where the
 # Dockerfile COPYs both). Issue #104 removed the duplicate fallback
 # `_detect_lang` definitions that had already drifted (#103) — the
 # one canonical _detect_lang + _LANG assignment lives in i18n.sh.
@@ -25,6 +25,58 @@ _lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck disable=SC1091
 source "${_lib_dir}/i18n.sh"
 unset _lib_dir
+
+# Log level helpers (#278). Three functions for tagged, level-prefixed
+# output with optional ANSI color and consistent stream routing.
+# Honor NO_COLOR (https://no-color.org/) and auto-disable color on
+# non-TTY destinations. FORCE_COLOR=1 overrides auto-detect.
+#
+# Args (all three log_* functions):
+#   $1: tag (short script identifier, e.g. "build", "setup")
+#   $2..: message components (joined with spaces)
+#
+# Stream routing:
+#   _log_err / _log_warn -> stderr (fd 2)
+#   _log_info            -> stdout (fd 1)
+
+# _log_color_enabled <fd>
+# Returns 0 if color should be emitted to file descriptor <fd>.
+_log_color_enabled() {
+  local fd="${1:?_log_color_enabled requires fd}"
+  [[ -z "${NO_COLOR:-}" ]] || return 1
+  [[ -n "${FORCE_COLOR:-}" ]] && return 0
+  test -t "${fd}"
+}
+
+_log_err() {
+  local tag="${1:?_log_err requires tag}"
+  shift
+  if _log_color_enabled 2; then
+    printf '\033[1;31m[%s] ERROR:\033[0m %s\n' "${tag}" "$*" >&2
+  else
+    printf '[%s] ERROR: %s\n' "${tag}" "$*" >&2
+  fi
+}
+
+_log_warn() {
+  local tag="${1:?_log_warn requires tag}"
+  shift
+  if _log_color_enabled 2; then
+    printf '\033[33m[%s] WARNING:\033[0m %s\n' "${tag}" "$*" >&2
+  else
+    printf '[%s] WARNING: %s\n' "${tag}" "$*" >&2
+  fi
+}
+
+_log_info() {
+  local tag="${1:?_log_info requires tag}"
+  shift
+  if _log_color_enabled 1; then
+    printf '\033[2m[%s] INFO:\033[0m %s\n' "${tag}" "$*"
+  else
+    printf '[%s] INFO: %s\n' "${tag}" "$*"
+  fi
+}
 
 # _load_env sources the given .env file with allexport so every assignment
 # becomes an exported variable visible to docker compose.

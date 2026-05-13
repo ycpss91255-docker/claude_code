@@ -1055,17 +1055,17 @@ EOF
 @test "apply resolves default _base_path via BASH_SOURCE when --base-path omitted" {
   # apply without --base-path walks 3 levels up from its own location
   # (script/docker/../../.. = repo root).
-  mkdir -p "${TEMP_DIR}/sandbox_repo/template/script/docker" \
-           "${TEMP_DIR}/sandbox_repo/template/config/docker"
+  mkdir -p "${TEMP_DIR}/sandbox_repo/.base/script/docker" \
+           "${TEMP_DIR}/sandbox_repo/.base/config/docker"
   cp /source/script/docker/setup.sh \
-    "${TEMP_DIR}/sandbox_repo/template/script/docker/setup.sh"
+    "${TEMP_DIR}/sandbox_repo/.base/script/docker/setup.sh"
   cp /source/script/docker/i18n.sh \
-    "${TEMP_DIR}/sandbox_repo/template/script/docker/i18n.sh"
+    "${TEMP_DIR}/sandbox_repo/.base/script/docker/i18n.sh"
   cp /source/script/docker/_tui_conf.sh \
-    "${TEMP_DIR}/sandbox_repo/template/script/docker/_tui_conf.sh"
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox_repo/template/config/docker/setup.conf"
+    "${TEMP_DIR}/sandbox_repo/.base/script/docker/_tui_conf.sh"
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox_repo/.base/config/docker/setup.conf"
 
-  run bash "${TEMP_DIR}/sandbox_repo/template/script/docker/setup.sh" apply
+  run bash "${TEMP_DIR}/sandbox_repo/.base/script/docker/setup.sh" apply
   assert_success
   assert [ -f "${TEMP_DIR}/sandbox_repo/.env" ]
 }
@@ -1216,14 +1216,14 @@ EOF
   # End-to-end: invoke the script as a subprocess (the way build.sh / run.sh
   # do after B-1) instead of `source` + function call. Validates the
   # subcommand dispatch path actually works when the script is executed.
-  mkdir -p "${TEMP_DIR}/sandbox/template/script/docker" \
-           "${TEMP_DIR}/sandbox/template/config/docker"
-  cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/template/script/docker/setup.sh"
-  cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/template/script/docker/i18n.sh"
-  cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/template/script/docker/_tui_conf.sh"
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/template/config/docker/setup.conf"
+  mkdir -p "${TEMP_DIR}/sandbox/.base/script/docker" \
+           "${TEMP_DIR}/sandbox/.base/config/docker"
+  cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh"
+  cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/.base/script/docker/i18n.sh"
+  cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/script/docker/_tui_conf.sh"
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/.base/config/docker/setup.conf"
 
-  bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" apply \
+  bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" apply \
     --base-path "${TEMP_DIR}/sandbox" >/dev/null 2>&1
 
   # #174: drift hash covers template + setup.conf. Mutating .local
@@ -1233,7 +1233,7 @@ EOF
 mode = off
 EOF
 
-  run bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" \
+  run bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" \
     check-drift --base-path "${TEMP_DIR}/sandbox"
   assert_failure
   assert_output --partial "drift detected"
@@ -1455,18 +1455,18 @@ EOF
 }
 
 @test "set / show / list run end-to-end via subprocess" {
-  mkdir -p "${TEMP_DIR}/sandbox/template/script/docker" \
+  mkdir -p "${TEMP_DIR}/sandbox/.base/script/docker" \
            "${TEMP_DIR}/sandbox/config/docker"
-  cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/template/script/docker/setup.sh"
-  cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/template/script/docker/i18n.sh"
-  cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/template/script/docker/_tui_conf.sh"
+  cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh"
+  cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/.base/script/docker/i18n.sh"
+  cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/script/docker/_tui_conf.sh"
   cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/config/docker/setup.conf"
 
-  run bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" \
+  run bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" \
     set network.mode bridge --base-path "${TEMP_DIR}/sandbox"
   assert_success
 
-  run bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" \
+  run bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" \
     show network.mode --base-path "${TEMP_DIR}/sandbox"
   assert_success
   assert_output "bridge"
@@ -1705,8 +1705,8 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "main reset --yes clears setup.conf + setup.conf so next apply rebuilds (#174)" {
-  mkdir -p "${TEMP_DIR}/template/config/docker"
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/template/config/docker/setup.conf"
+  mkdir -p "${TEMP_DIR}/.base/config/docker"
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/.base/config/docker/setup.conf"
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 # user-customized
 [network]
@@ -1714,7 +1714,7 @@ mode = bridge
 EOF
   : > "${TEMP_DIR}/config/docker/setup.conf"
   run bash -c "
-    _SETUP_SCRIPT_DIR='${TEMP_DIR}/template/script/docker'
+    _SETUP_SCRIPT_DIR='${TEMP_DIR}/.base/script/docker'
     mkdir -p \"\${_SETUP_SCRIPT_DIR}\"
     source /source/script/docker/setup.sh
     main reset --yes --base-path '${TEMP_DIR}'
@@ -2207,7 +2207,7 @@ EOF
 # expected line appears in compose.yaml or .env. Companion negative
 # tests confirm the corresponding compose / env block is omitted when
 # the key is empty / cleared. Ensures every key documented in
-# template/config/docker/setup.conf has a setting → output assertion.
+# .base/config/docker/setup.conf has a setting → output assertion.
 # ════════════════════════════════════════════════════════════════════
 
 # ── [deploy] ─────────────────────────────────────────────────────────

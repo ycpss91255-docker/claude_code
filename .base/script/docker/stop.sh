@@ -31,29 +31,40 @@ while (( _chdir_i <= $# )); do
 done
 unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
-# _lib.sh lookup: template/script/docker/_lib.sh in consumer repos, or
+# _lib.sh lookup: .base/script/docker/_lib.sh in consumer repos, or
 # sibling _lib.sh in /lint/ (Dockerfile test stage). See build.sh.
-if [[ -f "${FILE_PATH}/template/script/docker/_lib.sh" ]]; then
+if [[ -f "${FILE_PATH}/.base/script/docker/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/template/script/docker/_lib.sh"
+  source "${FILE_PATH}/.base/script/docker/_lib.sh"
 elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
   # shellcheck disable=SC1091
   source "${FILE_PATH}/_lib.sh"
 else
   printf "[stop] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/template/script/docker/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/.base/script/docker/_lib.sh" >&2
   printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
   exit 1
 fi
 
-_msg() {
-  local _key="${1:?}"
-  case "${_LANG}:${_key}" in
-    zh-TW:no_instances) echo "[stop] 未找到 %s 的執行中實例" ;;
-    zh-CN:no_instances) echo "[stop] 未找到 %s 的运行中实例" ;;
-    ja:no_instances)    echo "[stop] %s のインスタンスが見つかりません" ;;
-    *:no_instances)     echo "[stop] No instances found for %s" ;;
+# i18n message tables — split by semantic category (#278 PR-2).
+# Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
+# are added by the _log_* caller (English-only; level keyword no longer
+# translated — see #283).
+_msg_info() {
+  case "${_LANG}:${1:?}" in
+    # %s expanded at the callsite (image name).
+    zh-TW:no_instances) echo "未找到 %s 的執行中實例" ;;
+    zh-CN:no_instances) echo "未找到 %s 的运行中实例" ;;
+    ja:no_instances)    echo "%s のインスタンスが見つかりません" ;;
+    *:no_instances)     echo "No instances found for %s" ;;
   esac
+}
+
+# Dispatcher — keeps a single _msg call site shape across the script.
+_msg() {
+  local _category="${1:?_msg requires category}"
+  local _key="${2:?_msg requires key}"
+  "_msg_${_category}" "${_key}"
 }
 
 usage() {
@@ -203,8 +214,10 @@ main() {
         | sort -u | grep -E "^${_prefix}(\$|-)" || true
     )
     if [[ ${#_projects[@]} -eq 0 ]]; then
+      local _no_inst
       # shellcheck disable=SC2059
-      printf "$(_msg no_instances)\n" "${IMAGE_NAME}" >&2
+      printf -v _no_inst "$(_msg info no_instances)" "${IMAGE_NAME}"
+      _log_info stop "${_no_inst}"
       exit 0
     fi
     local _proj _suffix

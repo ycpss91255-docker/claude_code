@@ -15,10 +15,10 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/template/script/docker"
+  mkdir -p "${SANDBOX}/.base/script/docker"
 
-  cp /source/script/docker/_lib.sh  "${SANDBOX}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh  "${SANDBOX}/template/script/docker/i18n.sh"
+  cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
   ln -s /source/script/docker/stop.sh "${SANDBOX}/stop.sh"
 
   # Seed .env so _load_env succeeds.
@@ -187,9 +187,9 @@ teardown() {
 
 @test "stop.sh -C <dir> redirects FILE_PATH to <dir>" {
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/template/script/docker"
-  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  mkdir -p "${ALT}/.base/script/docker"
+  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg"
@@ -206,9 +206,9 @@ teardown() {
 
 @test "stop.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/template/script/docker"
-  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  mkdir -p "${ALT}/.base/script/docker"
+  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg2"
