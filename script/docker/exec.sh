@@ -85,7 +85,7 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
+用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [--] [CMD...]
 
 選項:
   -h, --help        顯示此說明
@@ -95,6 +95,8 @@ usage() {
   --instance NAME   進入命名 instance（預設為 default instance）
   --lang LANG       設定訊息語言（預設: en）
   --dry-run         只印出將執行的 docker 指令，不實際執行
+  --                明確分隔 exec.sh 選項與 CMD（與 run.sh 對齊），讓 CMD 可以
+                    用 dash 開頭（例：./exec.sh -- my-tool --version）
 
 參數:
   CMD              要執行的指令（預設: bash）
@@ -104,11 +106,12 @@ usage() {
   ./exec.sh htop               # 在 devel 容器中執行 htop
   ./exec.sh ls -la /home       # 在 devel 容器中執行 ls
   ./exec.sh -t runtime bash    # 進入 runtime 容器
+  ./exec.sh -- my-tool --version  # 用 -- 把 dash-開頭 CMD 傳進容器
 EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
+用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [--] [CMD...]
 
 选项:
   -h, --help        显示此说明
@@ -118,6 +121,8 @@ EOF
   --instance NAME   进入命名 instance（默认为 default instance）
   --lang LANG       设置消息语言（默认: en）
   --dry-run         只打印将执行的 docker 命令，不实际执行
+  --                明确分隔 exec.sh 选项与 CMD（与 run.sh 对齐），让 CMD 可以
+                    以 dash 开头（例：./exec.sh -- my-tool --version）
 
 参数:
   CMD              要执行的命令（默认: bash）
@@ -127,11 +132,12 @@ EOF
   ./exec.sh htop               # 在 devel 容器中运行 htop
   ./exec.sh ls -la /home       # 在 devel 容器中运行 ls
   ./exec.sh -t runtime bash    # 进入 runtime 容器
+  ./exec.sh -- my-tool --version  # 用 -- 把 dash-开头 CMD 传入容器
 EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
+使用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [--] [CMD...]
 
 オプション:
   -h, --help        このヘルプを表示
@@ -141,6 +147,8 @@ EOF
   --instance NAME   名前付き instance に入る（デフォルトは default instance）
   --lang LANG       メッセージ言語を設定（デフォルト: en）
   --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
+  --                exec.sh のオプションと CMD を明示的に区切る（run.sh と整合）。
+                    dash で始まる CMD を渡す場合に使う（例: ./exec.sh -- my-tool --version）
 
 引数:
   CMD              実行するコマンド（デフォルト: bash）
@@ -150,11 +158,12 @@ EOF
   ./exec.sh htop               # devel コンテナで htop を実行
   ./exec.sh ls -la /home       # devel コンテナで ls を実行
   ./exec.sh -t runtime bash    # runtime コンテナに接続
+  ./exec.sh -- my-tool --version  # -- で dash 始まりの CMD を渡す
 EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [CMD...]
+Usage: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [--] [CMD...]
 
 Options:
   -h, --help        Show this help
@@ -164,6 +173,8 @@ Options:
   --instance NAME   Enter a named instance (default: default instance)
   --lang LANG       Set message language (default: en)
   --dry-run         Print the docker commands that would run, but do not execute
+  --                Explicit flag/CMD separator, mirroring run.sh. Lets the CMD
+                    start with a dash (e.g. ./exec.sh -- my-tool --version).
 
 Arguments:
   CMD              Command to execute (default: bash)
@@ -173,6 +184,7 @@ Examples:
   ./exec.sh htop               # Run htop in devel container
   ./exec.sh ls -la /home       # Run ls in devel container
   ./exec.sh -t runtime bash    # Enter runtime container
+  ./exec.sh -- my-tool --version  # Use -- to pass a dash-leading CMD
 EOF
       ;;
   esac
@@ -223,6 +235,13 @@ main() {
         _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
         _sanitize_lang _LANG "exec"
         shift 2
+        ;;
+      --)
+        # Explicit flag/CMD separator, mirroring run.sh. Lets the user
+        # send a CMD starting with a dash (e.g. `--version`) without it
+        # being captured by exec.sh's own option parsing. Closes #289.
+        shift
+        break
         ;;
       *)
         break

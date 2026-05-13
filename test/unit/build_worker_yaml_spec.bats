@@ -256,34 +256,44 @@ setup() {
   assert_success
 }
 
-@test "build-worker.yaml: path-filter uses dorny/paths-filter@v3 (#273 Phase 1)" {
-  # Phase 1 PoC uses the dorny action. Phase 2 rewrites this as pure
-  # shell so the classifier stays portable across CI hosts (internal
-  # GitLab mirrors etc) without binding to a GitHub-only action.
-  run grep -E '^        uses: dorny/paths-filter@v3$' "${WF}"
+@test "build-worker.yaml: path-filter classifier is pure shell (#273 Phase 2: no dorny/paths-filter)" {
+  # Phase 2 — dorny/paths-filter@v3 dependency dropped; classification
+  # is now `git diff --name-only base...head` + `case` glob in inline
+  # shell. Asserts the `uses:` import is gone (comments mentioning
+  # `dorny` for historical context are still fine) AND the shell
+  # driver is present.
+  run grep -E '^\s+uses:\s+dorny/paths-filter' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+  run grep -F 'git diff --name-only "${BASE_SHA}...${HEAD_SHA}"' "${WF}"
   assert_success
 }
 
-@test "build-worker.yaml: path-filter only classifies on pull_request events" {
-  # Push / tag / workflow_dispatch always run full matrix.
-  run grep -E "if: github\\.event_name == 'pull_request'" "${WF}"
+@test "build-worker.yaml: classifier reads EVENT_NAME / BASE_SHA / HEAD_SHA from env (#273 Phase 2)" {
+  # Template tokens pre-expand into env vars so the shell case body
+  # stays portable to non-GitHub CI hosts — only the YAML env: keys
+  # bind to GitHub context.
+  run grep -F 'EVENT_NAME: ${{ github.event_name }}' "${WF}"
+  assert_success
+  run grep -F 'BASE_SHA: ${{ github.event.pull_request.base.sha }}' "${WF}"
+  assert_success
+  run grep -F 'HEAD_SHA: ${{ github.event.pull_request.head.sha }}' "${WF}"
   assert_success
 }
 
-@test "build-worker.yaml: doc-only allowlist covers all 6 documented paths (#273)" {
+@test "build-worker.yaml: non-pull_request event short-circuits to code_changed=true before git diff (#273 Phase 2)" {
+  # Push / tag / workflow_dispatch never run the classifier loop —
+  # the early `[ ... != pull_request ] && exit 0` arm is essential
+  # because BASE_SHA / HEAD_SHA are empty on non-PR events.
+  run grep -E '\[ "\$\{EVENT_NAME\}" != "pull_request" \]' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: doc-only allowlist case-glob covers all 6 documented paths (#273)" {
   # **/*.md, doc/**, LICENSE, .gitignore, .github/CODEOWNERS,
   # .github/dependabot.yml — match the issue body / design comment.
-  run grep -F "'!**/*.md'" "${WF}"
-  assert_success
-  run grep -F "'!doc/**'" "${WF}"
-  assert_success
-  run grep -F "'!LICENSE'" "${WF}"
-  assert_success
-  run grep -F "'!.gitignore'" "${WF}"
-  assert_success
-  run grep -F "'!.github/CODEOWNERS'" "${WF}"
-  assert_success
-  run grep -F "'!.github/dependabot.yml'" "${WF}"
+  # Phase 2 expresses them as a single `case` arm with `|`-joined
+  # patterns; one grep checks the whole arm at once.
+  run grep -F '*.md|doc/*|LICENSE|.gitignore|.github/CODEOWNERS|.github/dependabot.yml' "${WF}"
   assert_success
 }
 
