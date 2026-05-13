@@ -143,7 +143,7 @@ on:
 
 jobs:
   # ────────────────────────────────────────────────────────────────
-  # #273 Phase 1 — doc-only PR fast-pass.
+  # #273 — doc-only PR fast-pass.
   #
   # Classifies the PR diff against an allowlist of doc-only paths
   # (markdown, doc/, LICENSE, gitignore, CODEOWNERS, dependabot). If
@@ -156,43 +156,65 @@ jobs:
   # report code_changed=true so release / post-merge runs are
   # unaffected.
   #
-  # Phase 2 (separate PR) rewrites this classifier in pure shell so
-  # the workflow stays portable across CI hosts (e.g. internal
-  # GitLab CI mirrors) without binding to a GitHub-only action.
+  # Phase 2 (#273): classifier is now pure shell (`git diff --name-only
+  # base...head` + `case` glob match) instead of `dorny/paths-filter@v3`.
+  # The classifier logic is platform-agnostic shell — only the wrapping
+  # YAML + GITHUB_OUTPUT line binds to GitHub Actions. Future migration
+  # to a non-GitHub CI host (e.g. internal GitLab CI) needs only an
+  # adapter shim around the same case statement, no rewrite of the
+  # allowlist semantics. Bash glob `*` matches `/` inside `case` so
+  # `*.md` covers `doc/test/TEST.md` and `doc/*` covers nested paths.
   # ────────────────────────────────────────────────────────────────
   path-filter:
     runs-on: ubuntu-latest
     outputs:
-      code_changed: ${{ steps.set.outputs.code_changed }}
+      code_changed: ${{ steps.classify.outputs.code_changed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # paths-filter compares PR head against base; needs full history.
+          # `git diff --name-only base...head` needs both refs reachable;
+          # PR events checkout only the merge ref by default.
           fetch-depth: 0
-      - name: Classify changed paths (PR only)
-        id: filter
-        if: github.event_name == 'pull_request'
-        uses: dorny/paths-filter@v3
-        with:
-          # `code` matches any changed path EXCEPT the doc-only allowlist.
-          # If only allowlisted paths changed, the filter yields false.
-          filters: |
-            code:
-              - '**'
-              - '!**/*.md'
-              - '!doc/**'
-              - '!LICENSE'
-              - '!.gitignore'
-              - '!.github/CODEOWNERS'
-              - '!.github/dependabot.yml'
-      - name: Resolve code_changed (non-PR -> always true)
-        id: set
+      - name: Classify changed paths (pure shell — #273 Phase 2)
+        id: classify
+        env:
+          # Pre-expand the two SHAs into env vars so the inline shell
+          # below uses plain `$base` / `$head` shell expansion — avoids
+          # embedding template tokens inside the case-glob body and
+          # keeps the classifier itself portable to non-GitHub CI hosts.
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
+          set -eu
+          if [ "${EVENT_NAME}" != "pull_request" ]; then
+            echo "code_changed=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          has_code=0
+          # Bash `case` globs treat `*` as matching `/` too, so `*.md`
+          # covers nested-path markdown files and `doc/*` covers any
+          # depth under doc/. Patterns must mirror the Phase 1 dorny
+          # allowlist 1:1 (issue body documents them):
+          #   **/*.md, doc/**, LICENSE, .gitignore,
+          #   .github/CODEOWNERS, .github/dependabot.yml
+          while IFS= read -r f; do
+            [ -z "${f}" ] && continue
+            case "${f}" in
+              *.md|doc/*|LICENSE|.gitignore|.github/CODEOWNERS|.github/dependabot.yml)
+                continue
+                ;;
+              *)
+                has_code=1
+                break
+                ;;
+            esac
+          done < <(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")
+          if [ "${has_code}" -eq 1 ]; then
             echo "code_changed=true" >> "${GITHUB_OUTPUT}"
           else
-            echo "code_changed=${{ steps.filter.outputs.code }}" >> "${GITHUB_OUTPUT}"
+            echo "code_changed=false" >> "${GITHUB_OUTPUT}"
           fi
 
   # ────────────────────────────────────────────────────────────────
