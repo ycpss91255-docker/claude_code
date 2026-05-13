@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1123 tests** total (1067 unit + 56 integration).
+Template self-tests: **1140 tests** total (1084 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -67,7 +67,7 @@ Template self-tests: **1123 tests** total (1067 unit + 56 integration).
 | `_log_color_enabled returns non-zero with NO_COLOR=1 + FORCE_COLOR=1` | NO_COLOR wins over FORCE_COLOR |
 | `_log_color_enabled with no fd argument exits non-zero (param guard)` | Required fd guard |
 
-### test/unit/setup_spec.bats (261)
+### test/unit/setup_spec.bats (272)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -107,6 +107,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `auto-emit` end-to-end (#215: #108 runtime regression, multi-stage emit, target/image/container_name shape, no-extras, baseline collision, reserved tag latest/v0, invalid format WARN+skip, SETUP_DOCKERFILE_HASH, drift on add, drift on remove) | 11 |
 | Per-stage overrides #220 helpers (`_parse_stage_sections`, `_load_stage_overrides`, `_validate_stage_override_key` allowlist, `_resolve_stage_scalar`, `_resolve_stage_list` append/replace + ordering + meta-key skip) | 20 |
 | Per-stage overrides #220 compose emit integration (zero-diff regression for stages w/o overrides, `gui.mode=off` strips X11, `network.mode=bridge` per-stage + ports, `volumes.mount_inherit=false` replaces, orphan `[stage:foo]` WARN, disallowed override-key WARN, `[stage:sys]` hard-error) | 7 |
+| #285 `--quiet` / `-q` flag + success confirmation lines on set / add / remove / reset / apply (default-on confirmation with file: + next: hint on the 4 mutating subcommands; reset's existing `reset_done` line gated on `_quiet`; apply's existing 2-line summary gated on `_quiet`; mutation still writes to setup.conf under `--quiet`) | 11 |
 
 ### test/unit/tui_spec.bats (97)
 
@@ -171,7 +172,7 @@ target areas the issue body called out.
 | Per-stage UI #220 (`_list_dockerfile_stages_available` from-Dockerfile + baseline filter, `_count_stage_overrides` OVR+CURRENT dedup + empty skip, `_edit_stage_gui` mode + __inherit, `_edit_stage_scalar` write + empty-clears, `_edit_stage_list` inherit toggle + add) | 10 |
 | Menu restructure #221 (i18n keys for main.runtime/mounts/features × 4 langs; `_render_runtime_menu` / `_render_mounts_menu` / `_render_features_menu` function existence; main-menu dispatch for image/build/runtime/mounts/features + bare network/deploy/gui/volumes/environment no longer dispatch from main; Runtime sub-menu dispatch for network/deploy/gui/environment + __back/Cancel; Mounts sub-menu dispatch for volumes/devices/tmpfs + __back/Cancel; Features sub-menu __back, per_stage enabled enters editor, per_stage hidden shows msgbox without entering editor; Advanced sub-menu image/build/devices/tmpfs entries removed, security still dispatches) | 31 |
 
-### test/unit/build_worker_yaml_spec.bats (31)
+### test/unit/build_worker_yaml_spec.bats (32)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195
 + #243 + #272 + #273). Reusable workflows are not exec'd by these tests; instead
@@ -181,10 +182,12 @@ grep patterns lock the YAML invariants — `context_path` /
 runtime after #243) forwarding those inputs, no leftover
 `context: .` / `file: ./Dockerfile` literals, the GHA-cache
 plumbing (#272: `cache_variant` input, `Compute cache scope` step,
-`cache-from` / `cache-to` on all 4 build steps), and the #273 Phase 1
-doc-only PR fast-pass (`path-filter` job using `dorny/paths-filter@v3`,
-6-path allowlist, compute-matrix + build gated on `code_changed`,
-docker-build aggregator short-circuits on doc-only PRs).
+`cache-from` / `cache-to` on all 4 build steps), and the #273
+doc-only PR fast-pass (`path-filter` job; Phase 2 classifier is pure
+shell via `git diff --name-only base...head` + `case` glob, no
+`dorny/paths-filter` dependency; 6-path allowlist; compute-matrix +
+build gated on `code_changed`; docker-build aggregator short-circuits
+on doc-only PRs).
 
 | Category | Tests |
 |----------|-------|
@@ -199,7 +202,7 @@ docker-build aggregator short-circuits on doc-only PRs).
 | `build_contexts` input forwards to docker/build-push-action `build-contexts:` (#207: input declared with empty default, 4 build steps forward, default preserves zero-diff) | 3 |
 | #243 stage rename + runtime-test smoke: `target: devel-test` (renamed from `test`), no leftover `target: test`, `target: runtime-test` exists, runtime-test gated on `inputs.build_runtime` (>=2 occurrences shared with runtime gate) | 4 |
 | #272 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + scope key into `GITHUB_OUTPUT`, 4 build steps set `cache-from: type=gha,scope=...`, 4 build steps set `cache-to: ...,mode=max`, default preserves zero-diff for single-call callers | 5 |
-| #273 Phase 1 doc-only PR fast-pass: `path-filter` job declared, `dorny/paths-filter@v3` action, `pull_request`-only gate, 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`), `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 7 |
+| #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 
 ### test/unit/build_sh_spec.bats (46)
 
@@ -247,7 +250,7 @@ before compose up, `--build` after check-drift), and **`-C` / `--chdir`
 flag** (docker_harness#53: redirect FILE_PATH, short + long form,
 value-required and directory guards, usage help mention).
 
-### test/unit/exec_sh_spec.bats (23)
+### test/unit/exec_sh_spec.bats (28)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -260,8 +263,12 @@ Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--target` / `--instance`
 value validation, English-default not-running error, Chinese /
 Simplified Chinese / Japanese not-running error text, instance-specific
 vs default start hints, `--dry-run` bypassing the guard, compose exec
-routing when container is running, fallback `_detect_lang`
-branches when `template/` is absent, and **`-C` / `--chdir` flag**
+routing when container is running, **`--` flag/CMD separator** (#289:
+standalone `--` consumed before CMD flows through to `docker compose
+exec`, lets a dash-leading CMD pass through, works after `-t TARGET`
+for run.sh parity, no-`--` positional path stays backward-compatible,
+`-h` usage mentions `--`), fallback `_detect_lang` branches when
+`template/` is absent, and **`-C` / `--chdir` flag**
 (docker_harness#53: redirect FILE_PATH so .env / project name come
 from the alt repo, short + long form, value-required and directory
 guards, usage help mention).

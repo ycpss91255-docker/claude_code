@@ -146,6 +146,51 @@ teardown() {
   assert_output --partial "exec"
 }
 
+# ── -- flag/CMD separator (issue #289) ──────────────────────────────────────
+
+@test "exec.sh -- separator: standalone -- is consumed, CMD flows through (#289)" {
+  echo "mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -- ls /tmp
+  assert_success
+  assert_output --partial " ls /tmp"
+  # The literal -- must not survive into the docker exec command line —
+  # confirm there's no ` -- ` standalone token in the captured docker args.
+  refute_output --partial " -- "
+}
+
+@test "exec.sh -- separator: lets a dash-leading CMD pass through (#289)" {
+  # The whole point of -- is to send a CMD starting with a dash to the
+  # container without exec.sh's own option parser capturing it.
+  echo "mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -- my-tool --version
+  assert_success
+  assert_output --partial "my-tool"
+  assert_output --partial "--version"
+  refute_output --partial " -- "
+}
+
+@test "exec.sh -- separator: works after -t TARGET (run.sh parity, #289)" {
+  echo "mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -t devel -- echo hi
+  assert_success
+  assert_output --partial "echo hi"
+  refute_output --partial " -- "
+}
+
+@test "exec.sh: no -- still works for positional CMD (backward compat, #289)" {
+  echo "mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run ls -la /tmp
+  assert_success
+  assert_output --partial "ls"
+}
+
+@test "exec.sh --help mentions the -- separator (#289)" {
+  run bash "${SANDBOX}/exec.sh" --help
+  assert_success
+  # Either the synopsis token [--] or the standalone Options entry.
+  assert_output --partial "--"
+}
+
 # ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh, #104) ─────
 
 @test "exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {

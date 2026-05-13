@@ -135,6 +135,30 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, bats-mock) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
 
+### Wrapper UX cheat sheet (#291)
+
+Single canonical reference for what each user-facing script accepts.
+Downstream READMEs link here instead of duplicating the table.
+
+| Flag / form | `build.sh` | `run.sh` | `exec.sh` | `stop.sh` | `setup.sh` (CLI) |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `-h` / `--help` | yes | yes | yes | yes | yes |
+| `-C` / `--chdir DIR` | yes | yes | yes | yes | — |
+| `--lang LANG` | yes | yes | yes | yes | yes |
+| `--dry-run` | yes | yes | yes | yes | — |
+| `-s` / `--setup` | yes | yes | — | — | — (target of `--setup`) |
+| `-t` / `--target TARGET` | yes (#280, alias to positional) | yes | yes | — (Q2: stays project-wide) | — |
+| `--instance NAME` | — (build-time concept) | yes | yes | yes | — |
+| `-q` / `--quiet` | — | — | — | — | yes (#285, on mutating subcommands) |
+| `--` separator | — | yes | yes (#289) | — | yes (per subcommand) |
+| Positional meaning | TARGET | CMD | CMD | `docker compose down` pass-through | subcommand name |
+
+Design decisions locked by #291:
+
+- **Q1** (build.sh positional vs flag): keep positional + `-t` / `--target` as a backwards-compatible alias. `./build.sh runtime` and `./build.sh -t runtime` both work; downstream READMEs may use either, but should prefer the flag form for parity with `run.sh` / `exec.sh`.
+- **Q2** (stop.sh `-t`): not adopted. `stop.sh` stays project-wide (`docker compose down`), since per-service stop has different docker-side semantics (`docker compose stop <service>`) and would conflate two cleanup verbs under one flag. Users wanting per-service control call `docker compose stop <service>` directly.
+- **Q3** (setup.sh positional): subcommand-first verb-style (`./setup.sh set <key> <value>`), unchanged. Different mental model from the wrapper trio's TARGET / CMD, matching `git` / `docker` CLI convention.
+
 ### Dockerfile stages (convention)
 
 Downstream repos follow a standard multi-stage layout, defined in
