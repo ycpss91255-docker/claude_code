@@ -16,3 +16,5 @@ coverage/
 
 
 setup.conf.local
+
+.docker.xauth
