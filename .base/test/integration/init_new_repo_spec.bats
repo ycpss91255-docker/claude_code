@@ -125,9 +125,9 @@ teardown() {
   assert_output ".base/script/docker/build.sh"
 }
 
-@test "new repo: run.sh / exec.sh / stop.sh / Makefile symlinks correct" {
+@test "new repo: run.sh / exec.sh / stop.sh / prune.sh / Makefile symlinks correct" {
   bash .base/init.sh
-  for f in run.sh exec.sh stop.sh Makefile; do
+  for f in run.sh exec.sh stop.sh prune.sh Makefile; do
     assert [ -L "${REPO_DIR}/${f}" ]
   done
   run readlink "${REPO_DIR}/run.sh"
@@ -136,6 +136,8 @@ teardown() {
   assert_output ".base/script/docker/exec.sh"
   run readlink "${REPO_DIR}/stop.sh"
   assert_output ".base/script/docker/stop.sh"
+  run readlink "${REPO_DIR}/prune.sh"
+  assert_output ".base/script/docker/prune.sh"
   run readlink "${REPO_DIR}/Makefile"
   assert_output ".base/script/docker/Makefile"
 }

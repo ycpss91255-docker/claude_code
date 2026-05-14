@@ -42,9 +42,12 @@ _seed_template_remote() {
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/setup.sh"
   cp "${UPGRADE}" "${TMPL_WORK}/upgrade.sh"
   # upgrade.sh sources _lib.sh on load (#278: _log / _error wrap _log_*).
-  # _lib.sh itself sources i18n.sh, so copy both into the fake remote.
+  # _lib.sh itself sources i18n.sh + lib/*.sh sub-libs (#284), so copy
+  # all three surfaces into the fake remote.
+  mkdir -p "${TMPL_WORK}/script/docker/lib"
   cp /source/script/docker/_lib.sh "${TMPL_WORK}/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${TMPL_WORK}/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${TMPL_WORK}/script/docker/lib/"
   chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/script/docker/setup.sh" "${TMPL_WORK}/upgrade.sh"
   git -C "${TMPL_WORK}" add -A
   git -C "${TMPL_WORK}" commit -q -m "v0.9.5"

@@ -117,3 +117,53 @@ setup() {
 @test "_log_color_enabled with no fd argument exits non-zero (param guard)" {
   run -127 bash -c "source ${LIB}; _log_color_enabled"
 }
+
+# ── _log_plain helper (#309) ────────────────────────────────────────────────
+
+@test "_log_plain writes '[<tag>] <msg>' to stdout with no style (no ANSI even with FORCE_COLOR)" {
+  run --separate-stderr bash -c "FORCE_COLOR=1 source ${LIB}; FORCE_COLOR=1 _log_plain build '' 'plain text'"
+  assert_success
+  assert_equal "${output}" "[build] plain text"
+  assert_equal "${stderr}" ""
+}
+
+@test "_log_plain with bold style + FORCE_COLOR=1 wraps message in ANSI bold" {
+  run --separate-stderr bash -c "FORCE_COLOR=1 source ${LIB}; FORCE_COLOR=1 _log_plain build bold 'header'"
+  assert_success
+  assert_equal "${output}" $'[build] \033[1mheader\033[0m'
+  assert_equal "${stderr}" ""
+}
+
+@test "_log_plain with dim style + FORCE_COLOR=1 wraps message in ANSI dim" {
+  run --separate-stderr bash -c "FORCE_COLOR=1 source ${LIB}; FORCE_COLOR=1 _log_plain build dim '────────'"
+  assert_success
+  assert_equal "${output}" $'[build] \033[2m────────\033[0m'
+}
+
+@test "_log_plain with bold style + NO_COLOR=1 omits ANSI even with FORCE_COLOR=1" {
+  run --separate-stderr bash -c "NO_COLOR=1 FORCE_COLOR=1 source ${LIB}; NO_COLOR=1 FORCE_COLOR=1 _log_plain build bold 'header'"
+  assert_success
+  assert_equal "${output}" "[build] header"
+}
+
+@test "_log_plain on non-TTY without FORCE_COLOR omits ANSI" {
+  run --separate-stderr bash -c "source ${LIB}; _log_plain build bold 'header'"
+  assert_success
+  assert_equal "${output}" "[build] header"
+}
+
+@test "_log_plain joins multi-token message with single spaces" {
+  run --separate-stderr bash -c "source ${LIB}; _log_plain build '' word1 word2 word3"
+  assert_success
+  assert_equal "${output}" "[build] word1 word2 word3"
+}
+
+@test "_log_plain with no tag exits non-zero (param ':?' guard)" {
+  run -127 bash -c "source ${LIB}; _log_plain"
+}
+
+@test "_log_plain with unknown style + FORCE_COLOR=1 falls back to no ANSI (case match miss)" {
+  run --separate-stderr bash -c "FORCE_COLOR=1 source ${LIB}; FORCE_COLOR=1 _log_plain build invalid 'msg'"
+  assert_success
+  assert_equal "${output}" "[build] msg"
+}

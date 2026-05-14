@@ -281,7 +281,7 @@ jobs:
         run: |
           LOCAL_VER=""
           if [ -f .base/.version ]; then
-            LOCAL_VER=$(cat .base/.version | tr -d '[:space:]')
+            LOCAL_VER=$(tr -d '[:space:]' < .base/.version)
           fi
           if [ -n "${LOCAL_VER}" ]; then
             LATEST_VER=$(git ls-remote --tags --sort=-v:refname \

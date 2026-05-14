@@ -134,6 +134,7 @@ usage() {
     zh-TW)
       cat >&2 <<'EOF'
 用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [-s|--setup] [--build] [--dry-run]
+              [-v|--verbose] [-vv|--very-verbose]
               [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
               [-t|--target TARGET] [CMD...]
 
@@ -149,6 +150,10 @@ usage() {
                     取得本機 / CI 一致驗證；預設行為依賴 compose auto-build
                     時會跳過 lint+smoke gate (#216)
   --dry-run         只印出將執行的 docker 指令，不實際執行
+  -v, --verbose     詳細 docker 輸出（BUILDKIT_PROGRESS=plain）。compose 自動 build
+                    卡住時用 — 顯示每個 RUN 步驟即時輸出，不再收斂成單行進度條。
+  -vv, --very-verbose
+                    -v 再加 wrapper 本身的 bash trace（set -x）。
   --instance NAME   啟動命名 instance（與預設並行,suffix=-NAME）
   --lang LANG       設定訊息語言（預設: en）
 
@@ -160,6 +165,7 @@ EOF
     zh-CN)
       cat >&2 <<'EOF'
 用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [-s|--setup] [--build] [--dry-run]
+              [-v|--verbose] [-vv|--very-verbose]
               [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
               [-t|--target TARGET] [CMD...]
 
@@ -175,6 +181,10 @@ EOF
                     取得本机 / CI 一致验证；默认行为依赖 compose auto-build
                     时会跳过 lint+smoke gate (#216)
   --dry-run         只打印将执行的 docker 命令，不实际执行
+  -v, --verbose     详细 docker 输出（BUILDKIT_PROGRESS=plain）。compose 自动 build
+                    卡住时用 — 显示每个 RUN 步骤实时输出，不再收敛成单行进度条。
+  -vv, --very-verbose
+                    -v 再加 wrapper 本身的 bash trace（set -x）。
   --instance NAME   启动命名 instance（与默认并行,suffix=-NAME）
   --lang LANG       设置消息语言（默认: en）
 
@@ -186,6 +196,7 @@ EOF
     ja)
       cat >&2 <<'EOF'
 使用法: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [-s|--setup] [--build] [--dry-run]
+               [-v|--verbose] [-vv|--very-verbose]
                [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
                [-t|--target TARGET] [CMD...]
 
@@ -203,6 +214,11 @@ EOF
                     compose auto-build に依存しており、lint + smoke gate を
                     スキップします (#216)
   --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
+  -v, --verbose     docker の詳細出力（BUILDKIT_PROGRESS=plain）。compose 自動
+                    build がハングした時に使用 — 各 RUN ステップの stdout/stderr
+                    をリアルタイム表示。
+  -vv, --very-verbose
+                    -v に加え wrapper 自体の bash trace（set -x）。
   --instance NAME   名前付き instance を起動（デフォルトと並行、suffix=-NAME）
   --lang LANG       メッセージ言語を設定（デフォルト: en）
 
@@ -214,6 +230,7 @@ EOF
     *)
       cat >&2 <<'EOF'
 Usage: ./run.sh [-h] [-C|--chdir DIR] [-d|--detach] [-s|--setup] [--build] [--dry-run]
+               [-v|--verbose] [-vv|--very-verbose]
                [--instance NAME] [--lang <en|zh-TW|zh-CN|ja>]
                [-t|--target TARGET] [CMD...]
 
@@ -230,6 +247,12 @@ Options:
                     so local matches CI; default path relies on Compose
                     auto-build which skips the lint + smoke gate (#216)
   --dry-run         Print the docker commands that would run, but do not execute
+  -v, --verbose     Verbose docker output (BUILDKIT_PROGRESS=plain). Use when
+                    compose's auto-build appears hung — surfaces each RUN
+                    step's real-time stdout/stderr instead of the collapsed
+                    single-line progress UI.
+  -vv, --very-verbose
+                    -v plus bash trace (set -x) on the wrapper itself.
   --instance NAME   Start a named parallel instance (suffix=-NAME)
   --lang LANG       Set message language (default: en)
 
@@ -303,6 +326,17 @@ main() {
         ;;
       --dry-run)
         DRY_RUN=true
+        shift
+        ;;
+      -v|--verbose)
+        # BUILDKIT_PROGRESS=plain — verbose docker output. Use when
+        # compose's auto-build appears hung (closes #311).
+        export BUILDKIT_PROGRESS=plain
+        shift
+        ;;
+      -vv|--very-verbose)
+        export BUILDKIT_PROGRESS=plain
+        set -x
         shift
         ;;
       --instance)
@@ -448,8 +482,10 @@ main() {
     xhost +local: >/dev/null 2>&1 || true
   fi
 
-  # Container name mirrors compose.yaml's `container_name:`.
-  local CONTAINER_NAME="${IMAGE_NAME}${INSTANCE_SUFFIX}"
+  # Container name mirrors compose.yaml's `container_name:`. Includes
+  # ${USER_NAME} prefix to disambiguate per-OS-user on shared hosts
+  # (#322). _load_env above already populated USER_NAME from .env.
+  local CONTAINER_NAME="${USER_NAME}-${IMAGE_NAME}${INSTANCE_SUFFIX}"
 
   # Refuse to start if the target container is already running and user did
   # not explicitly opt into a parallel instance via --instance.

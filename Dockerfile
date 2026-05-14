@@ -177,7 +177,8 @@ COPY .hadolint.yaml /lint/.hadolint.yaml
 COPY Dockerfile /lint/Dockerfile
 COPY *.sh /lint/
 COPY .base/script/docker/*.sh /lint/
-RUN shellcheck -S warning /lint/*.sh
+COPY .base/script/docker/lib /lint/lib
+RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
 RUN cd /lint && hadolint Dockerfile
 
 # Install bats
