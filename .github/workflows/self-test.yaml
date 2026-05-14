@@ -90,7 +90,11 @@ jobs:
           else
             echo "code_changed=true" >> "${GITHUB_OUTPUT}"
           fi
-          # behavioural_relevant: block-list (Q5 in #317).
+          # behavioural_relevant: block-list (Q5 in #317; #317 P3 gotcha-5
+          # extends it to setup.sh + lib/** + i18n.sh + prune.sh — each
+          # of these affects .env / compose.yaml generation or wrapper
+          # behaviour that the behavioural docker.sock-mounted compose
+          # service exercises end-to-end).
           if git diff --quiet "${BASE}"...HEAD \
                -- 'script/entrypoint.sh' \
                   'compose.yaml' \
@@ -100,6 +104,10 @@ jobs:
                   'script/docker/run.sh' \
                   'script/docker/exec.sh' \
                   'script/docker/stop.sh' \
+                  'script/docker/prune.sh' \
+                  'script/docker/setup.sh' \
+                  'script/docker/i18n.sh' \
+                  'script/docker/lib/**' \
                   'test/behavioural/**' \
                   'init.sh' 'upgrade.sh' \
                   '.github/workflows/**'; then
@@ -312,8 +320,12 @@ jobs:
   behavioural:
     name: Behavioural Test (runtime-test smoke gate, #249)
     needs: [actionlint, classify]
-    # P1 (#317) gates on code_changed only; P3 will tighten to behavioural_relevant.
-    if: needs.classify.outputs.code_changed == 'true'
+    # P3 (#317): gate on the narrower `behavioural_relevant` output so
+    # PRs that change pure lint / unit-test / doc paths (already covered
+    # by `test`) don't burn the docker.sock-mounted compose run. The
+    # block-list driving this output is in the `classify` job above;
+    # gotcha-5 extends it to setup.sh + lib/** + i18n.sh + prune.sh.
+    if: needs.classify.outputs.behavioural_relevant == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
