@@ -15,11 +15,13 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/.base/script/docker" \
+  mkdir -p "${SANDBOX}/.base/script/docker/lib" \
            "${SANDBOX}/config/docker"
 
   cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
   # Symlink (not copy) so kcov attributes coverage to /source/script/docker/run.sh.
   ln -s /source/script/docker/run.sh "${SANDBOX}/run.sh"
 
@@ -323,8 +325,10 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  # Simulate a running container matching CONTAINER_NAME=mockimg
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # Simulate a running container matching CONTAINER_NAME=${USER_NAME}-mockimg
+  # (#322: container_name now includes USER_NAME prefix to disambiguate
+  # per-OS-user on shared hosts).
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
 
   # Real mode (no --dry-run) triggers the guard; DRY_RUN=true bypasses it.
   run bash "${SANDBOX}/run.sh"
@@ -373,6 +377,8 @@ EOS
   ln -s /source/script/docker/run.sh "${_tmp}/run.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -385,6 +391,8 @@ EOS
   ln -s /source/script/docker/run.sh "${_tmp}/run.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -397,6 +405,8 @@ EOS
   ln -s /source/script/docker/run.sh "${_tmp}/run.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -437,7 +447,8 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/run.sh" --lang zh-TW
   assert_failure
   assert_output --partial "已在執行中"
@@ -449,7 +460,8 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/run.sh" --lang ja
   assert_failure
   assert_output --partial "すでに実行中"
@@ -647,9 +659,10 @@ EOS
 
 @test "run.sh -C <dir> redirects FILE_PATH to <dir>" {
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/.base/script/docker"
+  mkdir -p "${ALT}/.base/script/docker/lib"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
   chmod +x "${ALT}/.base/script/docker/setup.sh"
 
@@ -662,9 +675,10 @@ EOS
 
 @test "run.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/.base/script/docker"
+  mkdir -p "${ALT}/.base/script/docker/lib"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
   chmod +x "${ALT}/.base/script/docker/setup.sh"
 
@@ -691,4 +705,32 @@ EOS
   assert_success
   assert_output --partial "-C"
   assert_output --partial "--chdir"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain, #311)
+# ════════════════════════════════════════════════════════════════════
+
+@test "run.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)" {
+  run bash "${SANDBOX}/run.sh" --help
+  assert_success
+  assert_output --partial "-v, --verbose"
+  assert_output --partial "-vv, --very-verbose"
+  assert_output --partial "BUILDKIT_PROGRESS=plain"
+}
+
+@test "run.sh -v --dry-run is accepted and exits 0 (#311)" {
+  run bash "${SANDBOX}/run.sh" -v --dry-run
+  assert_success
+}
+
+@test "run.sh --verbose long form is accepted (#311)" {
+  run bash "${SANDBOX}/run.sh" --verbose --dry-run
+  assert_success
+}
+
+@test "run.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)" {
+  run --separate-stderr bash "${SANDBOX}/run.sh" -vv --dry-run
+  assert_success
+  [[ "${stderr}" == *"+ "* ]]
 }

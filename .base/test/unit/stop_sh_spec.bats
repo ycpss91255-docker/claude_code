@@ -15,10 +15,12 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/.base/script/docker"
+  mkdir -p "${SANDBOX}/.base/script/docker/lib"
 
   cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
   ln -s /source/script/docker/stop.sh "${SANDBOX}/stop.sh"
 
   # Seed .env so _load_env succeeds.
@@ -151,6 +153,8 @@ teardown() {
   ln -s /source/script/docker/stop.sh "${_tmp}/stop.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/stop.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -163,6 +167,8 @@ teardown() {
   ln -s /source/script/docker/stop.sh "${_tmp}/stop.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/stop.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -175,6 +181,8 @@ teardown() {
   ln -s /source/script/docker/stop.sh "${_tmp}/stop.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/stop.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -187,9 +195,10 @@ teardown() {
 
 @test "stop.sh -C <dir> redirects FILE_PATH to <dir>" {
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/.base/script/docker"
+  mkdir -p "${ALT}/.base/script/docker/lib"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg"
@@ -206,9 +215,10 @@ teardown() {
 
 @test "stop.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/.base/script/docker"
+  mkdir -p "${ALT}/.base/script/docker/lib"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg2"
@@ -237,4 +247,70 @@ teardown() {
   assert_success
   assert_output --partial "-C"
   assert_output --partial "--chdir"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain, #311)
+# ════════════════════════════════════════════════════════════════════
+
+@test "stop.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)" {
+  run bash "${SANDBOX}/stop.sh" --help
+  assert_success
+  assert_output --partial "-v, --verbose"
+  assert_output --partial "-vv, --very-verbose"
+  assert_output --partial "BUILDKIT_PROGRESS=plain"
+}
+
+@test "stop.sh -v --dry-run is accepted and exits 0 (#311)" {
+  run bash "${SANDBOX}/stop.sh" -v --dry-run
+  assert_success
+}
+
+@test "stop.sh --verbose long form is accepted (#311)" {
+  run bash "${SANDBOX}/stop.sh" --verbose --dry-run
+  assert_success
+}
+
+@test "stop.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)" {
+  run --separate-stderr bash "${SANDBOX}/stop.sh" -vv --dry-run
+  assert_success
+  [[ "${stderr}" == *"+ "* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# --prune flag (lightweight opt-in cleanup after down, #319)
+# ════════════════════════════════════════════════════════════════════
+
+@test "stop.sh --prune is mentioned in usage help (#319)" {
+  run bash "${SANDBOX}/stop.sh" --help
+  assert_success
+  assert_output --partial "--prune"
+  assert_output --partial "until=10m"
+  assert_output --partial "until=24h"
+}
+
+@test "stop.sh --prune --dry-run prints down + network prune + image prune (#319)" {
+  run bash "${SANDBOX}/stop.sh" --prune --dry-run
+  assert_success
+  assert_output --partial "down"
+  assert_output --partial "docker network prune -f --filter until=10m"
+  assert_output --partial "docker image prune -f --filter until=24h"
+}
+
+@test "stop.sh without --prune does NOT emit prune commands (#319)" {
+  run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_success
+  refute_output --partial "docker network prune"
+  refute_output --partial "docker image prune"
+}
+
+@test "stop.sh --all --prune --dry-run prunes even when no instances found (#319)" {
+  # docker_ps_a.out is empty → --all branch finds zero projects → prints
+  # "no instances" message; --prune should still run cleanup so a stale
+  # repo with leftover orphan networks gets reclaimed.
+  : > "${DOCKER_PS_A_FILE}"
+  run bash "${SANDBOX}/stop.sh" --all --prune --dry-run
+  assert_success
+  assert_output --partial "No instances found"
+  assert_output --partial "docker network prune -f --filter until=10m"
 }

@@ -85,7 +85,7 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [--] [CMD...]
+用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG] [--] [CMD...]
 
 選項:
   -h, --help        顯示此說明
@@ -95,6 +95,10 @@ usage() {
   --instance NAME   進入命名 instance（預設為 default instance）
   --lang LANG       設定訊息語言（預設: en）
   --dry-run         只印出將執行的 docker 指令，不實際執行
+  -v, --verbose     設定 BUILDKIT_PROGRESS=plain（與其他 wrapper 對齊；docker exec
+                    本身不會 build，但保持 flag 一致便於肌肉記憶）。
+  -vv, --very-verbose
+                    -v 再加 wrapper 本身的 bash trace（set -x）。
   --                明確分隔 exec.sh 選項與 CMD（與 run.sh 對齊），讓 CMD 可以
                     用 dash 開頭（例：./exec.sh -- my-tool --version）
 
@@ -111,7 +115,7 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [--] [CMD...]
+用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG] [--] [CMD...]
 
 选项:
   -h, --help        显示此说明
@@ -121,6 +125,10 @@ EOF
   --instance NAME   进入命名 instance（默认为 default instance）
   --lang LANG       设置消息语言（默认: en）
   --dry-run         只打印将执行的 docker 命令，不实际执行
+  -v, --verbose     设置 BUILDKIT_PROGRESS=plain（与其他 wrapper 对齐；docker exec
+                    本身不会 build，但保持 flag 一致便于肌肉记忆）。
+  -vv, --very-verbose
+                    -v 再加 wrapper 本身的 bash trace（set -x）。
   --                明确分隔 exec.sh 选项与 CMD（与 run.sh 对齐），让 CMD 可以
                     以 dash 开头（例：./exec.sh -- my-tool --version）
 
@@ -137,7 +145,7 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [--] [CMD...]
+使用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG] [--] [CMD...]
 
 オプション:
   -h, --help        このヘルプを表示
@@ -147,6 +155,10 @@ EOF
   --instance NAME   名前付き instance に入る（デフォルトは default instance）
   --lang LANG       メッセージ言語を設定（デフォルト: en）
   --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
+  -v, --verbose     BUILDKIT_PROGRESS=plain を設定（他の wrapper と整合；
+                    docker exec 自体は build しないが、フラグの一貫性のため）。
+  -vv, --very-verbose
+                    -v に加え wrapper 自体の bash trace（set -x）。
   --                exec.sh のオプションと CMD を明示的に区切る（run.sh と整合）。
                     dash で始まる CMD を渡す場合に使う（例: ./exec.sh -- my-tool --version）
 
@@ -163,7 +175,7 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [--lang LANG] [--] [CMD...]
+Usage: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG] [--] [CMD...]
 
 Options:
   -h, --help        Show this help
@@ -173,6 +185,12 @@ Options:
   --instance NAME   Enter a named instance (default: default instance)
   --lang LANG       Set message language (default: en)
   --dry-run         Print the docker commands that would run, but do not execute
+  -v, --verbose     Export BUILDKIT_PROGRESS=plain for parity with build/run/stop.
+                    `docker exec` itself does not build, but keeping the flag
+                    available across all four wrappers gives one muscle-memory
+                    knob to reach for.
+  -vv, --very-verbose
+                    -v plus bash trace (set -x) on the wrapper itself.
   --                Explicit flag/CMD separator, mirroring run.sh. Lets the CMD
                     start with a dash (e.g. ./exec.sh -- my-tool --version).
 
@@ -231,6 +249,20 @@ main() {
         DRY_RUN=true
         shift
         ;;
+      -v|--verbose)
+        # BUILDKIT_PROGRESS=plain — symmetry with build/run/stop (#311).
+        # No-op for `docker exec` itself but harmless; useful for grep-
+        # based discovery ("does this wrapper take -v? yes") and for the
+        # rare case of `exec.sh` triggering a compose build via `--build`
+        # in a future flag.
+        export BUILDKIT_PROGRESS=plain
+        shift
+        ;;
+      -vv|--very-verbose)
+        export BUILDKIT_PROGRESS=plain
+        set -x
+        shift
+        ;;
       --lang)
         _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
         _sanitize_lang _LANG "exec"
@@ -262,7 +294,9 @@ main() {
 
   # Precheck: refuse with a friendly hint if the target container is not
   # running. Skipped under --dry-run since the user is asking what *would* run.
-  local _container_name="${IMAGE_NAME}${INSTANCE_SUFFIX}"
+  # Container name mirrors compose.yaml's `container_name:`, including the
+  # ${USER_NAME} prefix added in #322 for multi-user host disambiguation.
+  local _container_name="${USER_NAME}-${IMAGE_NAME}${INSTANCE_SUFFIX}"
   if [[ "${DRY_RUN}" != true ]] \
       && ! docker ps --format '{{.Names}}' | grep -qx "${_container_name}"; then
     # Compose the error + matching hint into a single multi-line _log_err

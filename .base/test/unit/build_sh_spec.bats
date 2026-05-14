@@ -21,12 +21,14 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/.base/script/docker" \
+  mkdir -p "${SANDBOX}/.base/script/docker/lib" \
            "${SANDBOX}/.base/dockerfile" \
            "${SANDBOX}/config/docker"
 
   cp /source/script/docker/_lib.sh     "${SANDBOX}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh     "${SANDBOX}/.base/script/docker/i18n.sh"
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh    "${SANDBOX}/.base/script/docker/lib/"
   # Symlink (not copy) so kcov attributes coverage to /source/script/docker/build.sh.
   ln -s /source/script/docker/build.sh "${SANDBOX}/build.sh"
   touch "${SANDBOX}/.base/dockerfile/Dockerfile.test-tools"
@@ -415,6 +417,8 @@ EOS
   ln -s /source/script/docker/build.sh "${_tmp}/build.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/build.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -427,6 +431,8 @@ EOS
   ln -s /source/script/docker/build.sh "${_tmp}/build.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/build.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -439,6 +445,8 @@ EOS
   ln -s /source/script/docker/build.sh "${_tmp}/build.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/build.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -457,6 +465,25 @@ EOS
   run cat "${DOCKER_LOG}"
   assert_output --partial "docker build"
   assert_output --partial "-t test-tools:local"
+}
+
+@test "build.sh skips internal test-tools build when TEST_TOOLS_IMAGE is set (#317 P2)" {
+  # When the caller has its own test-tools provisioning (CI pre-builds
+  # via buildx GHA cache; downstream production builds pin to a GHCR
+  # rolling/release tag), the internal `docker build -t test-tools:local`
+  # in build.sh is wasted work. Set TEST_TOOLS_IMAGE and assert the
+  # internal build step does not run; the main `docker compose build`
+  # still runs (that's not what we're skipping).
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  echo "# mock compose" > "${SANDBOX}/compose.yaml"
+
+  TEST_TOOLS_IMAGE=test-tools:local bash "${SANDBOX}/build.sh"
+  run cat "${DOCKER_LOG}"
+  refute_output --partial "-t test-tools:local"
 }
 
 # ── i18n log lines (bootstrap / drift / err_no_env) ────────────────────────
@@ -602,9 +629,10 @@ EOS
   # setup.sh stamps MOCK_SETUP_LOG with whatever --base-path it received,
   # so the log proves which tree FILE_PATH resolved to.
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/.base/script/docker" "${ALT}/.base/dockerfile"
+  mkdir -p "${ALT}/.base/script/docker/lib" "${ALT}/.base/dockerfile"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
   chmod +x "${ALT}/.base/script/docker/setup.sh"
   touch "${ALT}/.base/dockerfile/Dockerfile.test-tools"
@@ -619,9 +647,10 @@ EOS
 
 @test "build.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/.base/script/docker" "${ALT}/.base/dockerfile"
+  mkdir -p "${ALT}/.base/script/docker/lib" "${ALT}/.base/dockerfile"
   cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
   chmod +x "${ALT}/.base/script/docker/setup.sh"
   touch "${ALT}/.base/dockerfile/Dockerfile.test-tools"
@@ -649,4 +678,35 @@ EOS
   assert_success
   assert_output --partial "-C"
   assert_output --partial "--chdir"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain, #311)
+# ════════════════════════════════════════════════════════════════════
+
+@test "build.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)" {
+  run bash "${SANDBOX}/build.sh" --help
+  assert_success
+  assert_output --partial "-v, --verbose"
+  assert_output --partial "-vv, --very-verbose"
+  assert_output --partial "BUILDKIT_PROGRESS=plain"
+}
+
+@test "build.sh -v --dry-run is accepted and exits 0 (#311)" {
+  run bash "${SANDBOX}/build.sh" -v --dry-run
+  assert_success
+}
+
+@test "build.sh --verbose long form is accepted (#311)" {
+  run bash "${SANDBOX}/build.sh" --verbose --dry-run
+  assert_success
+}
+
+@test "build.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)" {
+  run --separate-stderr bash "${SANDBOX}/build.sh" -vv --dry-run
+  assert_success
+  # set -x emits trace lines starting with `+ ` to stderr. After the case
+  # branch fires the wrapper continues hitting other lines that all get
+  # traced.
+  [[ "${stderr}" == *"+ "* ]]
 }
