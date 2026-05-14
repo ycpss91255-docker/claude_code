@@ -96,6 +96,55 @@ teardown() {
   assert_output --partial "down"
 }
 
+# ── --remove-orphans + COMPOSE_PROFILES='*' for profile-gated services (#341) ─
+
+@test "stop.sh passes --remove-orphans to compose down (#341)" {
+  # Profile-gated services (#215 auto-emitted headless / gui / test stages)
+  # are silently skipped by a bare `compose down`. --remove-orphans catches
+  # containers from prior compose.yaml shapes the current file no longer
+  # declares; COMPOSE_PROFILES='*' (env, not argv) activates every profile.
+  run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_success
+  assert_output --partial "--remove-orphans"
+}
+
+@test "stop.sh --all also threads --remove-orphans through each down (#341)" {
+  printf 'mockuser-mockimg-foo_default\nmockuser-mockimg-bar_default\n' > "${DOCKER_PS_A_FILE}"
+  run bash "${SANDBOX}/stop.sh" --dry-run --all
+  assert_success
+  # --all calls down once per instance; each invocation must carry the flag.
+  local _count
+  _count="$(printf '%s\n' "${output}" | grep -c -- '--remove-orphans' || true)"
+  [[ "${_count}" -ge 2 ]]
+}
+
+# ── -v / --verbose lists project containers before down (#345) ────────────────
+
+@test "stop.sh -v lists project containers before down (#345)" {
+  # Seed the docker stub so _down_one's ps filter returns a non-empty list.
+  printf 'mockuser-mockimg (running)\n' > "${DOCKER_PS_A_FILE}"
+  run bash "${SANDBOX}/stop.sh" -v --dry-run
+  assert_success
+  assert_output --partial "Tearing down containers in project"
+  assert_output --partial "mockuser-mockimg (running)"
+}
+
+@test "stop.sh -v with no matching containers prints empty-project hint (#345)" {
+  : > "${DOCKER_PS_A_FILE}"
+  run bash "${SANDBOX}/stop.sh" -v --dry-run
+  assert_success
+  assert_output --partial "No containers found for project"
+  refute_output --partial "Tearing down containers in project"
+}
+
+@test "stop.sh without -v does NOT emit the verbose container listing (#345 default)" {
+  printf 'mockuser-mockimg (running)\n' > "${DOCKER_PS_A_FILE}"
+  run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_success
+  refute_output --partial "Tearing down containers in project"
+  refute_output --partial "No containers found for project"
+}
+
 @test "stop.sh --instance foo stops named instance" {
   run bash "${SANDBOX}/stop.sh" --dry-run --instance foo
   assert_success

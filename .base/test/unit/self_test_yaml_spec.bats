@@ -157,10 +157,29 @@ setup() {
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
-@test "self-test.yaml: behavioural job-level if: gates on code_changed (#317 P1)" {
+@test "self-test.yaml: behavioural job-level if: gates on behavioural_relevant (#317 P3)" {
+  # P1 shipped this with `code_changed` while the behavioural_relevant
+  # output was emitted-but-unused; P3 tightens to the narrower output so
+  # PRs that change pure lint / unit-test paths (already covered by
+  # `test`) don't burn the docker.sock-mounted compose run.
   run awk '/^  behavioural:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
   assert_success
-  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+  assert_output --partial "if: needs.classify.outputs.behavioural_relevant == 'true'"
+  refute_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+}
+
+@test "self-test.yaml: classify behavioural block-list extends to setup.sh + i18n.sh + lib/** + prune.sh (#317 P3 gotcha-5)" {
+  # setup.sh / lib/** drive .env + compose.yaml generation; i18n.sh
+  # gates wrapper message output (smoke regressions surface in compose
+  # logs); prune.sh is part of the wrapper family. All four indirectly
+  # affect what the docker.sock-mounted compose service does, so they
+  # must invalidate the behavioural-skip optimization.
+  run awk '/^  classify:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial "'script/docker/setup.sh'"
+  assert_output --partial "'script/docker/i18n.sh'"
+  assert_output --partial "'script/docker/lib/**'"
+  assert_output --partial "'script/docker/prune.sh'"
 }
 
 # ── buildx GHA cache on test-tools builds (#317) ──────────────────────

@@ -227,6 +227,22 @@ teardown() {
   }
 }
 
+@test "Dockerfile.example declares ENV HOME before WORKDIR \${HOME}/work (#334)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # WORKDIR is a Docker directive that interpolates build-time ARG /
+  # ENV, not shell-time $HOME. Without an explicit ENV HOME, the
+  # `WORKDIR "${HOME}/work"` collapses to /work and BuildKit emits
+  # `WARN: UndefinedVar`. The ENV must appear BEFORE the WORKDIR.
+  run grep -nF 'ENV HOME="/home/${USER_NAME}"' "${_df}"
+  assert_success
+  local _env_line _workdir_line
+  _env_line="$(grep -nF 'ENV HOME="/home/${USER_NAME}"' "${_df}" | head -1 | cut -d: -f1)"
+  _workdir_line="$(grep -nF 'WORKDIR "${HOME}/work"' "${_df}" | grep -v '^[0-9]*:#' | head -1 | cut -d: -f1)"
+  [[ -n "${_env_line}" && -n "${_workdir_line}" ]]
+  (( _env_line < _workdir_line ))
+}
+
 @test "Dockerfile.example sets up bashrc.d drop-in directory (template#254)" {
   local _df="/source/dockerfile/Dockerfile.example"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"

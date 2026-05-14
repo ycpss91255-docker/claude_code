@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.29.2] - 2026-05-14
+
+Patch release bundling 4 small-bug closures since v0.29.1: #334 (Dockerfile.example WORKDIR collapse), #335 (exec.sh -t non-devel precheck), #341 (stop.sh skips profile-gated services), #345 (stop.sh -v no-op). No breaking changes from v0.29.1. Per CLAUDE.md's "MAJOR.MINOR.PATCH = bug fix; RC not required" rule, tagged directly on the merge commit.
+
+The #334 and #335 entries below were originally drafted into [Unreleased] when their respective PRs (#350 / #351) landed, but a rebase conflict-resolution mistake during the v0.29.1 -> v0.29.2 cycle placed them under the already-tagged [v0.29.1] heading. Moved here for accuracy: those fixes shipped in v0.29.2, not v0.29.1.
+
+### Fixed
+
+- `dockerfile/Dockerfile.example`: add explicit `ENV HOME="/home/${USER_NAME}"` after the `USER` directive in the `devel` stage. `WORKDIR` is a Docker directive that interpolates only build-time `ARG` / `ENV`, not shell-time `$HOME`, so without this the `WORKDIR "${HOME}/work"` directive on the next line silently collapsed to `WORKDIR /work`. Effects: BuildKit emitted `WARN: UndefinedVar: Usage of undefined variable '$HOME'` on every build; `docker inspect <image> --format '{{.Config.WorkingDir}}'` returned `/work` instead of `/home/<user>/work`; non-interactive `docker exec` without `--workdir` landed in `/work` instead of the workspace mount. Interactive `./exec.sh` paths were unaffected because bash resets `$HOME` from the passwd entry, masking the bug. The same `ENV HOME` was added to the commented runtime-stage example (line ~373) for consistency. New integration test in `init_new_repo_spec.bats` asserts the `ENV HOME` appears before the `WORKDIR "${HOME}/work"` directive. Closes #334.
+
+- `script/docker/exec.sh`: precheck for "is the target container running?" now derives the container name from `-t/--target` instead of hardcoding the `devel`-flavoured name. Before this fix the precheck at line 299 was `${USER_NAME}-${IMAGE_NAME}${INSTANCE_SUFFIX}` regardless of target, so any `./exec.sh -t <non-devel> ...` invocation against a running `headless` / `gui` / `test` stage container (auto-emitted via #215 with `container_name: ${USER_NAME}-${IMAGE_NAME}-<stage>${INSTANCE_SUFFIX:-}`) aborted with "'<image>' is not running" even though `docker compose exec ${TARGET}` would have worked. The fix mirrors the compose.yaml convention: `devel` -> no stage suffix, anything else -> `-${TARGET}` suffix between `${IMAGE_NAME}` and `${INSTANCE_SUFFIX}`. 4 new unit cases in `exec_sh_spec.bats` lock the precheck name shape across all four combinations (devel / non-devel x with-instance / without-instance). Closes #335.
+
+- `script/docker/stop.sh`: `_down_one` now exports `COMPOSE_PROFILES='*'` (compose v2.32+ wildcard) and passes `--remove-orphans` when invoking `docker compose down`. Without these, profile-gated services (the auto-emitted `headless` / `gui` / `test` stages introduced via #215) were silently skipped because `docker compose down` only acts on services in currently-active profiles; running `./run.sh -t headless -d` started the container correctly, but `./stop.sh` left it running with no output and `exit 0`. `--remove-orphans` additionally reclaims containers from prior compose.yaml shapes the current file no longer declares. The same env + flag pair is threaded through every `_down_one` invocation (default, `--instance`, `--all`). 2 new unit cases in `stop_sh_spec.bats` lock the `--remove-orphans` propagation including across `--all`. Closes #341.
+
+- `script/docker/stop.sh`: `-v` / `--verbose` is no longer a no-op. Previously it only exported `BUILDKIT_PROGRESS=plain`, which has zero effect on `compose down` because compose down doesn't build anything; the flag accepted, produced no extra output, and users were left confused. The new behaviour lists the containers belonging to the compose project (name + state, via `docker ps -a --filter "label=com.docker.compose.project=<name>"`) before tearing them down, giving the stop flow a real visible signal in parity with `build.sh -v` / `run.sh -v` / `exec.sh -v`. When no containers match, an explicit "No containers found for project &lt;name&gt;" line is printed instead. `-vv` continues to add `set -x` wrapper trace on top. 3 new unit cases in `stop_sh_spec.bats` cover the populated / empty / default (no -v) output. Usage text updated in all 4 languages. Closes #345.
+
+## [v0.29.1] - 2026-05-14
+
+Patch release (no RC) correcting the v0.29.0 dispatcher's per-shard `image_name` separator from `_` to `-` before any downstream adoption. Per CLAUDE.md's "MAJOR.MINOR.PATCH = bug fix; RC not required" rule (see v0.12.1 / v0.12.2 / v0.12.3 precedent), tagged directly on the merge commit.
+
+### Fixed
+
+- `.github/workflows/multi-distro-build-worker.yaml`: per-shard `image_name` separator changed from `_` (v0.29.0) to `-` to match the existing org convention. `app/ros1_bridge`'s pre-dispatcher `main.yaml` shipped `ros1_bridge-${distro}` (hyphen); v0.29.0's initial dispatcher used `_${distro}` (underscore) which would have forced a registry tag rename on adoption. No consumer had adopted v0.29.0's dispatcher yet — this fix corrects the separator before the first downstream migration (planned for `app/ros1_bridge`). `env/ros{,2}_distro` use a single-image-multi-variant shape (no distro suffix on image_name) that this 1D dispatcher doesn't fit; their migration is tracked at #344 (2D dispatcher extension).
+
+## [v0.29.0] - 2026-05-14
+
+Promoted from `v0.29.0-rc1` (#343). rc1 tag CI green: `Self Test` + `Release test-tools image to GHCR` both completed/success. The `:main` rolling tag bootstrapped on the rc1 multi-arch publish.
+
+Bundles all rc1 content; no further changes between rc1 and stable.
+
+Downstream propagation queued separately:
+
+- `app/ros1_bridge` — migrate `main.yaml` to use `multi-distro-build-worker.yaml@v0.29.0` (1D matrix; B-1 ready as-shipped).
+- `env/ros_distro` + `env/ros2_distro` — defer until base#344 ships the 2D dispatcher extension (distro × variant).
+- 13 single-target downstream repos — `/batch-template-upgrade v0.29.0` when ready; nothing in v0.29.0 is breaking for them.
+
+## [v0.29.0-rc1] - 2026-05-14
+
+Release Candidate for v0.29.0 minor feature release. Bundles two themes since v0.28.2:
+
+- **#317 self-test CI optimization plan completed** — all four P-phases shipped: P1 (#318, buildx GHA cache + doc-only classifier; pre-session) + P1 follow-up (#329, classifier fail-open + base ref fetch for fork PRs) + P2 (#332 + #336 hotfix, `:main` rolling tag with 3-layer Obtain fallback + integration-e2e env passthrough + paths-filtered main-push trigger on release-test-tools.yaml) + P3 (#342, `behavioural` job tightened to `behavioural_relevant` gate + block-list extended with `setup.sh` / `i18n.sh` / `lib/**` / `prune.sh`). Net effect: typical PR shaves ~3-5 min wall-time; doc-only PRs land in seconds with `test` short-circuited and `integration-e2e` / `behavioural` skipped; bootstrap-window of fresh `:main` tag absorbed by the 3-layer fallback.
+
+- **#325 B-1 dispatcher reusable workflow** (#339) — new `.github/workflows/multi-distro-build-worker.yaml` lets multi-distro callers (`app/ros1_bridge`, eventually `env/ros_distro` and `env/ros2_distro` after 2D extension lands) pass `pr_distros` / `tag_distros` JSON-array inputs plus a `distro_input_name`. The dispatcher resolves the per-event distro subset and fans it across `build-worker.yaml` matrix shards with a `ci-passed` rollup matching CLAUDE.md's status-check table contract. Replaces the previous "copy-paste the `github.event_name == 'pull_request' && fromJSON(...) || fromJSON(...)` expression into every multi-distro main.yaml" pattern (Path A, rejected per locked decision).
+
+Plus a documentation clarification (#331) on the v0.28.1 `${USER_NAME}-` container_name prefix's relationship to `${DOCKER_HUB_USER}` / `INSTANCE_SUFFIX` namespacing.
+
+No breaking changes from v0.28.2. All changes are internal CI plumbing or net-additive reusable workflow surfaces; downstream Dockerfile contracts and `build-worker.yaml` / `release-worker.yaml` input signatures unchanged.
+
+Downstream propagation is partial in this release: the B-1 dispatcher consumer migrations (`app/ros1_bridge`) follow as separate PRs after v0.29.0 stable lands. `env/*_distro` migrations defer to the 2D-matrix dispatcher extension tracked separately.
+
+### Changed
+
+- `.github/workflows/self-test.yaml`: `behavioural` job's job-level `if:` tightens from `needs.classify.outputs.code_changed == 'true'` to `needs.classify.outputs.behavioural_relevant == 'true'` (#317 P3). P1 already emitted the narrower `behavioural_relevant` output but routed only `code_changed` to the `behavioural` gate; P3 wires the existing output to its intended consumer so PRs that change pure lint / unit-test / Codecov-relevant paths (covered by `test`) no longer burn the docker.sock-mounted compose run. The `classify` job's behavioural block-list is extended with `script/docker/setup.sh` + `script/docker/i18n.sh` + `script/docker/lib/**` + `script/docker/prune.sh` (#317 gotcha-5): each affects `.env` / `compose.yaml` generation or wrapper behaviour that the behavioural compose service exercises end-to-end, so changes there must invalidate the behavioural-skip optimization. Closes the last P-phase of #317.
+
+### Added
+
+- `.github/workflows/multi-distro-build-worker.yaml`: new dispatcher reusable workflow (#325 B-1). Multi-distro callers (`env/ros_distro`, `env/ros2_distro`, `app/ros1_bridge`) pass `pr_distros` / `tag_distros` JSON-array inputs plus a `distro_input_name`; the dispatcher resolves the per-event distro subset (`pull_request` -> `pr_distros`; everything else -> `tag_distros`) and fans the subset across `build-worker.yaml` matrix shards. Each shard derives `image_name` as `<image_name>_<distro>`, passes `<distro_input_name>=<distro>` as the first build_args line, and shards buildx GHA cache via `cache_variant: ${{ matrix.distro }}` (#272 contract reuse). A `ci-passed` rollup job satisfies branch protection — same name used by env/ros_distro / env/ros2_distro per CLAUDE.md's status-check table, so downstream protection contexts don't change on adoption. Solves the maintenance drift caused by the previous "copy-paste the `github.event_name == 'pull_request' && fromJSON('[...]') || fromJSON('[...]')` expression into every multi-distro `main.yaml`" pattern (#325 Path A, explicitly rejected in favour of B-1 dispatcher per the locked decision).
+
 ## [v0.28.2] - 2026-05-14
 
 Patch release for SSH X11 forwarding follow-up (#321 hotfix #333) bundled with CI infrastructure improvements (#317 P2 rolling `:main` tag + 3-layer Obtain fallback, #336 integration-e2e driver fix, #317 P1 follow-up classify-job hardening) and documentation clarifying the v0.28.1 naming-scheme change (#322 follow-up). No breaking changes from v0.28.1; users on v0.28.1 should upgrade to pick up the SSH X11 fix (the v0.28.1 cookie-rewrite path silently produced empty cookies under common `~/.Xauthority` lock contention).

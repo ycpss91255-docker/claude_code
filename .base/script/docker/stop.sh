@@ -85,8 +85,8 @@ usage() {
                     buildx cache / volumes）請用 ./prune.sh。
   --lang LANG       設定訊息語言（預設: en）
   --dry-run         只印出將執行的 docker 指令，不實際執行
-  -v, --verbose     設定 BUILDKIT_PROGRESS=plain（與其他 wrapper 對齊；stop 本身
-                    不會 build，但保持 flag 一致便於肌肉記憶）。
+  -v, --verbose     先列出該 compose project 下的 container（名稱 + 狀態），
+                    再執行 down。讓 stop 流程的可見訊號跟 build/run/exec 對齊。
   -vv, --very-verbose
                     -v 再加 wrapper 本身的 bash trace（set -x）。
 EOF
@@ -107,8 +107,8 @@ EOF
                     buildx cache / volumes）请用 ./prune.sh。
   --lang LANG       设置消息语言（默认: en）
   --dry-run         只打印将执行的 docker 命令，不实际执行
-  -v, --verbose     设置 BUILDKIT_PROGRESS=plain（与其他 wrapper 对齐；stop 本身
-                    不会 build，但保持 flag 一致便于肌肉记忆）。
+  -v, --verbose     先列出该 compose project 下的 container（名称 + 状态），
+                    再执行 down。让 stop 流程的可见信号跟 build/run/exec 对齐。
   -vv, --very-verbose
                     -v 再加 wrapper 本身的 bash trace（set -x）。
 EOF
@@ -129,8 +129,8 @@ EOF
                     （buildx cache / volume 含む）は ./prune.sh を使用。
   --lang LANG       メッセージ言語を設定（デフォルト: en）
   --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
-  -v, --verbose     BUILDKIT_PROGRESS=plain を設定（他の wrapper と整合；
-                    stop 自体は build しないが、フラグの一貫性のため）。
+  -v, --verbose     compose project 配下のコンテナ（名前と状態）を down の
+                    前に出力。stop の可視シグナルを build/run/exec と揃える。
   -vv, --very-verbose
                     -v に加え wrapper 自体の bash trace（set -x）。
 EOF
@@ -153,10 +153,10 @@ Options:
                     cache / volumes), use ./prune.sh.
   --lang LANG       Set message language (default: en)
   --dry-run         Print the docker commands that would run, but do not execute
-  -v, --verbose     Export BUILDKIT_PROGRESS=plain for parity with build/run/exec.
-                    `docker compose down` itself does not build, but keeping the
-                    flag available across all four wrappers gives one
-                    muscle-memory knob to reach for.
+  -v, --verbose     List the containers belonging to this compose project (name
+                    + state) before tearing them down. Gives the stop flow a
+                    real visible signal in parity with build/run/exec, instead
+                    of the previous no-op BUILDKIT_PROGRESS=plain export.
   -vv, --very-verbose
                     -v plus bash trace (set -x) on the wrapper itself.
 EOF
@@ -170,12 +170,38 @@ PASSTHROUGH=()
 # _down_one tears down a single instance. _compute_project_name sets and
 # exports INSTANCE_SUFFIX so compose.yaml resolves the matching container_name.
 #
+# COMPOSE_PROFILES='*' (compose v2.32+ wildcard) activates every profile in
+# compose.yaml so `compose down` actually visits profile-gated services
+# (#215 auto-emitted headless / gui / test stages). Without this, profile-
+# gated containers are silently skipped and remain running. --remove-orphans
+# additionally catches containers from prior compose.yaml shapes that the
+# current file no longer declares. Refs #341.
+#
+# -v / --verbose: list the containers belonging to the compose project
+# before tearing them down. This gives the user a real signal instead of
+# the previous no-op (the BUILDKIT_PROGRESS=plain env had zero effect on
+# `compose down`, see #345).
+#
 # Args:
 #   $1: instance name (empty for the default instance)
 _down_one() {
   local instance="${1}"
   _compute_project_name "${instance}"
-  _compose_project down "${PASSTHROUGH[@]}"
+  if [[ "${VERBOSE:-}" == true ]]; then
+    local _project_name
+    _project_name="${PROJECT_NAME:-${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX}}"
+    local _matches
+    _matches="$(docker ps -a \
+      --filter "label=com.docker.compose.project=${_project_name}" \
+      --format '{{.Names}} ({{.State}})' 2>/dev/null || true)"
+    if [[ -n "${_matches}" ]]; then
+      _log_info stop "Tearing down containers in project ${_project_name}:"
+      printf '%s\n' "${_matches}" | sed 's/^/  /' >&2
+    else
+      _log_info stop "No containers found for project ${_project_name}"
+    fi
+  fi
+  COMPOSE_PROFILES='*' _compose_project down --remove-orphans "${PASSTHROUGH[@]}"
 }
 
 main() {
@@ -231,14 +257,16 @@ main() {
         shift
         ;;
       -v|--verbose)
-        # BUILDKIT_PROGRESS=plain — symmetry with build/run/exec (#311).
-        # No-op for `docker compose down` itself but harmless; keeps the
-        # flag available across all four wrappers for muscle-memory
-        # consistency.
+        # Print the container list belonging to the compose project
+        # before tearing it down. BUILDKIT_PROGRESS=plain (the old #311
+        # behaviour) had zero effect on `docker compose down`; replaced
+        # with real verbose output. Refs #345.
+        VERBOSE=true
         export BUILDKIT_PROGRESS=plain
         shift
         ;;
       -vv|--very-verbose)
+        VERBOSE=true
         export BUILDKIT_PROGRESS=plain
         set -x
         shift
