@@ -333,7 +333,7 @@ env/volumes, network mode, extra volume mounts — through a single
 regenerates both `.env` and `compose.yaml`; users never hand-edit those
 two derived artifacts.
 
-### One conf, six sections
+### One conf, seven sections
 
 ```
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
@@ -343,6 +343,8 @@ two derived artifacts.
 [network]  mode (host|bridge|none), ipc, privileged
 [volumes]  mount_1 (workspace, auto-populated on first run)
            mount_2..mount_N (extra host mounts; devices via /dev path)
+[logging]  driver (json-file default), max_size, max_file, compress
+           [logging.<svc>] for per-service key-level override
 ```
 
 Template default lives at `.base/config/docker/setup.conf`

@@ -24,11 +24,17 @@ setup() {
   ln -s /source/script/docker/lib/gitignore.sh \
         "${TMP_REPO}/.base/script/docker/lib/gitignore.sh"
   # init.sh sources _lib.sh on load (#278: routes _log / _error through
-  # _log_info / _log_err). _lib.sh itself sources i18n.sh, so symlink both.
+  # _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh sub-libs
+  # (#284), so symlink all three surfaces.
   ln -s /source/script/docker/_lib.sh \
         "${TMP_REPO}/.base/script/docker/_lib.sh"
   ln -s /source/script/docker/i18n.sh \
         "${TMP_REPO}/.base/script/docker/i18n.sh"
+  for _sl in log env conf compose config_summary; do
+    ln -s "/source/script/docker/lib/${_sl}.sh" \
+          "${TMP_REPO}/.base/script/docker/lib/${_sl}.sh"
+  done
+  unset _sl
 
   # Minimal Dockerfile.example stub for _create_new_repo's `cp` step.
   cat > "${TMP_REPO}/.base/dockerfile/Dockerfile.example" <<'EOF'

@@ -302,7 +302,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 `compose.yaml` を再生成します — この 2 つの生成物をユーザが手動編集
 する必要はありません。
 
-### 単一 conf、6 つの section
+### 単一 conf、7 つの section
 
 ```
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
@@ -312,6 +312,8 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 [network]  mode (host|bridge|none)、ipc、privileged
 [volumes]  mount_1（workspace、初回 setup.sh 実行時に自動記入）
            mount_2..mount_N（ユーザ定義の追加 host mount；/dev デバイスは path 指定）
+[logging]  driver（デフォルト json-file）、max_size、max_file、compress
+           [logging.<svc>] で個別 service に key-level override 可能
 ```
 
 テンプレート既定値は `.base/setup.conf`；repo ごとの上書きは

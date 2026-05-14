@@ -162,9 +162,11 @@ _seed_upgrade_fixture() {
   cp /source/upgrade.sh "${TMPL_WORK}/upgrade.sh"
   cp /source/script/docker/lib/gitignore.sh "${TMPL_WORK}/script/docker/lib/gitignore.sh"
   # init.sh / upgrade.sh source _lib.sh on load (#278: route _log / _error
-  # through _log_info / _log_err). _lib.sh sources i18n.sh, so copy both.
+  # through _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh
+  # sub-libs (#284), so copy all three surfaces.
   cp /source/script/docker/_lib.sh "${TMPL_WORK}/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${TMPL_WORK}/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${TMPL_WORK}/script/docker/lib/"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/setup.sh"
   # _create_symlinks references these paths; empty stubs keep ln -sf happy.
   for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh Makefile; do

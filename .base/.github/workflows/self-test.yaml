@@ -9,29 +9,127 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  actionlint:
+    # Catch GHA workflow-validator semantic regressions (the
+    # class behind the v0.26.0-rc1 wedge, #297) before the
+    # bats / docker matrix burns CI minutes. Runs first; the
+    # other jobs gate on it. Refs #305.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # Build the test-tools image from THIS PR's Dockerfile so the
-      # self-test exercises the actual changes instead of pulling a
-      # potentially stale ghcr `:latest`. Without this, PRs that touch
-      # Dockerfile.test-tools always run against the previously published
-      # image (chicken-and-egg with release-test-tools.yaml — that
-      # workflow only fires on tag push). Setting TEST_TOOLS_IMAGE
-      # tells compose.yaml's `ci` service to use the local build.
-      - name: Build test-tools:local
-        run: docker build -t test-tools:local -f dockerfile/Dockerfile.test-tools .
+      - name: Run actionlint via Docker
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/repo:ro" \
+            -w /repo \
+            rhysd/actionlint:1.7.7 \
+            -color
+
+  classify:
+    # Per-PR diff classifier (pure shell, no third-party GHA action — same
+    # spirit as #273 Phase 2's build-worker.yaml classifier). Emits two
+    # outputs for downstream jobs:
+    #   code_changed         — false if the PR changes only doc/** + README.md + LICENSE
+    #   behavioural_relevant — false if the PR does NOT touch any path in the
+    #                          behavioural block-list (script/entrypoint.sh,
+    #                          compose.yaml, Dockerfile.example,
+    #                          Dockerfile.test-tools, build/run/exec/stop.sh,
+    #                          init.sh, upgrade.sh, test/behavioural/**,
+    #                          .github/workflows/**)
+    # Non-PR events (push / tag / workflow_dispatch) default to 'true' on
+    # both outputs so post-merge / release builds run the full suite.
+    # See issue #317 for the full design and path-list rationale.
+    needs: actionlint
+    runs-on: ubuntu-latest
+    outputs:
+      code_changed: ${{ steps.diff.outputs.code_changed }}
+      behavioural_relevant: ${{ steps.diff.outputs.behavioural_relevant }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            # push to main / tag push / workflow_dispatch — full suite.
+            echo "code_changed=true" >> "${GITHUB_OUTPUT}"
+            echo "behavioural_relevant=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          BASE="origin/${BASE_REF}"
+          # code_changed: anything outside the doc-only allow-list.
+          if git diff --quiet "${BASE}"...HEAD \
+               -- ':!doc/**' ':!README.md' ':!LICENSE'; then
+            echo "code_changed=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "code_changed=true" >> "${GITHUB_OUTPUT}"
+          fi
+          # behavioural_relevant: block-list (Q5 in #317).
+          if git diff --quiet "${BASE}"...HEAD \
+               -- 'script/entrypoint.sh' \
+                  'compose.yaml' \
+                  'dockerfile/Dockerfile.example' \
+                  'dockerfile/Dockerfile.test-tools' \
+                  'script/docker/build.sh' \
+                  'script/docker/run.sh' \
+                  'script/docker/exec.sh' \
+                  'script/docker/stop.sh' \
+                  'test/behavioural/**' \
+                  'init.sh' 'upgrade.sh' \
+                  '.github/workflows/**'; then
+            echo "behavioural_relevant=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "behavioural_relevant=true" >> "${GITHUB_OUTPUT}"
+          fi
+
+  test:
+    needs: [actionlint, classify]
+    runs-on: ubuntu-latest
+    steps:
+      # Doc-only short-circuit: `test` is the only branch-protection-required
+      # status check on `main`, so we must always REPORT a SUCCESS result.
+      # `skipped` is NOT `success` for required checks. The pattern is: keep
+      # the job in the graph, branch internally, exit 0 on doc-only PRs.
+      - name: Doc-only short-circuit
+        if: needs.classify.outputs.code_changed == 'false'
+        run: |
+          echo "Doc-only PR — bats / shellcheck / kcov skipped; reporting SUCCESS for branch protection."
+
+      - name: Checkout
+        if: needs.classify.outputs.code_changed == 'true'
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        if: needs.classify.outputs.code_changed == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build test-tools:local (with GHA cache)
+        if: needs.classify.outputs.code_changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: test-tools:local
+          load: true
+          cache-from: type=gha,scope=test-tools
+          cache-to: type=gha,scope=test-tools,mode=max
 
       - name: Run CI (ShellCheck + Bats + Kcov)
+        if: needs.classify.outputs.code_changed == 'true'
         env:
           TEST_TOOLS_IMAGE: test-tools:local
         run: ./script/ci/ci.sh
 
       - name: Upload coverage to Codecov
-        if: always()
+        if: ${{ needs.classify.outputs.code_changed == 'true' && always() }}
         uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -40,6 +138,8 @@ jobs:
 
   integration-e2e:
     name: Integration E2E (init.sh → build → run → exec → stop)
+    needs: [actionlint, classify]
+    if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -102,17 +202,26 @@ jobs:
 
   behavioural:
     name: Behavioural Test (runtime-test smoke gate, #249)
+    needs: [actionlint, classify]
+    # P1 (#317) gates on code_changed only; P3 will tighten to behavioural_relevant.
+    if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # Build test-tools:local from THIS PR's Dockerfile so the docker
-      # CLI added in #249 actually lands in the image the behavioural
-      # specs consume. Skipping this would pull the previously
-      # published `:latest` (no docker CLI) and every test would skip.
-      - name: Build test-tools:local
-        run: docker build -t test-tools:local -f dockerfile/Dockerfile.test-tools .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build test-tools:local (with GHA cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: test-tools:local
+          load: true
+          cache-from: type=gha,scope=test-tools
+          cache-to: type=gha,scope=test-tools,mode=max
 
       - name: Run behavioural specs (docker.sock-mounted ci-behavioural service)
         env:

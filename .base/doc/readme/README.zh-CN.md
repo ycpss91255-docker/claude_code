@@ -290,7 +290,7 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 `setup.sh` 读它 + 系统检测后重新生成 `.env` 和 `compose.yaml`，这两
 个衍生文件用户不用动手编辑。
 
-### 单一 conf、6 个 section
+### 单一 conf、7 个 section
 
 ```
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
@@ -300,6 +300,8 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 [network]  mode (host|bridge|none)、ipc、privileged
 [volumes]  mount_1（workspace，首次 setup.sh 执行时自动填入）
            mount_2..mount_N（用户自定义额外 host mount；/dev 设备走 path）
+[logging]  driver（默认 json-file）、max_size、max_file、compress
+           [logging.<svc>] 可对单一 service 做 key-level override
 ```
 
 Template default 在 `.base/setup.conf`；per-repo 覆盖放 `<repo>/setup.conf`。

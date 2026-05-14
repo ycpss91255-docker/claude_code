@@ -102,7 +102,7 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
+用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
 
 選項:
   -h, --help     顯示此說明
@@ -117,6 +117,11 @@ usage() {
   --no-cache     強制不使用 cache 重建
   --clean-tools  build 結束後移除 test-tools:local image（預設保留以加速下次 build）
   --dry-run      只印出將執行的 docker 指令，不實際執行
+  -v, --verbose  詳細 docker 輸出（BUILDKIT_PROGRESS=plain）。build 卡住時用 —
+                 即時顯示每個 RUN 步驟的 stdout/stderr，不再收斂成單行進度條。
+  -vv, --very-verbose
+                 -v 再加 wrapper 本身的 bash trace（set -x），用於除錯 wrapper
+                 邏輯（少用；通常 -v 就夠了）。
   --lang LANG    設定訊息語言（預設: en）
   -t, --target TARGET
                  指定建置目標（等同於位置參數 [TARGET]，與 run.sh -t 對齊）。
@@ -130,7 +135,7 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
+用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
 
 选项:
   -h, --help     显示此说明
@@ -145,6 +150,11 @@ EOF
   --no-cache     强制不使用 cache 重建
   --clean-tools  build 结束后移除 test-tools:local image（默认保留以加速下次 build）
   --dry-run      只打印将执行的 docker 命令，不实际执行
+  -v, --verbose  详细 docker 输出（BUILDKIT_PROGRESS=plain）。build 卡住时用 —
+                 实时显示每个 RUN 步骤的 stdout/stderr，不再收敛成单行进度条。
+  -vv, --very-verbose
+                 -v 再加 wrapper 本身的 bash trace（set -x），用于调试 wrapper
+                 逻辑（少用；通常 -v 就够了）。
   --lang LANG    设置消息语言（默认: en）
   -t, --target TARGET
                  指定构建目标（等同于位置参数 [TARGET]，与 run.sh -t 对齐）。
@@ -158,7 +168,7 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
+使用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
 
 オプション:
   -h, --help     このヘルプを表示
@@ -174,6 +184,12 @@ EOF
   --no-cache     キャッシュを使わず強制リビルド
   --clean-tools  build 終了後に test-tools:local image を削除（デフォルトは保持）
   --dry-run      実行される docker コマンドを表示するのみ（実行はしない）
+  -v, --verbose  docker の詳細出力（BUILDKIT_PROGRESS=plain）。build がハング
+                 した時に使用 — 各 RUN ステップの stdout/stderr をリアルタイム
+                 表示し、単一行プログレスバーに畳まれません。
+  -vv, --very-verbose
+                 -v に加え wrapper 自体の bash trace（set -x）。wrapper ロジック
+                 のデバッグ用（稀；通常は -v で十分）。
   --lang LANG    メッセージ言語を設定（デフォルト: en）
   -t, --target TARGET
                  ビルドターゲットを指定（位置引数 [TARGET] と同義、run.sh -t と整合）。
@@ -187,7 +203,7 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
+Usage: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
 
 Options:
   -h, --help     Show this help
@@ -206,6 +222,14 @@ Options:
   --no-cache     Force rebuild without cache
   --clean-tools  Remove test-tools:local image after build (default: keep for faster next build)
   --dry-run      Print the docker commands that would run, but do not execute
+  -v, --verbose  Verbose docker output (BUILDKIT_PROGRESS=plain). Use when a
+                 build appears hung — surfaces every RUN step's real-time
+                 stdout/stderr instead of the collapsed single-line progress
+                 UI.
+  -vv, --very-verbose
+                 -v plus bash trace (set -x) on the wrapper itself. For
+                 debugging the wrapper's own logic (rare; -v is usually
+                 enough).
   --lang LANG    Set message language (default: en)
   -t, --target TARGET
                  Build target (alias for the positional [TARGET], mirrors
@@ -281,6 +305,23 @@ main() {
         ;;
       --dry-run)
         DRY_RUN=true
+        shift
+        ;;
+      -v|--verbose)
+        # Surface every RUN step's real-time stdout/stderr in docker
+        # build, instead of the collapsed BuildKit progress UI.
+        # https://docs.docker.com/build/building/variables/#progress
+        # Use when a build appears hung to distinguish "still doing
+        # work" from "waiting on network / something else". Closes #311.
+        export BUILDKIT_PROGRESS=plain
+        shift
+        ;;
+      -vv|--very-verbose)
+        # -v plus bash trace on the wrapper itself. For debugging the
+        # wrapper's own option parsing / branching (rare; -v is enough
+        # for diagnosing a hung docker build).
+        export BUILDKIT_PROGRESS=plain
+        set -x
         shift
         ;;
       --lang)

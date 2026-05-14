@@ -220,14 +220,15 @@ setup() {
 # Docker compose project name (-p)
 # ════════════════════════════════════════════════════════════════════
 
-@test "_lib.sh derives PROJECT_NAME from DOCKER_HUB_USER and IMAGE_NAME" {
-  # Project name derivation lives in _lib.sh and is shared by all callers.
-  run grep -E 'PROJECT_NAME=.*DOCKER_HUB_USER.*IMAGE_NAME' /source/script/docker/_lib.sh
+@test "lib/compose.sh derives PROJECT_NAME from DOCKER_HUB_USER and IMAGE_NAME" {
+  # Project name derivation lives in lib/compose.sh (#284 split out of _lib.sh)
+  # and is shared by all callers via the _lib.sh umbrella.
+  run grep -E 'PROJECT_NAME=.*DOCKER_HUB_USER.*IMAGE_NAME' /source/script/docker/lib/compose.sh
   assert_success
 }
 
-@test "_lib.sh _compose_project wraps -p with PROJECT_NAME" {
-  run grep -E '\-p .*PROJECT_NAME' /source/script/docker/_lib.sh
+@test "lib/compose.sh _compose_project wraps -p with PROJECT_NAME" {
+  run grep -E '\-p .*PROJECT_NAME' /source/script/docker/lib/compose.sh
   assert_success
 }
 
@@ -261,18 +262,18 @@ setup() {
   assert_success
 }
 
-@test "_lib.sh defines _load_env helper" {
-  run grep -E '^_load_env\(\)' /source/script/docker/_lib.sh
+@test "lib/env.sh defines _load_env helper" {
+  run grep -E '^_load_env\(\)' /source/script/docker/lib/env.sh
   assert_success
 }
 
-@test "_lib.sh defines _compute_project_name helper" {
-  run grep -E '^_compute_project_name\(\)' /source/script/docker/_lib.sh
+@test "lib/compose.sh defines _compute_project_name helper" {
+  run grep -E '^_compute_project_name\(\)' /source/script/docker/lib/compose.sh
   assert_success
 }
 
-@test "_lib.sh defines _compose wrapper" {
-  run grep -E '^_compose\(\)' /source/script/docker/_lib.sh
+@test "lib/compose.sh defines _compose wrapper" {
+  run grep -E '^_compose\(\)' /source/script/docker/lib/compose.sh
   assert_success
 }
 
@@ -463,12 +464,15 @@ setup() {
   local _tmp
   _tmp="$(mktemp -d)"
   cat > "${_tmp}/.env" <<EOF
+USER_NAME=alice
 DOCKER_HUB_USER=alice
 IMAGE_NAME=missing-image-$$
 EOF
-  mkdir -p "${_tmp}/.base/script/docker"
+  mkdir -p "${_tmp}/.base/script/docker/lib"
   cp /source/script/docker/_lib.sh "${_tmp}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/.base/script/docker/i18n.sh" 2>/dev/null || true
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh "${_tmp}/.base/script/docker/lib/"
   cp /source/script/docker/exec.sh "${_tmp}/exec.sh"
 
   run bash "${_tmp}/exec.sh"
@@ -482,12 +486,15 @@ EOF
   local _tmp
   _tmp="$(mktemp -d)"
   cat > "${_tmp}/.env" <<EOF
+USER_NAME=alice
 DOCKER_HUB_USER=alice
 IMAGE_NAME=ghost-$$
 EOF
-  mkdir -p "${_tmp}/.base/script/docker"
+  mkdir -p "${_tmp}/.base/script/docker/lib"
   cp /source/script/docker/_lib.sh "${_tmp}/.base/script/docker/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/.base/script/docker/i18n.sh" 2>/dev/null || true
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh "${_tmp}/.base/script/docker/lib/"
   cp /source/script/docker/exec.sh "${_tmp}/exec.sh"
 
   run bash "${_tmp}/exec.sh" --dry-run
@@ -582,11 +589,15 @@ EOF
 
 _stage_lint_layout() {
   # Simulate Dockerfile.example's /lint/ stage: script + helpers in one
-  # flat directory. Callers pass the script file under test.
+  # flat directory, with the lib/ sub-directory (#284 umbrella sources
+  # lib/*.sh — Dockerfile.example COPYs `.base/script/docker/lib /lint/lib`
+  # to mirror it). Callers pass the script file under test.
   local _dest="${1:?}" _script="${2:?}"
   cp "/source/script/docker/${_script}" "${_dest}/${_script}"
   cp /source/script/docker/_lib.sh   "${_dest}/_lib.sh"
   cp /source/script/docker/i18n.sh   "${_dest}/i18n.sh"
+  mkdir -p "${_dest}/lib"
+  cp /source/script/docker/lib/*.sh  "${_dest}/lib/"
 }
 
 @test "build.sh -h works in /lint/ layout (flat dir with _lib.sh + i18n.sh, issue #104)" {
