@@ -3,48 +3,27 @@
 
 set -euo pipefail
 
-# `-C <dir>` / `--chdir <dir>` pre-pass — see build.sh for the full
-# rationale (refs docker_harness#53). Override FILE_PATH before _lib.sh
-# is sourced so all path-dependent operations honor the target repo.
-FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-_chdir_i=1
-while (( _chdir_i <= $# )); do
-  case "${!_chdir_i}" in
-    -C|--chdir)
-      _chdir_next=$((_chdir_i + 1))
-      if (( _chdir_next > $# )) || [[ -z "${!_chdir_next:-}" ]]; then
-        printf '[stop] ERROR: -C/--chdir requires a value\n' >&2
-        exit 2
-      fi
-      _chdir_arg="${!_chdir_next}"
-      if [[ ! -d "${_chdir_arg}" ]]; then
-        printf '[stop] ERROR: -C target is not a directory: %s\n' "${_chdir_arg}" >&2
-        exit 2
-      fi
-      FILE_PATH="$(cd -- "${_chdir_arg}" && pwd -P)"
-      _chdir_i=$((_chdir_next + 1))
-      ;;
-    *)
-      _chdir_i=$((_chdir_i + 1))
-      ;;
-  esac
+# Shared wrapper preamble (#408 sub-task A): resolve FILE_PATH across the
+# symlink / script-subfolder / direct / /lint layouts, honor -C/--chdir,
+# and source _lib.sh -- all in lib/bootstrap.sh. See build.sh for the
+# locator rationale.
+_bootstrap_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+for _bootstrap_cand in \
+  "$(dirname -- "${_bootstrap_self}")/../lib/bootstrap.sh" \
+  "$(dirname -- "${_bootstrap_self}")/lib/bootstrap.sh" \
+  "$(dirname -- "${_bootstrap_self}")/.base/script/docker/lib/bootstrap.sh"; do
+  if [[ -f "${_bootstrap_cand}" ]]; then
+    # shellcheck source=script/docker/lib/bootstrap.sh
+    source "${_bootstrap_cand}"
+    break
+  fi
 done
-unset _chdir_i _chdir_next _chdir_arg
-readonly FILE_PATH
-# _lib.sh lookup: .base/script/docker/_lib.sh in consumer repos, or
-# sibling _lib.sh in /lint/ (Dockerfile test stage). See build.sh.
-if [[ -f "${FILE_PATH}/.base/script/docker/_lib.sh" ]]; then
-  # shellcheck disable=SC1091
-  source "${FILE_PATH}/.base/script/docker/_lib.sh"
-elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
-  # shellcheck disable=SC1091
-  source "${FILE_PATH}/_lib.sh"
-else
-  printf "[stop] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/.base/script/docker/_lib.sh" >&2
-  printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
+unset _bootstrap_self _bootstrap_cand
+if ! declare -F _bootstrap >/dev/null 2>&1; then
+  printf '[stop] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
+_bootstrap "$@"
 
 # i18n message tables — split by semantic category (#278 PR-2).
 # Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
@@ -195,10 +174,10 @@ _down_one() {
       --filter "label=com.docker.compose.project=${_project_name}" \
       --format '{{.Names}} ({{.State}})' 2>/dev/null || true)"
     if [[ -n "${_matches}" ]]; then
-      _log_info stop "Tearing down containers in project ${_project_name}:"
+      _log_info stop stop_teardown "display=Tearing down containers in project ${_project_name}:" "project=${_project_name}"
       printf '%s\n' "${_matches}" | sed 's/^/  /' >&2
     else
-      _log_info stop "No containers found for project ${_project_name}"
+      _log_info stop stop_no_containers "display=No containers found for project ${_project_name}" "project=${_project_name}"
     fi
   fi
   COMPOSE_PROFILES='*' _compose_project down --remove-orphans "${PASSTHROUGH[@]}"
@@ -284,8 +263,12 @@ main() {
   done
   export DRY_RUN
 
-  # Load .env so DOCKER_HUB_USER / IMAGE_NAME are available below.
-  _load_env "${FILE_PATH}/.env"
+  # Load .env.generated so DOCKER_HUB_USER / IMAGE_NAME are available below.
+  _load_env "${FILE_PATH}/.env.generated"
+
+  # #440: pre-stop hook fires after env load, before docker stop.
+  # Skipped under --dry-run.
+  _run_pre_hook stop "$@" || exit $?
 
   if [[ "${ALL_INSTANCES}" == true ]]; then
     # Find all docker compose projects whose name starts with our prefix.
@@ -299,7 +282,7 @@ main() {
       local _no_inst
       # shellcheck disable=SC2059
       printf -v _no_inst "$(_msg info no_instances)" "${IMAGE_NAME}"
-      _log_info stop "${_no_inst}"
+      _log_info stop stop_no_containers "display=${_no_inst}"
       # Still honor --prune even when no instance found, so a stale repo
       # with orphan networks/images from past runs gets cleaned.
       _maybe_prune
@@ -318,6 +301,10 @@ main() {
   fi
 
   _maybe_prune
+
+  # #440: post-stop hook fires at end of main(), after compose down +
+  # opt-in prune are complete.
+  _run_post_hook stop "$@"
 }
 
 # _maybe_prune runs the opt-in --prune cleanup after compose down has
@@ -329,13 +316,13 @@ _maybe_prune() {
   local -a _net_cmd=(docker network prune -f --filter "until=10m")
   local -a _img_cmd=(docker image   prune -f --filter "until=24h")
   if [[ "${DRY_RUN}" == true ]]; then
-    printf '[dry-run]'; printf ' %q' "${_net_cmd[@]}"; printf '\n'
-    printf '[dry-run]'; printf ' %q' "${_img_cmd[@]}"; printf '\n'
+    _dry_run_cmd "${_net_cmd[@]}"
+    _dry_run_cmd "${_img_cmd[@]}"
     return 0
   fi
-  _log_info stop "Pruning orphan networks (until=10m)..."
+  _log_info stop stop_prune_networks "display=Pruning orphan networks (until=10m)..."
   "${_net_cmd[@]}" || true
-  _log_info stop "Pruning dangling images (until=24h)..."
+  _log_info stop stop_prune_images "display=Pruning dangling images (until=24h)..."
   "${_img_cmd[@]}" || true
 }
 

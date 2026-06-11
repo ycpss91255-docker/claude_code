@@ -208,31 +208,48 @@ setup() {
   assert_output --partial 'default: ""'
 }
 
-@test "build-worker.yaml: Compute cache scope step emits id: cache with scope key in GITHUB_OUTPUT (#272)" {
-  # The step computes `${image_name}[-${cache_variant}]-${hardware}-cache`
-  # once at the top of the build job; all 4 build steps reference the
-  # output. Asserts presence + id so downstream `steps.cache.outputs.key`
-  # references resolve.
+@test "build-worker.yaml: Compute cache scope step emits id: cache with base key in GITHUB_OUTPUT (#272 + #378)" {
+  # The step computes the per-(repo, variant, arch) base
+  # `${image_name}[-${cache_variant}]-${hardware}` once; per-target
+  # suffix (`-devel-test-cache`, `-devel-cache`, `-runtime-test-cache`,
+  # `-runtime-cache`) is appended at the use site. See the b1 mitigation
+  # of #378 for why the shape changed from a single shared `<base>-cache`
+  # scope to 4 per-target scopes.
   run grep -E '^        id: cache$' "${WF}"
   assert_success
-  run grep -E '^          echo "key=\$\{base\}-\$\{\{ matrix\.hardware \}\}-cache" >> "\$\{GITHUB_OUTPUT\}"$' "${WF}"
+  run grep -E '^          echo "key=\$\{base\}-\$\{\{ matrix\.hardware \}\}" >> "\$\{GITHUB_OUTPUT\}"$' "${WF}"
   assert_success
 }
 
-@test "build-worker.yaml: 4 build steps all set cache-from=type=gha (#272)" {
-  # Every docker/build-push-action call must read from the same GHA
-  # scope so feature-branch builds reuse the base branch's cache and
-  # subsequent steps within the same shard share intermediate layers.
-  run grep -c '^          cache-from: type=gha,scope=\${{ steps\.cache\.outputs\.key }}$' "${WF}"
-  assert_success
-  assert_output "4"
+@test "build-worker.yaml: 4 build steps use per-target cache scopes (#378 b1)" {
+  # Pre-#378 all 4 build steps shared `${steps.cache.outputs.key}` so a
+  # late-stage COPY in devel cascaded the manifest pointer in the
+  # shared scope, invalidating runtime / runtime-test caches on the
+  # next PR. Post-#378 each target has its own scope; one scope's
+  # manifest update no longer affects the others.
+  for _target in devel-test devel runtime-test runtime; do
+    run grep -F "cache-from: type=gha,scope=\${{ steps.cache.outputs.key }}-${_target}-cache" "${WF}"
+    assert_success
+    run grep -F "cache-to: type=gha,scope=\${{ steps.cache.outputs.key }}-${_target}-cache,mode=max" "${WF}"
+    assert_success
+  done
 }
 
-@test "build-worker.yaml: 4 build steps all set cache-to=type=gha,...,mode=max (#272)" {
+@test "build-worker.yaml: 4 distinct cache scopes exist, no shared scope leftover (#378 b1)" {
+  # Negative regression: ensure no legacy `cache-from:`/`cache-to:` line
+  # still references the bare base key (which would mean a build step
+  # was missed in the per-target migration).
+  run grep -cE '^          cache-(from|to): type=gha,scope=\$\{\{ steps\.cache\.outputs\.key \}\}(,|$)' "${WF}"
+  [ "${status}" -ne 0 ] || [ "${output}" = "0" ]
+}
+
+@test "build-worker.yaml: 4 build steps all set mode=max on cache-to (#272 preserved)" {
   # mode=max exports all intermediate stage layers (including the heavy
   # builder / source-build stages). The 10 GB GHA quota tradeoff is
-  # accepted; LRU eviction is expected to keep hot paths cached.
-  run grep -c '^          cache-to: type=gha,scope=\${{ steps\.cache\.outputs\.key }},mode=max$' "${WF}"
+  # accepted; LRU eviction is expected to keep hot paths cached. With
+  # per-target scopes (#378 b1) the total storage roughly 4x grows; LRU
+  # still keeps hot paths.
+  run grep -cE '^          cache-to: type=gha,scope=\${{ steps\.cache\.outputs\.key }}-(devel-test|devel|runtime-test|runtime)-cache,mode=max$' "${WF}"
   assert_success
   assert_output "4"
 }
@@ -240,8 +257,8 @@ setup() {
 @test "build-worker.yaml: cache_variant default preserves zero-diff for single-call callers (#272)" {
   # Single-distro repos (agent/* + ros1_bridge-${distro} pattern) leave
   # cache_variant unset; the scope key reduces to
-  # ${image_name}-${hardware}-cache, which is already per-(repo, arch)
-  # and matches the existing matrix shape.
+  # ${image_name}-${hardware}-<target>-cache (#378 b1), which is still
+  # per-(repo, arch) and now also per-target.
   local _cv
   _cv="$(grep -A 3 '^      cache_variant:' "${WF}" | grep 'default:' | head -1)"
   [[ "${_cv}" == *'""'* ]]
@@ -322,4 +339,48 @@ setup() {
   # matrix — the doc-only fast-pass is PR-only.
   run grep -F 'echo "code_changed=true"' "${WF}"
   assert_success
+}
+
+# ── #470: opt-in free_disk_space for large BASE_IMAGE repos ───────────
+
+@test "build-worker.yaml: declares free_disk_space input as boolean default false (#470)" {
+  # Opt-in step that pre-clears ~30 GB of pre-installed runner tooling
+  # (Android SDK, .NET, GHC, ...) so repos whose BASE_IMAGE doesn't fit
+  # in ubuntu-latest's ~14 GB (Isaac Sim ~15 GB extracted) stop hitting
+  # `no space left on device` during BuildKit COPY. Default false so
+  # the ~30 s cleanup overhead doesn't tax existing small-image callers.
+  run grep -A 3 '^      free_disk_space:' "${WF}"
+  assert_success
+  assert_output --partial 'required: false'
+  assert_output --partial 'type: boolean'
+  assert_output --partial 'default: false'
+}
+
+@test "build-worker.yaml: Free disk space step gated on inputs.free_disk_space (#470)" {
+  # The step is opt-in; without the gate every existing caller would
+  # pay the cleanup time even when they don't need it.
+  run grep -E "^[[:space:]]+if: \\\$\{\{ inputs\\.free_disk_space \\}\}$" "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: Free disk space step uses jlumbroso/free-disk-space (#470)" {
+  # The community action removes Android SDK / .NET / GHC / tool-cache
+  # without touching docker daemon state, which is what we need before
+  # buildx starts pulling the BASE_IMAGE.
+  run grep -E '^[[:space:]]+uses: jlumbroso/free-disk-space@' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: Free disk space step runs before Set up Docker Buildx (#470)" {
+  # Order matters — buildx allocates its overlayfs snapshot dir before
+  # the first COPY, so disk must be freed earlier in the job.
+  local _free _buildx
+  _free="$(grep -n '^      - name: Free disk space$' "${WF}" | cut -d: -f1)"
+  _buildx="$(grep -n '^      - name: Set up Docker Buildx$' "${WF}" | cut -d: -f1)"
+  [[ -n "${_free}" ]] || { echo "Free disk space step missing"; return 1; }
+  [[ -n "${_buildx}" ]] || { echo "Set up Docker Buildx step missing"; return 1; }
+  [[ "${_free}" -lt "${_buildx}" ]] || {
+    echo "expected Free disk space (line ${_free}) before Set up Docker Buildx (line ${_buildx})"
+    return 1
+  }
 }

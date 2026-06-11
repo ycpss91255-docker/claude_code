@@ -20,19 +20,13 @@
 # template directory regardless of how the script was invoked.
 _SETUP_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 _SETUP_SCRIPT_DIR="$(cd -- "$(dirname -- "${_SETUP_SELF}")" && pwd -P)"
+_SETUP_LIB_DIR="$(cd -- "${_SETUP_SCRIPT_DIR}/../lib" && pwd -P)"
 # shellcheck disable=SC1091
-source "${_SETUP_SCRIPT_DIR}/i18n.sh"
+source "${_SETUP_LIB_DIR}/i18n.sh"
 # shellcheck disable=SC1091
-source "${_SETUP_SCRIPT_DIR}/_tui_conf.sh"
-# _lib.sh provides _log_err / _log_warn / _log_info (#278). Sourcing
-# here makes them available throughout setup.sh's emission paths after
-# the #290 refactor that routes user-facing output through the
-# log-helper family instead of raw `printf "[setup] LEVEL: ..."` lines.
-# _lib.sh is idempotent (guarded by _DOCKER_LIB_SOURCED); its
-# transitive i18n.sh source is a no-op redefinition since we already
-# sourced i18n.sh above.
+source "${_SETUP_LIB_DIR}/_tui_conf.sh"
 # shellcheck disable=SC1091
-source "${_SETUP_SCRIPT_DIR}/_lib.sh"
+source "${_SETUP_LIB_DIR}/_lib.sh"
 
 # i18n message table, split per category and routed through _log_*
 # (closes #290). Renamed from a monolithic `_msg` to `_setup_msg`
@@ -172,6 +166,15 @@ _setup_msg_stage() {
 }
 
 # Dispatcher — keeps a single _setup_msg call shape across the script.
+_setup_msg_deploy() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:runtime_deprecated) echo "[deploy] runtime 已更名為 gpu_runtime；舊鍵仍可用（永久別名），請改用 gpu_runtime（v1.0.0 將移除）" ;;
+    zh-CN:runtime_deprecated) echo "[deploy] runtime 已更名为 gpu_runtime；旧键仍可用（永久别名），请改用 gpu_runtime（v1.0.0 将移除）" ;;
+    ja:runtime_deprecated)    echo "[deploy] runtime は gpu_runtime に改名されました。旧キーは当面有効（恒久エイリアス）ですが gpu_runtime へ移行してください（v1.0.0 で削除）" ;;
+    *:runtime_deprecated)     echo "[deploy] runtime is renamed to gpu_runtime; the old key still works (permanent alias) but please migrate to gpu_runtime (removal at v1.0.0)" ;;
+  esac
+}
+
 _setup_msg() {
   local _category="${1:?_setup_msg requires category}"
   local _key="${2:?_setup_msg requires key}"
@@ -233,6 +236,16 @@ Subcommands:
                 setup.conf / .env are saved to setup.conf.bak / .env.bak.
                 Without --yes, prompts for confirmation; non-tty
                 without --yes refuses to proceed.
+  deploy [--stage S] [--output F] [--dry-run] [-y|--yes]
+                Build a self-contained field bundle for stage S (default
+                runtime): bake [environment] as ENV + COPY config/app
+                into the image, docker build --target S, generate
+                deploy.sh, docker save, and tar.xz {image, deploy.sh}.
+                Previews the resolved launcher (every inlined docker
+                flag) and prompts before building; --dry-run prints the
+                plan only; -y skips the prompt. Default output is
+                <base-path>/deploy/<name>-<stage>.tar.xz. Field flow:
+                extract, docker load < image.tar, ./deploy.sh.
 
 Options:
   -h, --help            Show this help and exit.
@@ -246,6 +259,23 @@ Options:
                         still go to stderr. Used by setup_tui.sh to
                         avoid double-printing after its `[tui] saved`
                         line.
+
+Apply-only options (#338):
+  --gui auto|force|off  Per-invocation override for [gui] mode. Wins
+                        over $SETUP_GUI env var and setup.conf. Useful
+                        for debugging X11 or one-off headless runs on
+                        a GUI repo. Equivalent forms: `--gui=auto`.
+  --no-x11-cookie       Skip the SSH X11 cookie rewrite even when
+                        SSH X11 forwarding is detected. GUI itself
+                        stays enabled per [gui] mode resolution;
+                        $XAUTHORITY stays at the host value the user's
+                        SSH session populated. Debug knob for #321.
+  --print-resolved      Run all detection + resolution logic and
+                        print the effective state to stdout as
+                        `KEY=VALUE` lines (one per line), then exit
+                        without writing .env / compose.yaml /
+                        .gitignore. Subsumes the dry-run piece of
+                        the #230 base-mcp setup_resolve plan.
 
 Outputs (apply only — both derived artifacts, gitignored):
   <base-path>/.env          Exported variables + SETUP_* drift metadata
@@ -405,7 +435,7 @@ _is_ssh_x11() {
 _setup_ssh_x11_cookie() {
   local _file_path="${1:?_setup_ssh_x11_cookie requires <file_path>}"
   if ! command -v xauth >/dev/null 2>&1; then
-    _log_warn setup "SSH X11 forwarding detected but 'xauth' is not in PATH; skipping cookie rewrite. Install xauth (apt: x11-xauth-utils) and re-run setup."
+    _log_warn setup ssh_x11_no_xauth "display=SSH X11 forwarding detected but 'xauth' is not in PATH; skipping cookie rewrite. Install xauth (apt: x11-xauth-utils) and re-run setup."
     return 1
   fi
   local _out="${_file_path}/.docker.xauth"
@@ -422,7 +452,7 @@ _setup_ssh_x11_cookie() {
   xauth -i nlist "${DISPLAY}" 2>/dev/null \
     | sed -e 's/^..../ffff/' \
     | xauth -i -f "${_out}" nmerge - >/dev/null 2>&1 || {
-        _log_warn setup "xauth cookie rewrite failed; XAUTHORITY left at host value."
+        _log_warn setup xauth_rewrite_failed "display=xauth cookie rewrite failed; XAUTHORITY left at host value."
         return 1
       }
   # Defensive: verify the rewrite actually produced content. The pipe
@@ -433,7 +463,7 @@ _setup_ssh_x11_cookie() {
   # cookie path into .env (which then makes the container mount a
   # 0-byte cookie and fail X11 auth silently).
   if [[ ! -s "${_out}" ]]; then
-    _log_warn setup "xauth cookie rewrite produced an empty cookie file; XAUTHORITY left at host value."
+    _log_warn setup xauth_empty_cookie "display=xauth cookie rewrite produced an empty cookie file; XAUTHORITY left at host value."
     return 1
   fi
   printf '%s\n' "${_out}"
@@ -441,55 +471,12 @@ _setup_ssh_x11_cookie() {
 
 # ════════════════════════════════════════════════════════════════════
 # INI parser for setup.conf
-# ════════════════════════════════════════════════════════════════════
-
-# _parse_ini_section <file> <section> <keys_outvar> <values_outvar>
 #
-# Reads one section [<section>] from <file> into parallel arrays.
-# Skips comments (#) and empty lines. Trims key/value whitespace.
-# If a key is defined both in <base_path>/setup.conf and in .base/setup.conf,
-# caller should use _load_setup_conf which handles the merge (replace strategy).
-_parse_ini_section() {
-  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
-  local _section="${2:?"${FUNCNAME[0]}: missing section"}"
-  local -n _pis_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
-  local -n _pis_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
-
-  _pis_keys=()
-  _pis_values=()
-  [[ -f "${_file}" ]] || return 0
-
-  local __pis_line __pis_current="" __pis_k __pis_v
-  while IFS= read -r __pis_line || [[ -n "${__pis_line}" ]]; do
-    [[ -z "${__pis_line}" || "${__pis_line}" =~ ^[[:space:]]*# ]] && continue
-
-    # Trim
-    __pis_line="${__pis_line#"${__pis_line%%[![:space:]]*}"}"
-    __pis_line="${__pis_line%"${__pis_line##*[![:space:]]}"}"
-    [[ -z "${__pis_line}" ]] && continue
-
-    # Section header
-    if [[ "${__pis_line}" =~ ^\[(.+)\]$ ]]; then
-      __pis_current="${BASH_REMATCH[1]}"
-      continue
-    fi
-
-    # Only collect entries for the requested section
-    [[ "${__pis_current}" == "${_section}" ]] || continue
-
-    # Require key = value
-    [[ "${__pis_line}" != *=* ]] && continue
-    __pis_k="${__pis_line%%=*}"
-    __pis_v="${__pis_line#*=}"
-    __pis_k="${__pis_k#"${__pis_k%%[![:space:]]*}"}"
-    __pis_k="${__pis_k%"${__pis_k##*[![:space:]]}"}"
-    __pis_v="${__pis_v#"${__pis_v%%[![:space:]]*}"}"
-    __pis_v="${__pis_v%"${__pis_v##*[![:space:]]}"}"
-
-    _pis_keys+=("${__pis_k}")
-    _pis_values+=("${__pis_v}")
-  done < "${_file}"
-}
+# _parse_ini_section moved to lib/conf.sh in #402 (PR-B) so init.sh
+# can reach it via _lib.sh without sourcing setup.sh. The function
+# stays callable from this file via the same name (_lib.sh sources
+# conf.sh in the umbrella loader near setup.sh's top).
+# ════════════════════════════════════════════════════════════════════
 
 # _load_setup_conf <base_path> <section> <keys_outvar> <values_outvar>
 #
@@ -514,7 +501,7 @@ _load_setup_conf() {
   fi
 
   local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../config/docker/setup.conf"
+  local _template_conf="${_self_dir}/../../../config/docker/setup.conf"
   local _repo_conf="${_base}/config/docker/setup.conf"
 
   # Try per-repo setup.conf first; if the section exists there, use it.
@@ -754,7 +741,7 @@ detect_image_name() {
         _found="$(_rule_basename "${_path}")"
       elif [[ "${_rule}" == @default:* ]]; then
         _found="${_rule#@default:}"
-        printf "[setup] INFO: IMAGE_NAME using @default:%s\n" "${_found}" >&2
+        _log_info setup conf_image_name_default "display=IMAGE_NAME using @default:${_found}" "default=${_found}"
       fi
 
       [[ -n "${_found}" ]] && break
@@ -762,7 +749,7 @@ detect_image_name() {
   fi
 
   if [[ -z "${_found}" ]]; then
-    printf "[setup] WARNING: IMAGE_NAME could not be detected. Using 'unknown'.\n" >&2
+    _log_warn setup conf_image_name_unknown "display=IMAGE_NAME could not be detected. Using 'unknown'."
     _found="unknown"
   fi
   # Lowercase + sanitize: docker compose project names (and image tags)
@@ -879,6 +866,27 @@ _detect_jetson() {
   [[ -f "/etc/nv_tegra_release" ]]
 }
 
+# _detect_dri_groups
+#   Echo space-separated unique numeric GIDs that own the host's
+#   /dev/dri/{card*,renderD*} nodes (#496) so a container can be granted
+#   /dev/dri access via group_add on non-NVIDIA (Intel/AMD iGPU) hosts.
+#   Numeric GIDs only -- the render GID varies per host, so names are
+#   non-portable. Echoes empty when /dev/dri is absent (graceful).
+#   Env override SETUP_DETECT_DRI_GROUPS forces the result (used by tests
+#   to avoid touching /dev/dri).
+_detect_dri_groups() {
+  if [[ -n "${SETUP_DETECT_DRI_GROUPS:-}" ]]; then
+    printf '%s' "${SETUP_DETECT_DRI_GROUPS}"
+    return 0
+  fi
+  local _gids
+  # stat over a non-matching glob just yields no output (stderr suppressed);
+  # sort -u dedups the common case where card* + renderD* share the video GID.
+  _gids="$(stat -c %g /dev/dri/card* /dev/dri/renderD* 2>/dev/null \
+             | sort -u | tr '\n' ' ')"
+  printf '%s' "${_gids% }"
+}
+
 # _resolve_runtime <mode> <outvar>
 #   mode=nvidia → "nvidia" (force, e.g. desktop with csv-mode toolkit)
 #   mode=auto   → "nvidia" iff _detect_jetson, else ""
@@ -932,7 +940,7 @@ _compute_conf_hash() {
   local _base="${1:?}"
   local -n _cch_out="${2:?}"
   local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../config/docker/setup.conf"
+  local _template_conf="${_self_dir}/../../../config/docker/setup.conf"
   local _repo_conf="${_base}/config/docker/setup.conf"
 
   # Use command substitution (not pipe-into-block) so the nameref
@@ -982,10 +990,16 @@ _validate_stage_name() {
   # collision.
 
   # 1. baseline collision (template-managed stages)
-  #    Forward-looking: sys / devel-base / devel / devel-test / runtime-test
+  #    Forward-looking: sys / devel-base / devel / runtime-test
   #    Legacy (backward-compat during v0.21.x transition): base / test
+  #    #493 (A1'-b): `devel-test` is NOT in this set — it is emitted as a
+  #    compose service (legacy name `test`) through the per-stage
+  #    inherit-with-override loop, so `[stage:devel-test]` gives it a
+  #    runtime control surface (e.g. GPU pytest). The service name `test`
+  #    stays blocklisted below so a Dockerfile `AS test` can't collide
+  #    with devel-test's emitted service.
   case "${_stage}" in
-    sys|devel-base|devel|devel-test|runtime-test) return 2 ;;
+    sys|devel-base|devel|runtime-test) return 2 ;;
     base|test) return 2 ;;
   esac
   # 2. reserved tag namespace (template-controlled tag slots)
@@ -1028,7 +1042,7 @@ _parse_dockerfile_stages() {
     [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+)[[:space:]]*$ ]] || continue
     _stage="${BASH_REMATCH[1]}"
     case "${_stage}" in
-      sys|devel-base|devel|devel-test|runtime-test) continue ;;
+      sys|devel-base|devel|runtime-test) continue ;;
       base|test) continue ;;
     esac
     case "${_seen}" in
@@ -1068,6 +1082,338 @@ _compute_dockerfile_hash() {
   done < "${_dockerfile}"
   _cdh_out="$(printf '%s' "${_stage_lines}" | sha256sum | cut -d' ' -f1)"
   return 0
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _generate_runtime_dockerfile <dockerfile> <env_str> <out>
+#
+# S3 of #497 (#503): bake the `[environment]` defaults as `ENV` into the
+# runtime stage so a bare `docker run <runtime-image>` carries sane
+# defaults with no env file -- delivery channel 1 (the only one that
+# reaches the field). Copies <dockerfile> to <out>, inserting an
+# `ENV KEY="VALUE"` block immediately after the `FROM ... AS runtime`
+# line. <env_str> is the newline-separated `KEY=VALUE` [environment]
+# list; cross-refs (`${KEY}`) are expanded against earlier siblings, the
+# same way the compose `environment:` block does (#236).
+#
+# Returns 0 and writes <out> only when the Dockerfile declares an
+# `AS runtime` stage AND <env_str> is non-empty; returns 1 (writes
+# nothing) otherwise, so a repo with no runtime stage keeps building from
+# the plain Dockerfile (zero behaviour change). The dev `.env` overlay
+# (S2) and `deploy.sh -e` (S6) still override these baked defaults at run
+# time, because container env_file / environment beats image `ENV`.
+# ════════════════════════════════════════════════════════════════════
+_generate_runtime_dockerfile() {
+  local _dockerfile="${1:?}"
+  local _env_str="${2:-}"
+  local _out="${3:?}"
+
+  [[ -f "${_dockerfile}" && -n "${_env_str}" ]] || return 1
+
+  local _line _has_runtime=0
+  while IFS= read -r _line; do
+    if [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+runtime[[:space:]]*$ ]]; then
+      _has_runtime=1
+      break
+    fi
+  done < "${_dockerfile}"
+  (( _has_runtime )) || return 1
+
+  local -a _env_expanded=()
+  _expand_env_cross_refs "${_env_str}" _env_expanded
+
+  local _tmp
+  _tmp="$(mktemp "${_out}.XXXXXX")"
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    printf '%s\n' "${_line}" >> "${_tmp}"
+    if [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+runtime[[:space:]]*$ ]]; then
+      printf '# >>> [environment] baked defaults (generated by setup.sh, #503) <<<\n' >> "${_tmp}"
+      local _kv _k _v
+      for _kv in "${_env_expanded[@]}"; do
+        [[ -z "${_kv}" || "${_kv}" != *=* ]] && continue
+        _k="${_kv%%=*}"
+        _v="${_kv#*=}"
+        printf 'ENV %s="%s"\n' "${_k}" "${_v}" >> "${_tmp}"
+      done
+    fi
+  done < "${_dockerfile}"
+  mv -- "${_tmp}" "${_out}"
+  return 0
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _emit_docker_run_flags <flags_assoc> <out_array>
+#
+# S6 of #497 (#506): map a resolved docker-flag record to a `docker run`
+# argv fragment for the self-contained field launcher (`deploy.sh`). The
+# deploy generator resolves the chosen stage's flags through the S5
+# layer (_resolve_docker_flags) and merges in the top-level-only fields,
+# then calls this to turn that record into runnable `docker run` args.
+#
+# <flags_assoc> recognised keys (all optional; absent = unset):
+#   privileged          "true" -> --privileged
+#   gpu / gpu_count / gpu_caps
+#                       gpu="true" -> --gpus (count>0 -> count=N[,capabilities=csv];
+#                       else "all")
+#   runtime             non-empty & not off/auto -> --runtime=<v>
+#   net_mode / net_name host -> --network=host; bridge+name -> --network=<name>
+#   ipc_mode            non-empty & != private -> --ipc=<v>
+#   pid_mode            host -> --pid=host
+#   shm_size            set & ipc_mode != host -> --shm-size=<v>
+#   restart             set & != no -> --restart=<v>
+#   volumes (nl list)   each -> -v <entry>
+#   ports (nl list)     each -> -p <entry>  (only when net_mode=bridge)
+#   devices (nl list)   plain -> --device <entry>; entry with a propagation
+#                       mode (rslave/rshared/...) -> -v <entry> (docker run
+#                       --device has no propagation, mirroring compose #450)
+#   cap_add (nl list)   each -> --cap-add <cap>
+#   cap_drop (nl list)  each -> --cap-drop <cap>
+#   security_opt (nl)   each -> --security-opt <opt>
+#   dri_groups (space)  each gid -> --group-add <gid>
+#   cgroup_rules (nl)   each -> --device-cgroup-rule <rule>
+#
+# Deliberately NOT mapped: [environment] (baked into the image as ENV by
+# S3, so the launcher carries only docker-level flags) and gui / X11 (the
+# field launcher targets headless run; GUI is a dev-only compose concern).
+# Each flag and its value are pushed as SEPARATE array elements so the
+# caller can quote them individually when writing deploy.sh.
+# ════════════════════════════════════════════════════════════════════
+_emit_docker_run_flags() {
+  local -n _edrf_f="${1:?"${FUNCNAME[0]}: missing flags assoc"}"
+  local -n _edrf_out="${2:?"${FUNCNAME[0]}: missing out array"}"
+  local _item
+
+  # Push "<flag> <item>" for each non-empty line of a newline-list value.
+  _edrf_push_list() {
+    local _flag="${1}" _list="${2}"
+    [[ -n "${_list}" ]] || return 0
+    while IFS= read -r _item; do
+      [[ -n "${_item}" ]] || continue
+      _edrf_out+=("${_flag}" "${_item}")
+    done <<< "${_list}"
+  }
+
+  [[ "${_edrf_f["privileged"]:-}" == "true" ]] && _edrf_out+=("--privileged")
+
+  if [[ "${_edrf_f["gpu"]:-}" == "true" ]]; then
+    local _gc="${_edrf_f["gpu_count"]:-}" _gcaps="${_edrf_f["gpu_caps"]:-}" _spec
+    if [[ "${_gc}" =~ ^[0-9]+$ ]] && (( _gc > 0 )); then
+      _spec="count=${_gc}"
+      [[ -n "${_gcaps}" ]] && _spec+=",capabilities=${_gcaps// /,}"
+    else
+      _spec="all"
+    fi
+    _edrf_out+=("--gpus" "${_spec}")
+  fi
+
+  local _rt="${_edrf_f["runtime"]:-}"
+  if [[ -n "${_rt}" && "${_rt}" != "off" && "${_rt}" != "auto" ]]; then
+    _edrf_out+=("--runtime=${_rt}")
+  fi
+
+  local _nm="${_edrf_f["net_mode"]:-}" _nn="${_edrf_f["net_name"]:-}"
+  if [[ "${_nm}" == "host" ]]; then
+    _edrf_out+=("--network=host")
+  elif [[ "${_nm}" == "bridge" && -n "${_nn}" ]]; then
+    _edrf_out+=("--network=${_nn}")
+  fi
+
+  local _ipc="${_edrf_f["ipc_mode"]:-}"
+  [[ -n "${_ipc}" && "${_ipc}" != "private" ]] && _edrf_out+=("--ipc=${_ipc}")
+
+  [[ "${_edrf_f["pid_mode"]:-}" == "host" ]] && _edrf_out+=("--pid=host")
+
+  local _shm="${_edrf_f["shm_size"]:-}"
+  [[ -n "${_shm}" && "${_ipc}" != "host" ]] && _edrf_out+=("--shm-size=${_shm}")
+
+  local _rs="${_edrf_f["restart"]:-}"
+  [[ -n "${_rs}" && "${_rs}" != "no" ]] && _edrf_out+=("--restart=${_rs}")
+
+  _edrf_push_list "-v" "${_edrf_f["volumes"]:-}"
+
+  if [[ "${_nm}" == "bridge" ]]; then
+    _edrf_push_list "-p" "${_edrf_f["ports"]:-}"
+  fi
+
+  # Devices: a propagation mode in the 3rd colon field cannot ride on
+  # `docker run --device`, so route those to `-v` (mirrors the compose
+  # device->volume redirect from #450); plain devices stay on --device.
+  local _dev
+  if [[ -n "${_edrf_f["devices"]:-}" ]]; then
+    while IFS= read -r _dev; do
+      [[ -n "${_dev}" ]] || continue
+      if [[ "${_dev}" =~ :(rslave|rshared|rprivate|slave|shared|private)([,:]|$) ]]; then
+        _edrf_out+=("-v" "${_dev}")
+      else
+        _edrf_out+=("--device" "${_dev}")
+      fi
+    done <<< "${_edrf_f["devices"]}"
+  fi
+
+  _edrf_push_list "--cap-add" "${_edrf_f["cap_add"]:-}"
+  _edrf_push_list "--cap-drop" "${_edrf_f["cap_drop"]:-}"
+  _edrf_push_list "--security-opt" "${_edrf_f["security_opt"]:-}"
+
+  local _gid
+  if [[ -n "${_edrf_f["dri_groups"]:-}" ]]; then
+    for _gid in ${_edrf_f["dri_groups"]}; do
+      _edrf_out+=("--group-add" "${_gid}")
+    done
+  fi
+
+  _edrf_push_list "--device-cgroup-rule" "${_edrf_f["cgroup_rules"]:-}"
+
+  unset -f _edrf_push_list
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _resolve_deploy_context <base_path> <out_assoc>
+#
+# S6b of #497 (#506): the single conf-derived resolution layer shared by
+# `apply` (the compose renderer) and the deploy generator. Loads the
+# relevant setup.conf sections from <base_path> and resolves the
+# scalar modes + aggregated list strings that both paths consume, into
+# <out_assoc>. This is the global counterpart to the per-stage
+# _resolve_docker_flags (S5): apply unpacks the record into its existing
+# locals, and the deploy generator (S6b-gen) feeds it as the parent for
+# the runtime stage. Keeping one resolver means the field deploy can
+# never drift from what `apply` would produce for the same setup.conf.
+#
+# Pure resolution: it does NOT apply the `--gui` CLI / SETUP_GUI env
+# override (apply layers that on top of the returned gui_mode), it does
+# NOT resolve the detection-dependent enabled booleans (callers run
+# _resolve_gpu / _resolve_gui with their own host detection), and it does
+# NOT touch the WS_PATH / mount_1 migration or the #450 device/volume
+# validation warnings (those stay apply-side -- dev-specific side
+# effects). The one intrinsic side effect kept here is the legacy
+# `[deploy] runtime` deprecation warning (#481), since it is tied to
+# resolving gpu_runtime from the conf.
+#
+# Populated keys: build_network gpu_mode gpu_count gpu_caps
+#   gpu_runtime_mode gui_mode net_mode ipc_mode pid_mode network_name
+#   privileged restart_policy dri_groups_str devices_str cgroup_rule_str
+#   env_str tmpfs_str ports_str cap_add_str cap_drop_str sec_opt_str
+#   shm_size  (assoc subscripts quoted so ShellCheck does not read them
+#   as arithmetic refs (SC2154) -- the out-param is a nameref).
+# ════════════════════════════════════════════════════════════════════
+_resolve_deploy_context() {
+  local _rdc_base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local -n _rdc_out="${2:?"${FUNCNAME[0]}: missing out assoc"}"
+
+  local -a _b_k=() _b_v=() _d_k=() _d_v=() _g_k=() _g_v=() _n_k=() _n_v=()
+  local -a _s_k=() _s_v=() _l_k=() _l_v=() _r_k=() _r_v=() _e_k=() _e_v=()
+  local -a _t_k=() _t_v=() _dv_k=() _dv_v=()
+  _load_setup_conf "${_rdc_base}" "build"       _b_k  _b_v
+  _load_setup_conf "${_rdc_base}" "deploy"      _d_k  _d_v
+  _load_setup_conf "${_rdc_base}" "gui"         _g_k  _g_v
+  _load_setup_conf "${_rdc_base}" "network"     _n_k  _n_v
+  _load_setup_conf "${_rdc_base}" "security"    _s_k  _s_v
+  _load_setup_conf "${_rdc_base}" "lifecycle"   _l_k  _l_v
+  _load_setup_conf "${_rdc_base}" "resources"   _r_k  _r_v
+  _load_setup_conf "${_rdc_base}" "environment" _e_k  _e_v
+  _load_setup_conf "${_rdc_base}" "tmpfs"       _t_k  _t_v
+  _load_setup_conf "${_rdc_base}" "devices"     _dv_k _dv_v
+
+  local _tmp=""
+
+  # build-time network (scalar [build] network; auto -> host on Jetson).
+  local _build_network_mode="" _build_network=""
+  _get_conf_value _b_k _b_v "network" "auto" _build_network_mode
+  _resolve_build_network "${_build_network_mode}" _build_network
+  _rdc_out["build_network"]="${_build_network}"
+
+  # [deploy] GPU family.
+  _get_conf_value _d_k _d_v "gpu_mode"         "auto" _tmp; _rdc_out["gpu_mode"]="${_tmp}"
+  _get_conf_value _d_k _d_v "gpu_count"        "all"  _tmp; _rdc_out["gpu_count"]="${_tmp}"
+  _get_conf_value _d_k _d_v "gpu_capabilities" "gpu"  _tmp; _rdc_out["gpu_caps"]="${_tmp}"
+  # #481: gpu_runtime is the canonical key; legacy `runtime` is a permanent
+  # alias (W3) consumed with a deprecation warning, removed at v1.0.0.
+  local _gpu_runtime_mode=""
+  _get_conf_value _d_k _d_v "gpu_runtime" "" _gpu_runtime_mode
+  if [[ -z "${_gpu_runtime_mode}" ]]; then
+    local _legacy_runtime=""
+    _get_conf_value _d_k _d_v "runtime" "" _legacy_runtime
+    if [[ -n "${_legacy_runtime}" ]]; then
+      _gpu_runtime_mode="${_legacy_runtime}"
+      _log_warn setup conf_runtime_key_deprecated \
+        "display=$(_setup_msg deploy runtime_deprecated)"
+    else
+      _gpu_runtime_mode="auto"
+    fi
+  fi
+  _rdc_out["gpu_runtime_mode"]="${_gpu_runtime_mode}"
+
+  # [gui] mode (conf only -- caller layers the --gui / SETUP_GUI override).
+  _get_conf_value _g_k _g_v "mode" "auto" _tmp; _rdc_out["gui_mode"]="${_tmp}"
+
+  # [network] + [security] scalars.
+  _get_conf_value _n_k _n_v "mode"         "host"    _tmp; _rdc_out["net_mode"]="${_tmp}"
+  _get_conf_value _n_k _n_v "ipc"          "host"    _tmp; _rdc_out["ipc_mode"]="${_tmp}"
+  _get_conf_value _n_k _n_v "pid"          "private" _tmp; _rdc_out["pid_mode"]="${_tmp}"
+  _get_conf_value _n_k _n_v "network_name" ""        _tmp; _rdc_out["network_name"]="${_tmp}"
+  # #466: privileged opt-in -- default false when the key is absent.
+  _get_conf_value _s_k _s_v "privileged"   "false"   _tmp; _rdc_out["privileged"]="${_tmp}"
+
+  # #478: [lifecycle] restart policy (default no).
+  _get_conf_value _l_k _l_v "restart" "no" _tmp; _rdc_out["restart_policy"]="${_tmp}"
+
+  # #496: dri_groups (non-NVIDIA iGPU /dev/dri); auto -> detect host GIDs.
+  local _dri_groups_mode="" _dri_groups_str=""
+  _get_conf_value _d_k _d_v "dri_groups" "auto" _dri_groups_mode
+  [[ "${_dri_groups_mode}" == "auto" ]] && _dri_groups_str="$(_detect_dri_groups)"
+  _rdc_out["dri_groups_str"]="${_dri_groups_str}"
+
+  # [devices] device_* + cgroup_rule_*.
+  local -a _devices_arr=() _cgroup_rule_arr=()
+  _get_conf_list_sorted _dv_k _dv_v "device_"      _devices_arr
+  _get_conf_list_sorted _dv_k _dv_v "cgroup_rule_" _cgroup_rule_arr
+  local _devices_str="" _cgroup_rule_str=""
+  (( ${#_devices_arr[@]}      > 0 )) && _devices_str="$(printf '%s\n' "${_devices_arr[@]}")"
+  (( ${#_cgroup_rule_arr[@]}  > 0 )) && _cgroup_rule_str="$(printf '%s\n' "${_cgroup_rule_arr[@]}")"
+  _rdc_out["devices_str"]="${_devices_str}"
+  _rdc_out["cgroup_rule_str"]="${_cgroup_rule_str}"
+
+  # [environment] env_*, [tmpfs] tmpfs_*, [network] port_*.
+  local -a _env_arr=() _tmpfs_arr=() _ports_arr=()
+  _get_conf_list_sorted _e_k _e_v "env_"   _env_arr
+  _get_conf_list_sorted _t_k _t_v "tmpfs_" _tmpfs_arr
+  _get_conf_list_sorted _n_k _n_v "port_"  _ports_arr
+  local _env_str="" _tmpfs_str="" _ports_str=""
+  (( ${#_env_arr[@]}   > 0 )) && _env_str="$(printf '%s\n'   "${_env_arr[@]}")"
+  (( ${#_tmpfs_arr[@]} > 0 )) && _tmpfs_str="$(printf '%s\n' "${_tmpfs_arr[@]}")"
+  (( ${#_ports_arr[@]} > 0 )) && _ports_str="$(printf '%s\n' "${_ports_arr[@]}")"
+  _rdc_out["env_str"]="${_env_str}"
+  _rdc_out["tmpfs_str"]="${_tmpfs_str}"
+  _rdc_out["ports_str"]="${_ports_str}"
+
+  # [security] cap_add_*, cap_drop_*, security_opt_* with template fallback:
+  # a per-repo [security] that wipes a list falls back to the template
+  # baseline rather than Docker's stripped default (#466 rationale).
+  local -a _cap_add_arr=() _cap_drop_arr=() _sec_opt_arr=()
+  _get_conf_list_sorted _s_k _s_v "cap_add_"      _cap_add_arr
+  _get_conf_list_sorted _s_k _s_v "cap_drop_"     _cap_drop_arr
+  _get_conf_list_sorted _s_k _s_v "security_opt_" _sec_opt_arr
+  local _tpl_setup_conf
+  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
+  local -a _tpl_sec_k=() _tpl_sec_v=()
+  [[ -f "${_tpl_setup_conf}" ]] \
+    && _parse_ini_section "${_tpl_setup_conf}" "security" _tpl_sec_k _tpl_sec_v
+  (( ${#_cap_add_arr[@]}  == 0 )) \
+    && _get_conf_list_sorted _tpl_sec_k _tpl_sec_v "cap_add_"      _cap_add_arr
+  (( ${#_cap_drop_arr[@]} == 0 )) \
+    && _get_conf_list_sorted _tpl_sec_k _tpl_sec_v "cap_drop_"     _cap_drop_arr
+  (( ${#_sec_opt_arr[@]}  == 0 )) \
+    && _get_conf_list_sorted _tpl_sec_k _tpl_sec_v "security_opt_" _sec_opt_arr
+  local _cap_add_str="" _cap_drop_str="" _sec_opt_str=""
+  (( ${#_cap_add_arr[@]}  > 0 )) && _cap_add_str="$(printf '%s\n'  "${_cap_add_arr[@]}")"
+  (( ${#_cap_drop_arr[@]} > 0 )) && _cap_drop_str="$(printf '%s\n' "${_cap_drop_arr[@]}")"
+  (( ${#_sec_opt_arr[@]}  > 0 )) && _sec_opt_str="$(printf '%s\n'  "${_sec_opt_arr[@]}")"
+  _rdc_out["cap_add_str"]="${_cap_add_str}"
+  _rdc_out["cap_drop_str"]="${_cap_drop_str}"
+  _rdc_out["sec_opt_str"]="${_sec_opt_str}"
+
+  # [resources] shm_size (only meaningful when ipc != host).
+  _get_conf_value _r_k _r_v "shm_size" "" _tmp; _rdc_out["shm_size"]="${_tmp}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1136,26 +1482,35 @@ _load_stage_overrides() {
 #
 #   [deploy]      gpu_mode, gpu_count, gpu_capabilities, runtime
 #   [gui]         mode
-#   [network]     mode, ipc, network_name, port_<N>, port_inherit
-#   [security]    privileged
+#   [network]     mode, ipc, pid, network_name, port_<N>, port_inherit
+#   [security]    privileged, cap_add_<N>, cap_add_inherit,
+#                 cap_drop_<N>, cap_drop_inherit,
+#                 security_opt_<N>, security_opt_inherit
 #   [volumes]     mount_<N>, mount_inherit
 #   [environment] env_<N>, env_inherit
 #
-# Excluded by design (v1):
-#   [image_name] / [build] / security.cap_*/security_opt_* / [devices] /
-#   [tmpfs] / [additional_contexts] / [resources] — outside the
-#   "Isaac Sim per-stage runtime" use case driving #220. Re-evaluate in
-#   v2 once a real downstream need surfaces.
+# security cap_add / cap_drop / security_opt (#526): added in v2 once a
+# real downstream need surfaced (jetson_sdk_manager#69 — per-stage caps so
+# a read-only probe stage drops the flash stage's SYS_ADMIN). Same
+# append-by-default / *_inherit=false-replaces list convention as
+# volumes / env / ports.
+#
+# Excluded by design:
+#   [image_name] / [build] / [devices] / [tmpfs] /
+#   [additional_contexts] / [resources] — outside the "Isaac Sim
+#   per-stage runtime" use case driving #220. Re-evaluate once a real
+#   downstream need surfaces.
 _validate_stage_override_key() {
   local _key="${1:?"${FUNCNAME[0]}: missing key"}"
   case "${_key}" in
-    deploy.gpu_mode|deploy.gpu_count|deploy.gpu_capabilities|deploy.runtime) return 0 ;;
+    deploy.gpu_mode|deploy.gpu_count|deploy.gpu_capabilities|deploy.gpu_runtime|deploy.runtime) return 0 ;;
     gui.mode) return 0 ;;
-    network.mode|network.ipc|network.network_name) return 0 ;;
+    network.mode|network.ipc|network.pid|network.network_name) return 0 ;;
     security.privileged) return 0 ;;
     network.port_inherit|volumes.mount_inherit|environment.env_inherit) return 0 ;;
+    security.cap_add_inherit|security.cap_drop_inherit|security.security_opt_inherit) return 0 ;;
   esac
-  if [[ "${_key}" =~ ^(network\.port|volumes\.mount|environment\.env)_[0-9]+$ ]]; then
+  if [[ "${_key}" =~ ^(network\.port|volumes\.mount|environment\.env|security\.cap_add|security\.cap_drop|security\.security_opt)_[0-9]+$ ]]; then
     return 0
   fi
   return 1
@@ -1260,92 +1615,354 @@ _resolve_stage_list() {
   fi
 }
 
-# _parse_logging_svc_sections <file> <out_array>
+# _resolve_docker_flags <stage_keys> <stage_values> <parent_assoc> <out_assoc>
 #
-# Emit each service name that has a `[logging.<svc>]` section in <file>
-# (in the order they appear). Mirrors `_parse_stage_sections` but for
-# the per-service logging override namespace (#310).
-_parse_logging_svc_sections() {
-  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
-  local -n _plss_out="${2:?"${FUNCNAME[0]}: missing out array"}"
-  _plss_out=()
-  [[ -f "${_file}" ]] || return 0
-  local _line
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if [[ "${_line}" =~ ^\[logging\.([a-z][a-z0-9_-]*)\][[:space:]]*$ ]]; then
-      _plss_out+=("${BASH_REMATCH[1]}")
-    fi
-  done < "${_file}"
+# THE single per-stage docker-flag resolution layer (#505). Given one
+# stage's [stage:<name>] overrides (already filtered to the allowlist)
+# layered over the parent (devel / top-level) already-resolved values,
+# it computes the stage's effective docker flags into <out_assoc>.
+#
+# Both renderers call this so per-stage semantics never drift:
+#   - the compose renderer (generate_compose_yaml's per-stage loop), and
+#   - the deploy renderer (S6 #506), which resolves the runtime stage's
+#     flags to emit a field docker-run launcher.
+#
+# Modes (gui / gpu) inherit the parent's already-resolved boolean unless
+# the stage forces off / force — per-stage does NOT re-detect hardware
+# (that host-specific detection is the global resolution's job, upstream
+# of this layer). Other scalars fall back to the parent's effective
+# value; list fields (volumes / environment / ports) delegate to
+# _resolve_stage_list (append-by-default, replace on `*_inherit = false`).
+#
+# Args:
+#   $1 stage_keys    (array ref)  filtered [stage:*] override keys
+#   $2 stage_values  (array ref)  parallel override values
+#   $3 parent        (assoc ref)  parent fallbacks + top-level lists:
+#        gui gpu gpu_count gpu_caps runtime net_mode ipc_mode pid_mode
+#        net_name volumes_top env_top ports_top
+#        cap_add_top cap_drop_top sec_opt_top
+#   $4 out           (assoc ref)  effective record, keys:
+#        gui gpu gpu_count gpu_caps runtime net_mode ipc_mode pid_mode
+#        net_name privileged volumes environment ports
+#        cap_add cap_drop security_opt
+_resolve_docker_flags() {
+  local -n _rdf_keys="${1:?"${FUNCNAME[0]}: missing keys array"}"
+  local -n _rdf_values="${2:?"${FUNCNAME[0]}: missing values array"}"
+  local -n _rdf_parent="${3:?"${FUNCNAME[0]}: missing parent assoc"}"
+  local -n _rdf_out="${4:?"${FUNCNAME[0]}: missing out assoc"}"
+  local _mode _tmp
+
+  # gui / gpu: off|force decide outright; anything else (incl. absent or
+  # "auto") inherits the parent's already-resolved boolean. Assoc-array
+  # subscripts are quoted as string literals so ShellCheck does not read
+  # them as arithmetic variable references (SC2154) -- _rdf_out is a
+  # nameref, so ShellCheck cannot infer it is associative.
+  _resolve_stage_scalar _rdf_keys _rdf_values "gui.mode" "" _mode
+  case "${_mode}" in
+    off)   _rdf_out["gui"]="false" ;;
+    force) _rdf_out["gui"]="true" ;;
+    *)     _rdf_out["gui"]="${_rdf_parent["gui"]}" ;;
+  esac
+
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_mode" "" _mode
+  case "${_mode}" in
+    off)   _rdf_out["gpu"]="false" ;;
+    force) _rdf_out["gpu"]="true" ;;
+    *)     _rdf_out["gpu"]="${_rdf_parent["gpu"]}" ;;
+  esac
+
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_count" "${_rdf_parent["gpu_count"]}" _tmp
+  _rdf_out["gpu_count"]="${_tmp}"
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_capabilities" "${_rdf_parent["gpu_caps"]}" _tmp
+  _rdf_out["gpu_caps"]="${_tmp}"
+
+  # #481: gpu_runtime primary, legacy deploy.runtime alias as fallback.
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.gpu_runtime" "${_rdf_parent["runtime"]}" _tmp
+  _resolve_stage_scalar _rdf_keys _rdf_values "deploy.runtime" "${_tmp}" _tmp
+  _rdf_out["runtime"]="${_tmp}"
+
+  _resolve_stage_scalar _rdf_keys _rdf_values "network.mode" "${_rdf_parent["net_mode"]}" _tmp
+  _rdf_out["net_mode"]="${_tmp}"
+  _resolve_stage_scalar _rdf_keys _rdf_values "network.ipc" "${_rdf_parent["ipc_mode"]}" _tmp
+  _rdf_out["ipc_mode"]="${_tmp}"
+  _resolve_stage_scalar _rdf_keys _rdf_values "network.pid" "${_rdf_parent["pid_mode"]}" _tmp
+  _rdf_out["pid_mode"]="${_tmp}"
+  _resolve_stage_scalar _rdf_keys _rdf_values "network.network_name" "${_rdf_parent["net_name"]}" _tmp
+  _rdf_out["net_name"]="${_tmp}"
+  _resolve_stage_scalar _rdf_keys _rdf_values "security.privileged" "" _tmp
+  _rdf_out["privileged"]="${_tmp}"
+
+  _resolve_stage_list _rdf_keys _rdf_values "volumes.mount_" "volumes.mount_inherit" "${_rdf_parent["volumes_top"]}" _tmp
+  _rdf_out["volumes"]="${_tmp}"
+  _resolve_stage_list _rdf_keys _rdf_values "environment.env_" "environment.env_inherit" "${_rdf_parent["env_top"]}" _tmp
+  _rdf_out["environment"]="${_tmp}"
+  _resolve_stage_list _rdf_keys _rdf_values "network.port_" "network.port_inherit" "${_rdf_parent["ports_top"]}" _tmp
+  _rdf_out["ports"]="${_tmp}"
+
+  # #526: per-stage [security] cap_add / cap_drop / security_opt as list
+  # fields, same append-by-default / *_inherit=false-replaces convention as
+  # volumes / env / ports above. A stage sets `cap_add_inherit = false`
+  # (and lists no entries) to drop all inherited caps — e.g. a read-only
+  # probe stage that should not inherit the flash stage's SYS_ADMIN.
+  _resolve_stage_list _rdf_keys _rdf_values "security.cap_add_" "security.cap_add_inherit" "${_rdf_parent["cap_add_top"]}" _tmp
+  _rdf_out["cap_add"]="${_tmp}"
+  _resolve_stage_list _rdf_keys _rdf_values "security.cap_drop_" "security.cap_drop_inherit" "${_rdf_parent["cap_drop_top"]}" _tmp
+  _rdf_out["cap_drop"]="${_tmp}"
+  _resolve_stage_list _rdf_keys _rdf_values "security.security_opt_" "security.security_opt_inherit" "${_rdf_parent["sec_opt_top"]}" _tmp
+  _rdf_out["security_opt"]="${_tmp}"
 }
 
-# _collect_logging <base_path> <global_out> <per_svc_out>
+# ════════════════════════════════════════════════════════════════════
+# _generate_deploy_sh <base_path> <stage> <image_ref> <container_name> <out>
 #
-# Resolve [logging] + [logging.<svc>] for the compose generator. Output
-# layout:
+# S6b-gen of #497 (#506): write a self-contained `docker run` field
+# launcher (`deploy.sh`) for the baked <stage> image. Ties the three
+# resolution layers together:
+#   _resolve_deploy_context  (global conf, S6b) -> the stage parent
+#   _resolve_docker_flags    (per-stage overrides, S5) -> effective record
+#   _emit_docker_run_flags   (S6a) -> the `docker run` argv fragment
 #
-#   global_out   newline-separated KEY=VALUE for the effective global
-#                [logging] section. Resolution rule mirrors [security]
-#                (line 3328 area): if the per-repo setup.conf has a
-#                [logging] section, that section fully replaces the
-#                template default (per CLAUDE.md "section-level
-#                replace, no key-level merge inside a section"). If
-#                the per-repo file omits the section, template
-#                defaults apply.
+# The launcher carries only docker-level flags. By design it omits:
+#   - environment (-e): [environment] is baked into the image as ENV (S3);
+#   - volumes (-v): bind mounts reference dev-host paths absent in the
+#     field, and structured config is COPY-baked (S4); so the field image
+#     is self-contained.
+# GPU enablement is resolved with the generating host's detection (same as
+# apply); the runtime stage's [stage:runtime] overrides still apply. The
+# image / container name are overridable at run time via DEPLOY_IMAGE /
+# DEPLOY_CONTAINER_NAME, and trailing args are appended to the container
+# command. The generated file is chmod +x and ShellCheck-clean.
 #
-#   per_svc_out  newline-separated "<svc>:KEY=VALUE" rows for any
-#                [logging.<svc>] sections in the per-repo setup.conf.
-#                Key-level merge against global_out happens in
-#                `_emit_logging_block` at compose-emit time — only
-#                keys present in [logging.<svc>] override the
-#                corresponding global key; absent keys fall through.
-#                Template setup.conf does not ship per-svc sections;
-#                if one ever appears there it is honored too (parsed
-#                only from the per-repo file in practice, since the
-#                template loader path uses _SETUP_SCRIPT_DIR).
-_collect_logging() {
+# Consumed by the S6 bundle orchestrator (S6c): build --target <stage> ->
+# docker save -> tar.xz {image, deploy.sh}.
+# ════════════════════════════════════════════════════════════════════
+_generate_deploy_sh() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
-  local -n _cl_global="${2:?"${FUNCNAME[0]}: missing global outvar"}"
-  local -n _cl_per_svc="${3:?"${FUNCNAME[0]}: missing per_svc outvar"}"
-  _cl_global=""
-  _cl_per_svc=""
+  local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
+  local _image_ref="${3:?"${FUNCNAME[0]}: missing image_ref"}"
+  local _container_name="${4:?"${FUNCNAME[0]}: missing container_name"}"
+  local _out="${5:?"${FUNCNAME[0]}: missing out path"}"
 
-  local _conf
-  if [[ -n "${SETUP_CONF:-}" ]]; then
-    _conf="${SETUP_CONF}"
-  else
-    _conf="${_base}/config/docker/setup.conf"
-  fi
+  # Global conf context (shared with apply via S6b).
+  local -A _ctx=()
+  _resolve_deploy_context "${_base}" _ctx
 
-  # Global [logging] — per-repo first, fall back to template if absent.
-  local -a _g_keys=() _g_vals=()
-  [[ -f "${_conf}" ]] && _parse_ini_section "${_conf}" "logging" _g_keys _g_vals
-  if (( ${#_g_keys[@]} == 0 )); then
-    local _tpl="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
-    [[ -f "${_tpl}" ]] && _parse_ini_section "${_tpl}" "logging" _g_keys _g_vals
-  fi
-  local i
-  local -a _g_lines=()
-  for (( i = 0; i < ${#_g_keys[@]}; i++ )); do
-    _g_lines+=("${_g_keys[i]}=${_g_vals[i]}")
+  # Detection-dependent enabled state + runtime, resolved like apply does.
+  local _gpu_detected="" _gpu_enabled="" _runtime_resolved=""
+  detect_gpu _gpu_detected
+  _resolve_gpu "${_ctx["gpu_mode"]}" "${_gpu_detected}" _gpu_enabled
+  _resolve_runtime "${_ctx["gpu_runtime_mode"]}" _runtime_resolved
+
+  # Per-stage [stage:<stage>] overrides, filtered to the allowlist.
+  local -a _so_k=() _so_v=() _sof_k=() _sof_v=()
+  _load_stage_overrides "${_base}" "${_stage}" _so_k _so_v
+  local _ki
+  for (( _ki = 0; _ki < ${#_so_k[@]}; _ki++ )); do
+    if _validate_stage_override_key "${_so_k[_ki]}"; then
+      _sof_k+=("${_so_k[_ki]}")
+      _sof_v+=("${_so_v[_ki]}")
+    fi
   done
-  (( ${#_g_lines[@]} > 0 )) && _cl_global="$(printf '%s\n' "${_g_lines[@]}")"
 
-  # Per-service [logging.<svc>] sections (per-repo only).
-  [[ -f "${_conf}" ]] || return 0
-  local -a _svcs=()
-  _parse_logging_svc_sections "${_conf}" _svcs
-  local _svc
-  local -a _ps_lines=()
-  for _svc in "${_svcs[@]}"; do
-    local -a _sk=() _sv=()
-    _parse_ini_section "${_conf}" "logging.${_svc}" _sk _sv
-    for (( i = 0; i < ${#_sk[@]}; i++ )); do
-      _ps_lines+=("${_svc}:${_sk[i]}=${_sv[i]}")
+  # Parent record for the per-stage resolver. gui is forced off (the field
+  # launcher is headless); volumes_top / env_top are empty so the field run
+  # carries no bind mounts and no -e (baked ENV instead).
+  local -A _parent=(
+    [gui]="false"
+    [gpu]="${_gpu_enabled}"
+    [gpu_count]="${_ctx["gpu_count"]}"
+    [gpu_caps]="${_ctx["gpu_caps"]}"
+    [runtime]="${_runtime_resolved}"
+    [net_mode]="${_ctx["net_mode"]}"
+    [ipc_mode]="${_ctx["ipc_mode"]}"
+    [pid_mode]="${_ctx["pid_mode"]}"
+    [net_name]="${_ctx["network_name"]}"
+    [volumes_top]=""
+    [env_top]=""
+    [ports_top]="${_ctx["ports_str"]}"
+    [cap_add_top]="${_ctx["cap_add_str"]}"
+    [cap_drop_top]="${_ctx["cap_drop_str"]}"
+    [sec_opt_top]="${_ctx["sec_opt_str"]}"
+  )
+  local -A _eff=()
+  _resolve_docker_flags _sof_k _sof_v _parent _eff
+
+  # Merge the per-stage effective scalars with the top-level-only fields
+  # (devices / caps / security_opt / shm / dri / cgroup / restart) into the
+  # record _emit_docker_run_flags maps. volumes / environment are omitted.
+  # privileged: _resolve_docker_flags only fills it from a [stage:*]
+  # security.privileged override (empty otherwise, since compose carries the
+  # global value via the devel `${PRIVILEGED}` env var). The field launcher
+  # has no such env layer, so fall back to the global [security] privileged.
+  local -A _flags=(
+    [privileged]="${_eff["privileged"]:-${_ctx["privileged"]}}"
+    [gpu]="${_eff["gpu"]}"
+    [gpu_count]="${_eff["gpu_count"]}"
+    [gpu_caps]="${_eff["gpu_caps"]}"
+    [runtime]="${_eff["runtime"]}"
+    [net_mode]="${_eff["net_mode"]}"
+    [net_name]="${_eff["net_name"]}"
+    [ipc_mode]="${_eff["ipc_mode"]}"
+    [pid_mode]="${_eff["pid_mode"]}"
+    [ports]="${_eff["ports"]}"
+    [shm_size]="${_ctx["shm_size"]}"
+    [restart]="${_ctx["restart_policy"]}"
+    [devices]="${_ctx["devices_str"]}"
+    [cap_add]="${_eff["cap_add"]}"
+    [cap_drop]="${_eff["cap_drop"]}"
+    [security_opt]="${_eff["security_opt"]}"
+    [dri_groups]="${_ctx["dri_groups_str"]}"
+    [cgroup_rules]="${_ctx["cgroup_rule_str"]}"
+  )
+  local -a _argv=()
+  _emit_docker_run_flags _flags _argv
+
+  # Emit deploy.sh. Runtime-expanded vars / backticks are escaped so they
+  # land literally in the generated script; per-arg %q quoting keeps each
+  # flag a single, safely-quoted token.
+  {
+    cat <<EOF
+#!/usr/bin/env bash
+# AUTO-GENERATED field deployment launcher (setup.sh S6, #506). DO NOT EDIT.
+#
+# Self-contained \`docker run\` launcher for the baked \`${_stage}\` image.
+# The docker-level flags below are inlined from the resolved \`${_stage}\`
+# stage of setup.conf; [environment] defaults and structured config are
+# baked into the image (S3/S4), so no env file or config bind travels.
+# Field flow: \`docker load < <image>.tar\` then \`./deploy.sh\`.
+#
+# Overrides: DEPLOY_IMAGE / DEPLOY_CONTAINER_NAME env vars; any args after
+# \`./deploy.sh\` are appended to the container command. Note: --group-add
+# GIDs (iGPU /dev/dri) are from the generating host and may need adjusting
+# on a different field machine.
+set -euo pipefail
+
+IMAGE="\${DEPLOY_IMAGE:-${_image_ref}}"
+CONTAINER_NAME="\${DEPLOY_CONTAINER_NAME:-${_container_name}}"
+
+exec docker run \\
+  --detach \\
+  --name "\${CONTAINER_NAME}" \\
+EOF
+    local _a
+    for _a in "${_argv[@]}"; do
+      printf '  %q \\\n' "${_a}"
     done
-  done
-  (( ${#_ps_lines[@]} > 0 )) && _cl_per_svc="$(printf '%s\n' "${_ps_lines[@]}")"
-  return 0
+    # SC2016: the ${IMAGE} / "$@" tokens are emitted verbatim into the
+    # generated deploy.sh and expand at field run time, not here.
+    # shellcheck disable=SC2016
+    printf '  "${IMAGE}" \\\n'
+    # shellcheck disable=SC2016
+    printf '  "$@"\n'
+  } > "${_out}"
+  chmod +x "${_out}"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _bake_config_copy <src_dockerfile> <stage> <out>
+#
+# S4 deploy half (#504/#506): splice `COPY config/app /opt/app/config`
+# into the <stage> stage of <src_dockerfile>, writing the result to <out>.
+# The dev side bind-mounts config/app (apply); the field image bakes it in
+# as an immutable layer so the deploy bundle is self-contained. Insert is
+# right after the `FROM ... AS <stage>` line (handles src == out via a
+# temp file). Caller only invokes this when <base>/config/app exists.
+# ════════════════════════════════════════════════════════════════════
+_bake_config_copy() {
+  local _src="${1:?"${FUNCNAME[0]}: missing src dockerfile"}"
+  local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
+  local _out="${3:?"${FUNCNAME[0]}: missing out"}"
+  local _tmp _line
+  _tmp="$(mktemp)"
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    printf '%s\n' "${_line}" >> "${_tmp}"
+    if [[ "${_line}" =~ ^FROM[[:space:]].*[[:space:]]AS[[:space:]]+"${_stage}"[[:space:]]*$ ]]; then
+      printf '# >>> config/app baked (generated by setup.sh, #504/#506) <<<\n' >> "${_tmp}"
+      printf 'COPY config/app /opt/app/config\n' >> "${_tmp}"
+    fi
+  done < "${_src}"
+  mv -- "${_tmp}" "${_out}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _generate_deploy_bundle <base_path> <stage> <out_bundle>
+#
+# S6c of #497 (#506): orchestrate the self-contained field bundle.
+#   1. resolve image name + [environment] defaults
+#   2. _generate_runtime_dockerfile -> baked-ENV Dockerfile (S3); falls
+#      back to the plain Dockerfile when there is no runtime stage / no
+#      [environment]
+#   3. _bake_config_copy -> COPY config/app into the image when present (S4)
+#   4. docker build --target <stage> -t <name>:<stage>
+#   5. _generate_deploy_sh -> deploy.sh (S6b-gen)
+#   6. docker save -> image.tar
+#   7. tar -cJf <out_bundle> image.tar deploy.sh  (the tar.xz field bundle)
+#
+# The generated Dockerfile + deploy.sh are written under a temp dir (no
+# repo side effect; `docker build -f <tmp> <base>` keeps the build context
+# at the repo). The docker / tar steps go through _dry_run_cmd, so
+# DRY_RUN=true prints the plan without building. Field flow: extract the
+# bundle, `docker load < image.tar`, `./deploy.sh`.
+# ════════════════════════════════════════════════════════════════════
+_generate_deploy_bundle() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
+  local _bundle="${3:?"${FUNCNAME[0]}: missing out_bundle"}"
+
+  local _name=""
+  BASE_PATH="${_base}" detect_image_name _name "${_base}"
+  local _image="${_name}:${_stage}"
+  local _container="${_name}-${_stage}"
+
+  local -A _ctx=()
+  _resolve_deploy_context "${_base}" _ctx
+
+  local _work
+  _work="$(mktemp -d)"
+  local _gen="${_work}/Dockerfile.deploy"
+  local _build_dockerfile="${_base}/Dockerfile"
+
+  # Bake [environment] as ENV into the runtime stage (S3). On no-op (no
+  # runtime stage / empty env) keep the plain Dockerfile.
+  if _generate_runtime_dockerfile "${_base}/Dockerfile" "${_ctx["env_str"]}" "${_gen}"; then
+    _build_dockerfile="${_gen}"
+  fi
+  # Bake config/app into the image (S4 deploy half) when the repo ships it.
+  if [[ -d "${_base}/config/app" ]]; then
+    _bake_config_copy "${_build_dockerfile}" "${_stage}" "${_gen}"
+    _build_dockerfile="${_gen}"
+  fi
+
+  # Generate the field launcher up front so the plan is inspectable even
+  # under DRY_RUN (the docker/tar steps below are the only guarded ones).
+  _generate_deploy_sh "${_base}" "${_stage}" "${_image}" "${_container}" "${_work}/deploy.sh"
+
+  local _rc=0
+  _dry_run_cmd docker build --target "${_stage}" \
+    -f "${_build_dockerfile}" -t "${_image}" "${_base}" || _rc=$?
+  if (( _rc == 0 )); then
+    _dry_run_cmd docker save -o "${_work}/image.tar" "${_image}" || _rc=$?
+  fi
+  if (( _rc == 0 )); then
+    _dry_run_cmd tar -C "${_work}" -cJf "${_bundle}" image.tar deploy.sh || _rc=$?
+  fi
+
+  rm -rf "${_work}"
+  return "${_rc}"
+}
+
+# _parse_logging_svc_sections / _collect_logging moved to
+# lib/conf_logging.sh in #402 (PR-A) so both setup.sh and the
+# upcoming PR-B gitignore sync (lib/gitignore.sh) can share them
+# without circular sourcing. _lib.sh now pulls conf_logging.sh in
+# automatically, so callers below still resolve the same names.
+
+# _sync_logging_local_paths_gitignore moved to lib/gitignore.sh in
+# #402 (PR-B) and renamed _sync_logging_gitignore (now takes only
+# <base_path>, calls _collect_logging itself). Sync runs at
+# init.sh / upgrade.sh time instead of every setup.sh apply, so
+# the file stays in step across template versions even when no
+# wrapper has fired since the last setup.conf edit.
 
 # ════════════════════════════════════════════════════════════════════
 # generate_compose_yaml <out> <repo_name> <gui_enabled> <gpu_enabled>
@@ -1404,6 +2021,91 @@ _expand_env_cross_refs() {
   done <<< "${_input}"
 }
 
+# _write_runtime_env was retired in S7 (#507): runtime.env (#462) is
+# superseded by the S3 baked ENV (in-container) + .env.generated/.env
+# (host-side helpers source these instead).
+
+_device_has_propagation() {
+  local _entry="${1}"
+  local -a _parts=()
+  IFS=':' read -ra _parts <<< "${_entry}"
+  (( ${#_parts[@]} == 3 )) || return 1
+  [[ "${_parts[2]}" =~ (rslave|rshared|rprivate|slave|shared|private) ]]
+}
+
+_emit_device_as_volume() {
+  local _entry="${1}" _indent="${2:-    }"
+  local -a _parts=()
+  IFS=':' read -ra _parts <<< "${_entry}"
+  local _src="${_parts[0]}" _tgt="${_parts[1]}" _opts="${_parts[2]}"
+  local _propagation="" _read_only=""
+  local _o
+  IFS=',' read -ra _oarr <<< "${_opts}"
+  for _o in "${_oarr[@]}"; do
+    case "${_o}" in
+      ro) _read_only="true" ;;
+      rw) _read_only="false" ;;
+      rslave|rshared|rprivate|slave|shared|private) _propagation="${_o}" ;;
+    esac
+  done
+  echo "${_indent}  - type: bind"
+  echo "${_indent}    source: ${_src}"
+  echo "${_indent}    target: ${_tgt}"
+  [[ -n "${_read_only}" ]] && echo "${_indent}    read_only: ${_read_only}"
+  echo "${_indent}    bind:"
+  echo "${_indent}      propagation: ${_propagation}"
+}
+
+# _classify_volume_lhs <mount_string>
+#
+# Classify a `host:container[:mode]` mount by its left-hand side (#482,
+# Option A / D-Strict). A LHS that looks like a path -- starts with `/`,
+# `./`, `~/`, or a `${...}` variable reference -- is a bind mount; anything
+# else is a Docker named-volume reference. Echoes `bind` or `named`.
+_classify_volume_lhs() {
+  # The `~/` and `${` globs are single-quoted so they stay literal: an
+  # unquoted `~/*` case pattern undergoes tilde expansion (to $HOME/*) and
+  # would never match a literal `~/...` LHS; an unquoted `${`-glob is fine
+  # but quoting keeps both path-prefix markers consistent and silences
+  # SC2016 (the literal `${` is intentional -- a `${VAR}` LHS is a bind path).
+  # shellcheck disable=SC2016,SC2088
+  case "${1%%:*}" in
+    /*|./*|'~/'*|'${'*) printf 'bind\n' ;;
+    *)                 printf 'named\n' ;;
+  esac
+}
+
+# _collect_named_volumes <assoc_array_name> <newline_separated_mounts>
+#
+# Add the named-volume names from <mounts> into the associative array used
+# as a set (key = volume name, the LHS before the first `:`, which already
+# excludes any `:mode` suffix). Bind mounts are skipped.
+_collect_named_volumes() {
+  local -n _cnv_set="$1"
+  local _line
+  while IFS= read -r _line; do
+    [[ -z "${_line}" ]] && continue
+    [[ "$(_classify_volume_lhs "${_line}")" == named ]] || continue
+    _cnv_set["${_line%%:*}"]=1
+  done <<< "$2"
+}
+
+# _emit_volumes_block <assoc_array_name>
+#
+# Emit a top-level `volumes:` declaration with one bare stub per collected
+# named volume (no driver / labels / options -> Docker's default `local`
+# driver). Emits nothing when the set is empty (zero-diff for bind-only
+# repos). Names are sorted for deterministic output.
+_emit_volumes_block() {
+  local -n _evb_set="$1"
+  (( ${#_evb_set[@]} == 0 )) && return 0
+  printf '\nvolumes:\n'
+  local _k
+  while IFS= read -r _k; do
+    printf '  %s:\n' "${_k}"
+  done < <(printf '%s\n' "${!_evb_set[@]}" | sort)
+}
+
 generate_compose_yaml() {
   local _out="${1:?}"
   local _name="${2:?}"
@@ -1420,17 +2122,20 @@ generate_compose_yaml() {
   local _shm_size="${13:-}"
   local _net_mode="${14:-host}"
   local _ipc_mode="${15:-host}"
-  local _cap_add_str="${16:-}"
-  local _cap_drop_str="${17:-}"
-  local _sec_opt_str="${18:-}"
-  local _cgroup_rule_str="${19:-}"
-  local _user_build_args_str="${20:-}"
-  local _target_arch="${21:-}"
-  local _build_network="${22:-}"
-  local _runtime="${23:-}"
-  local _additional_contexts_str="${24:-}"
-  local _logging_global_str="${25:-}"
-  local _logging_per_svc_str="${26:-}"
+  local _pid_mode="${16:-private}"
+  local _cap_add_str="${17:-}"
+  local _cap_drop_str="${18:-}"
+  local _sec_opt_str="${19:-}"
+  local _cgroup_rule_str="${20:-}"
+  local _user_build_args_str="${21:-}"
+  local _target_arch="${22:-}"
+  local _build_network="${23:-}"
+  local _runtime="${24:-}"
+  local _additional_contexts_str="${25:-}"
+  local _logging_global_str="${26:-}"
+  local _logging_per_svc_str="${27:-}"
+  local _restart="${28:-no}"
+  local _dri_groups_str="${29:-}"
 
   # _logging_svc_kv <svc> <out_assoc_name>
   #
@@ -1468,29 +2173,102 @@ generate_compose_yaml() {
 
   # _emit_logging_block <svc>
   #
-  # Emit compose `logging:` mapping for service <svc>. Maps the four
+  # Emit compose `logging:` mapping for service <svc>. Maps four
   # setup.conf keys (driver / max_size / max_file / compress) to the
   # corresponding Docker compose option names (driver as scalar;
   # max-size / max-file / compress as `options:` sub-keys, dash-named
-  # per Docker docs). No-op when the effective KV map is empty.
+  # per Docker docs). The 5th key, `local_path`, is **not** a Docker
+  # logging option -- it triggers a per-service volume bind via
+  # `_logging_svc_local_path_mount` (emitted from each service's
+  # `volumes:` block), so this function deliberately ignores it.
+  # No-op when no docker-option key is set on this service.
   _emit_logging_block() {
     local _svc="$1"
     local -A _kv=()
     _logging_svc_kv "${_svc}" _kv
-    (( ${#_kv[@]} == 0 )) && return 0
-    echo "    logging:"
-    [[ -n "${_kv[driver]:-}" ]] && echo "      driver: ${_kv[driver]}"
     local _have_opts=0 _k
-    for _k in max_size max_file compress; do
+    for _k in driver max_size max_file compress; do
       [[ -n "${_kv[${_k}]:-}" ]] && _have_opts=1 && break
     done
-    if (( _have_opts )); then
+    (( _have_opts == 0 )) && return 0
+    echo "    logging:"
+    [[ -n "${_kv[driver]:-}" ]] && echo "      driver: ${_kv[driver]}"
+    local _opts=0
+    for _k in max_size max_file compress; do
+      [[ -n "${_kv[${_k}]:-}" ]] && _opts=1 && break
+    done
+    if (( _opts )); then
       echo "      options:"
       [[ -n "${_kv[max_size]:-}" ]] && echo "        max-size: \"${_kv[max_size]}\""
       [[ -n "${_kv[max_file]:-}" ]] && echo "        max-file: \"${_kv[max_file]}\""
       [[ -n "${_kv[compress]:-}" ]] && echo "        compress: \"${_kv[compress]}\""
     fi
     return 0
+  }
+
+  # _logging_svc_local_path_mount <svc> <out_var>
+  #
+  # Resolves the effective `local_path` for service <svc> against the
+  # repo base directory and emits a compose volume mount string
+  # `<host>:/var/log/<repo>` (no leading indentation; caller decides
+  # placement). Empty out when local_path is unset or empty.
+  #
+  # Path semantics (from #328):
+  #   ./logs/     relative to repo root (dirname of generated compose.yaml)
+  #   /abs/path/  used verbatim
+  #   ~/dir/      ~ expanded against $HOME
+  #   (empty)     feature disabled, no mount
+  #
+  # The function also creates the host directory eagerly with
+  # `mkdir -p` so the bind mount works on first `./run.sh` without
+  # Docker silently creating a root-owned dir.
+  _logging_svc_local_path_mount() {
+    local _svc="$1"
+    local -n _llp_out="$2"
+    _llp_out=""
+    local -A _kv=()
+    _logging_svc_kv "${_svc}" _kv
+    local _raw="${_kv[local_path]:-}"
+    [[ -z "${_raw}" ]] && return 0
+    # ~ expansion at front only (not embedded — same restriction as
+    # POSIX sh). The pattern uses single-char literal match (\~) and
+    # case so shellcheck SC2088 doesn't flag it; we're matching the
+    # user's *literal* `~/foo` setup.conf value and rewriting it to
+    # ${HOME}/foo.
+    case "${_raw}" in
+      \~/*)
+        _raw="${HOME}/${_raw#\~/}" ;;
+      \~)
+        _raw="${HOME}" ;;
+    esac
+    # Strip trailing slashes for predictable mount string.
+    while [[ "${_raw}" == */ && "${_raw}" != "/" ]]; do
+      _raw="${_raw%/}"
+    done
+    # Relative -> resolve against repo root (the compose.yaml's
+    # directory, captured earlier in generate_compose_yaml as
+    # _setup_base).
+    if [[ "${_raw}" != /* ]]; then
+      _raw="${_setup_base%/}/${_raw}"
+    fi
+    # Create the dir eagerly so `docker run` doesn't auto-create it
+    # root-owned. Failure is non-fatal -- if the user's running setup
+    # without write perms to that dir, the eventual docker run will
+    # raise a clear error.
+    mkdir -p "${_raw}" 2>/dev/null || true
+    _llp_out="${_raw}:/var/log/${_name}"
+  }
+
+  # _emit_logging_local_path_volume <svc>
+  #
+  # Prints a single compose volume line if service <svc> resolves a
+  # non-empty `local_path`. Indentation matches the surrounding
+  # `volumes:` block (6 spaces, list-item dash, then the resolved
+  # mount string).
+  _emit_logging_local_path_volume() {
+    local _mount=""
+    _logging_svc_local_path_mount "$1" _mount
+    [[ -z "${_mount}" ]] || echo "      - ${_mount}"
   }
 
   # additional_contexts emitter: forwards `[additional_contexts]
@@ -1538,6 +2316,126 @@ generate_compose_yaml() {
     printf '    runtime: %s\n' "${_runtime}"
   }
 
+  # restart emitter (#478): [lifecycle] restart policy on the devel service.
+  # Default `no` emits nothing (zero-diff). Stages that `extends: devel`
+  # inherit the value via compose. `on-failure:N` is quoted because the `:`
+  # would otherwise read as a YAML mapping.
+  _emit_restart_line() {
+    [[ "${_restart}" == "no" ]] && return 0
+    case "${_restart}" in
+      on-failure:*) printf '    restart: "%s"\n' "${_restart}" ;;
+      *)            printf '    restart: %s\n'   "${_restart}" ;;
+    esac
+  }
+
+  # env_file emitter (#502): inject the hand-authored .env workload
+  # overlay into the service so per-task env vars take effect with
+  # `make run` alone (no regenerate, no SETUP_CONF_HASH drift). Path is
+  # relative to compose.yaml (repo root). The devel block emits it and
+  # `extends: devel` stages inherit it; the per-stage standalone block
+  # (override mode, no extends) re-emits it. Plain (not required:false):
+  # setup.sh scaffolds .env on apply, so it always exists before compose
+  # runs. .env.generated (the resolved cache) is NOT listed here -- it
+  # feeds compose interpolation via the CLI --env-file flag, not the
+  # container environment (#502 two-role split).
+  _emit_env_file_block() {
+    cat <<'YAML'
+    env_file:
+      - .env
+YAML
+  }
+
+  # #410: section emitters shared by the devel block and the per-stage
+  # standalone block. Both iterate the SAME top-level [security] /
+  # [devices] / [tmpfs] strings (a stage standalone block re-emits the
+  # enclosing-scope values, #220), so the emitted bytes are identical --
+  # hoisting removes the duplication without touching the principled
+  # devel-vs-stage differences (env-var refs vs literals, extends base
+  # vs standalone, stdin/tty, profiles) which stay inline per mode.
+
+  # cap_add / cap_drop / security_opt. Defaults to the enclosing-scope
+  # top-level [security] strings (the devel block). The per-stage
+  # standalone block (#526) passes its effective resolved lists so a
+  # stage can override / clear inherited caps via [stage:*] security.*.
+  _emit_caps_block() {
+    local _cap_add="${1-${_cap_add_str}}"
+    local _cap_drop="${2-${_cap_drop_str}}"
+    local _sec_opt="${3-${_sec_opt_str}}"
+    local _c
+    if [[ -n "${_cap_add}" ]]; then
+      echo "    cap_add:"
+      while IFS= read -r _c; do
+        [[ -z "${_c}" ]] && continue
+        echo "      - ${_c}"
+      done <<< "${_cap_add}"
+    fi
+    if [[ -n "${_cap_drop}" ]]; then
+      echo "    cap_drop:"
+      while IFS= read -r _c; do
+        [[ -z "${_c}" ]] && continue
+        echo "      - ${_c}"
+      done <<< "${_cap_drop}"
+    fi
+    if [[ -n "${_sec_opt}" ]]; then
+      echo "    security_opt:"
+      while IFS= read -r _c; do
+        [[ -z "${_c}" ]] && continue
+        echo "      - ${_c}"
+      done <<< "${_sec_opt}"
+    fi
+  }
+
+  # group_add for /dev/dri (#496): GUI-gated; caller passes the effective
+  # gui flag (devel's _gui or a stage's _eff_gui). Numeric GIDs quoted.
+  _emit_group_add_block() {
+    local _g="$1"
+    [[ "${_g}" == "true" && -n "${_dri_groups_str}" ]] || return 0
+    echo "    group_add:"
+    local _gid
+    for _gid in ${_dri_groups_str}; do
+      echo "      - \"${_gid}\""
+    done
+  }
+
+  # device_cgroup_rules from [devices] cgroup_rule_* (enclosing scope).
+  _emit_cgroup_rules_block() {
+    [[ -n "${_cgroup_rule_str}" ]] || return 0
+    echo "    device_cgroup_rules:"
+    local _cr
+    while IFS= read -r _cr; do
+      [[ -z "${_cr}" ]] && continue
+      echo "      - \"${_cr}\""
+    done <<< "${_cgroup_rule_str}"
+  }
+
+  # tmpfs from [tmpfs] (enclosing scope).
+  _emit_tmpfs_block() {
+    [[ -n "${_tmpfs_str}" ]] || return 0
+    echo "    tmpfs:"
+    local _tf
+    while IFS= read -r _tf; do
+      [[ -z "${_tf}" ]] && continue
+      echo "      - ${_tf}"
+    done <<< "${_tmpfs_str}"
+  }
+
+  # deploy GPU reservation: caller passes the effective gpu flag, count,
+  # and pre-built capabilities YAML array (devel's globals or a stage's
+  # resolved values).
+  _emit_gpu_deploy_block() {
+    local _g="$1" _count="$2" _caps="$3"
+    [[ "${_g}" == "true" ]] || return 0
+    cat <<YAML
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${_count}
+              capabilities: ${_caps}
+YAML
+  }
+
   # Auto-emit any `FROM <base> AS <stage>` outside the baseline
   # blocklist {sys, base, devel, test} as a compose service that
   # `extends: devel` and only overrides target / image / container_name /
@@ -1564,9 +2462,9 @@ generate_compose_yaml() {
     _validate_stage_name "${_stage}" || _vrc=$?
     case "${_vrc}" in
       0) _emit_stages+=("${_stage}") ;;
-      1) _log_warn setup "$(_setup_msg stage invalid_format): $(printf '%q' "${_stage}")" ;;
-      2) _log_err setup "$(_setup_msg stage baseline_collision): $(printf '%q' "${_stage}")"; return 1 ;;
-      3) _log_err setup "$(_setup_msg stage reserved_tag): $(printf '%q' "${_stage}")"; return 1 ;;
+      1) _log_warn setup stage_invalid_format "display=$(_setup_msg stage invalid_format): $(printf '%q' "${_stage}")" "stage=$(printf '%q' "${_stage}")" ;;
+      2) _log_err setup stage_baseline_collision "display=$(_setup_msg stage baseline_collision): $(printf '%q' "${_stage}")" "stage=$(printf '%q' "${_stage}")"; return 1 ;;
+      3) _log_err setup stage_reserved_tag "display=$(_setup_msg stage reserved_tag): $(printf '%q' "${_stage}")" "stage=$(printf '%q' "${_stage}")"; return 1 ;;
     esac
   done < <(_parse_dockerfile_stages "${_dockerfile}")
 
@@ -1587,15 +2485,15 @@ generate_compose_yaml() {
   for _cs in "${_conf_stages[@]}"; do
     case "${_cs}" in
       sys|base|test)
-        _log_err setup "$(_setup_msg stage baseline_collision): [stage:${_cs}]"
+        _log_err setup stage_baseline_collision "display=$(_setup_msg stage baseline_collision): [stage:${_cs}]" "stage=${_cs}"
         return 1
         ;;
       latest|v[0-9]*)
-        _log_err setup "$(_setup_msg stage reserved_tag): [stage:${_cs}]"
+        _log_err setup stage_reserved_tag "display=$(_setup_msg stage reserved_tag): [stage:${_cs}]" "stage=${_cs}"
         return 1
         ;;
       devel)
-        _log_warn setup "[stage:devel] is reserved; not applied in v1 (#220). Edit top-level sections to tune devel."
+        _log_warn setup stage_devel_reserved "display=[stage:devel] is reserved; not applied in v1 (#220). Edit top-level sections to tune devel."
         continue
         ;;
     esac
@@ -1605,7 +2503,7 @@ generate_compose_yaml() {
       [[ "${_es}" == "${_cs}" ]] && _is_emitted=1 && break
     done
     if (( ! _is_emitted )); then
-      _log_warn setup "$(_setup_msg stage unknown_referenced): [stage:${_cs}]"
+      _log_warn setup stage_unknown_referenced "display=$(_setup_msg stage unknown_referenced): [stage:${_cs}]" "stage=${_cs}"
     fi
   done
 
@@ -1629,6 +2527,15 @@ generate_compose_yaml() {
 # AUTO-GENERATED BY setup.sh — DO NOT EDIT.
 # Edit setup.conf instead. Regenerate via ./build.sh --setup or ./run.sh --setup.
 HEADER
+    # #472: top-level name: so non-wrapper tools (lazydocker / docker compose
+    # ps / IDE panels) resolve the same project name the wrapper pins via -p.
+    # Literal vars -> compose interpolates from .env at parse time; matches
+    # lib/compose.sh PROJECT_NAME. INSTANCE_SUFFIX is absent from .env so it
+    # expands empty (base instance) for non-wrapper tools; the wrapper's -p
+    # still wins for per-instance runs (compose precedence: -p > name:).
+    cat <<'YAML'
+name: ${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX:-}
+YAML
     cat <<YAML
 services:
   devel:
@@ -1671,35 +2578,23 @@ YAML
     container_name: \${USER_NAME}-${_name}\${INSTANCE_SUFFIX:-}
     privileged: \${PRIVILEGED}
     ipc: \${IPC_MODE}
+YAML
+    # pid: only emitted for "host" — Docker rejects "private" as a
+    # literal; omitting the key gives the same private-namespace default.
+    if [[ "${_pid_mode}" == "host" ]]; then
+      echo "    pid: \${PID_MODE}"
+    fi
+    cat <<YAML
     stdin_open: true
     tty: true
 YAML
+    # Workload overlay (#502): devel emits it; extends:devel stages inherit.
+    _emit_env_file_block
     _emit_runtime_line
-    # cap_add / cap_drop / security_opt from [security] section
-    if [[ -n "${_cap_add_str}" ]]; then
-      echo "    cap_add:"
-      local _cap
-      while IFS= read -r _cap; do
-        [[ -z "${_cap}" ]] && continue
-        echo "      - ${_cap}"
-      done <<< "${_cap_add_str}"
-    fi
-    if [[ -n "${_cap_drop_str}" ]]; then
-      echo "    cap_drop:"
-      local _cd
-      while IFS= read -r _cd; do
-        [[ -z "${_cd}" ]] && continue
-        echo "      - ${_cd}"
-      done <<< "${_cap_drop_str}"
-    fi
-    if [[ -n "${_sec_opt_str}" ]]; then
-      echo "    security_opt:"
-      local _so
-      while IFS= read -r _so; do
-        [[ -z "${_so}" ]] && continue
-        echo "      - ${_so}"
-      done <<< "${_sec_opt_str}"
-    fi
+    _emit_restart_line
+    # cap_add / cap_drop / security_opt + group_add (#410 shared emitters).
+    _emit_caps_block
+    _emit_group_add_block "${_gui}"
     if [[ -n "${_net_name}" ]]; then
       cat <<YAML
     networks:
@@ -1709,7 +2604,17 @@ YAML
       echo "    network_mode: \${NETWORK_MODE}"
     fi
     # environment: merges GUI baseline (DISPLAY etc.) + user env_N entries
-    if [[ "${_gui}" == "true" ]] || [[ -n "${_env_str}" ]]; then
+    # + #328 LOG_FILE_PATH when [logging] local_path is set for this svc
+    # (consumed by .base/script/docker/_entrypoint_logging.sh helper to
+    # tee container stdout/stderr to the bind-mounted host file).
+    # _devel_llp resolved here -- the volumes block emit below reuses
+    # this variable, but the env block needs to know about the mount
+    # too, so we compute once and share.
+    local _devel_llp=""
+    _logging_svc_local_path_mount devel _devel_llp
+    local _devel_log_file=""
+    [[ -n "${_devel_llp}" ]] && _devel_log_file="/var/log/${_name}/devel.log"
+    if [[ "${_gui}" == "true" ]] || [[ -n "${_env_str}" ]] || [[ -n "${_devel_log_file}" ]]; then
       echo "    environment:"
       if [[ "${_gui}" == "true" ]]; then
         cat <<'YAML'
@@ -1732,6 +2637,7 @@ YAML
           echo "      - ${_ev}"
         done
       fi
+      [[ -n "${_devel_log_file}" ]] && echo "      - LOG_FILE_PATH=${_devel_log_file}"
     fi
     # ports: only emitted when network_mode=bridge (ignored under host)
     if [[ -n "${_ports_str}" ]] && [[ "${_net_mode}" == "bridge" ]]; then
@@ -1744,8 +2650,19 @@ YAML
     fi
     # volumes block (GUI baseline conditional; workspace + extras from
     # [volumes] mount_* — mount_1 is the workspace, auto-populated by
-    # setup.sh on first run and user-editable thereafter).
-    if [[ "${_gui}" == "true" ]] || (( ${#_gcy_extras[@]} > 0 )); then
+    # setup.sh on first run and user-editable thereafter). #328 adds
+    # the [logging] local_path bind mount when the per-service
+    # resolution yields a non-empty host path -- _devel_llp was resolved
+    # earlier (above the env block) so it could share with LOG_FILE_PATH.
+    local _any_prop_device=false
+    if [[ -n "${_devices_str}" ]]; then
+      local _chk
+      while IFS= read -r _chk; do
+        [[ -z "${_chk}" ]] && continue
+        if _device_has_propagation "${_chk}"; then _any_prop_device=true; break; fi
+      done <<< "${_devices_str}"
+    fi
+    if [[ "${_gui}" == "true" ]] || (( ${#_gcy_extras[@]} > 0 )) || [[ -n "${_devel_llp}" ]] || [[ "${_any_prop_device}" == true ]]; then
       echo "    volumes:"
       if [[ "${_gui}" == "true" ]]; then
         cat <<'YAML'
@@ -1758,49 +2675,37 @@ YAML
       for _m in "${_gcy_extras[@]}"; do
         echo "      - ${_m}"
       done
+      [[ -n "${_devel_llp}" ]] && echo "      - ${_devel_llp}"
+      # #450: device entries with propagation redirect to volumes: long-form
+      if [[ -n "${_devices_str}" ]]; then
+        local _d
+        while IFS= read -r _d; do
+          [[ -z "${_d}" ]] && continue
+          _device_has_propagation "${_d}" && _emit_device_as_volume "${_d}" "    "
+        done <<< "${_devices_str}"
+      fi
     fi
-    # devices: + device_cgroup_rules: from [devices] section
+    # devices: from [devices] section (plain entries only, no propagation)
     if [[ -n "${_devices_str}" ]]; then
-      echo "    devices:"
-      local _d
+      local _has_plain=false _d
       while IFS= read -r _d; do
         [[ -z "${_d}" ]] && continue
+        _device_has_propagation "${_d}" && continue
+        if [[ "${_has_plain}" != true ]]; then
+          echo "    devices:"
+          _has_plain=true
+        fi
         echo "      - ${_d}"
       done <<< "${_devices_str}"
     fi
-    # device_cgroup_rules: (dynamic device permissions, e.g. USB hotplug)
-    if [[ -n "${_cgroup_rule_str}" ]]; then
-      echo "    device_cgroup_rules:"
-      local _cr
-      while IFS= read -r _cr; do
-        [[ -z "${_cr}" ]] && continue
-        echo "      - \"${_cr}\""
-      done <<< "${_cgroup_rule_str}"
-    fi
-    # tmpfs: RAM-backed mounts
-    if [[ -n "${_tmpfs_str}" ]]; then
-      echo "    tmpfs:"
-      local _tf
-      while IFS= read -r _tf; do
-        [[ -z "${_tf}" ]] && continue
-        echo "      - ${_tf}"
-      done <<< "${_tmpfs_str}"
-    fi
+    # device_cgroup_rules + tmpfs (#410 shared emitters).
+    _emit_cgroup_rules_block
+    _emit_tmpfs_block
     # shm_size: only emitted when ipc != host (otherwise Docker ignores it)
     if [[ -n "${_shm_size}" ]] && [[ "${_ipc_mode}" != "host" ]]; then
       echo "    shm_size: ${_shm_size}"
     fi
-    if [[ "${_gpu}" == "true" ]]; then
-      cat <<YAML
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: ${_gpu_count}
-              capabilities: ${_caps_yaml}
-YAML
-    fi
+    _emit_gpu_deploy_block "${_gpu}" "${_gpu_count}" "${_caps_yaml}"
     _emit_logging_block devel
 
     # Auto-emit a service per non-baseline stage parsed from the
@@ -1833,8 +2738,24 @@ YAML
       _top_volumes_str="${_top_volumes_str%$'\n'}"
     fi
 
+    # #482: accumulate named-volume references across devel + every stage so
+    # the top-level `volumes:` declaration can be emitted once at the end
+    # (compose requires every named volume a service references to be
+    # declared). Bind mounts never enter this set. Per-stage volumes are
+    # added inside the emit loop below as each stage's effective list resolves.
+    local -A _named_vols=()
+    _collect_named_volumes _named_vols "${_top_volumes_str}"
+
     local _emit_stage
     for _emit_stage in "${_emit_stages[@]}"; do
+      # #493 (A1'-b): devel-test is emitted under the legacy service
+      # name `test` (preserves `make exec -t test`, the `:test` image
+      # tag, the `test` profile, and [logging.test] keying). All other
+      # stages use their own name. build.target and the
+      # [stage:<name>] override lookup stay on the real Dockerfile
+      # stage name `_emit_stage` (= devel-test).
+      local _svc="${_emit_stage}"
+      [[ "${_emit_stage}" == "devel-test" ]] && _svc="test"
       # Load + filter [stage:<name>] overrides for this stage.
       local -a _so_keys=() _so_values=()
       _load_stage_overrides "${_setup_base}" "${_emit_stage}" _so_keys _so_values
@@ -1845,7 +2766,7 @@ YAML
           _so_filtered_keys+=("${_so_keys[_ki]}")
           _so_filtered_values+=("${_so_values[_ki]}")
         else
-          _log_warn setup "$(_setup_msg stage override_key_not_allowed): $(printf '%q' "${_so_keys[_ki]}") (stage=${_emit_stage})"
+          _log_warn setup stage_override_key_not_allowed "display=$(_setup_msg stage override_key_not_allowed): $(printf '%q' "${_so_keys[_ki]}") (stage=${_emit_stage})" "key=$(printf '%q' "${_so_keys[_ki]}")" "stage=${_emit_stage}"
         fi
       done
       local _has_overrides=0
@@ -1858,7 +2779,7 @@ YAML
       if (( ! _has_overrides )); then
         cat <<YAML
 
-  ${_emit_stage}:
+  ${_svc}:
     extends:
       service: devel
     build:
@@ -1868,60 +2789,88 @@ YAML
 YAML
         _emit_additional_contexts_block
         cat <<YAML
-    image: \${DOCKER_HUB_USER:-local}/${_name}:${_emit_stage}
-    container_name: \${USER_NAME}-${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
+    image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
+    container_name: \${USER_NAME}-${_name}-${_svc}\${INSTANCE_SUFFIX:-}
     stdin_open: false
     tty: false
     profiles:
-      - ${_emit_stage}
+      - ${_svc}
 YAML
-        # Per-stage [logging.<stage>] override (if any). Without an
-        # override compose `extends: devel` already covers logging:
-        # compose extends merges mapping sub-keys so devel's logging
-        # block carries over — emit only when the stage actually
-        # diverges from devel.
+        # #328 / #367: per-stage LOG_FILE_PATH + volume mount when
+        # [logging] / [logging.<stage>] local_path is set. compose's
+        # `extends` merge inherits devel's `environment:` and
+        # `volumes:` lists, then concatenates the child's entries on
+        # top -- last-wins resolution at runtime means the per-stage
+        # override here takes effect. Volume mount is duplicated
+        # against devel's inherited mount but compose dedups
+        # identical bind strings (#367 Option A: emit uniformly on
+        # every service block, no extends-relationship detection).
+        local _stage_llp=""
+        _logging_svc_local_path_mount "${_svc}" _stage_llp
+        if [[ -n "${_stage_llp}" ]]; then
+          echo "    environment:"
+          echo "      - LOG_FILE_PATH=/var/log/${_name}/${_svc}.log"
+          echo "    volumes:"
+          echo "      - ${_stage_llp}"
+        fi
+        # Per-stage [logging.<stage>] driver / rotation override
+        # (if any). Without an override compose `extends: devel`
+        # already covers logging:: compose extends merges mapping
+        # sub-keys so devel's logging block carries over -- emit
+        # only when the stage actually diverges from devel.
         if [[ -n "${_logging_per_svc_str}" ]] && \
-           grep -qE "^${_emit_stage}:" <<< "${_logging_per_svc_str}"; then
-          _emit_logging_block "${_emit_stage}"
+           grep -qE "^${_svc}:" <<< "${_logging_per_svc_str}"; then
+          _emit_logging_block "${_svc}"
         fi
         continue
       fi
 
-      # Resolve effective per-stage values. For modes (gui / gpu),
-      # absent or "auto" inherits the parent's already-resolved boolean
-      # — we don't re-detect inside the stage. For other scalars, the
-      # parent's effective value is the fallback.
-      local _eff_gui_mode _eff_gui
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "gui.mode" "" _eff_gui_mode
-      case "${_eff_gui_mode}" in
-        off)   _eff_gui="false" ;;
-        force) _eff_gui="true" ;;
-        *)     _eff_gui="${_gui}" ;;
-      esac
-
-      local _eff_gpu_mode _eff_gpu
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_mode" "" _eff_gpu_mode
-      case "${_eff_gpu_mode}" in
-        off)   _eff_gpu="false" ;;
-        force) _eff_gpu="true" ;;
-        *)     _eff_gpu="${_gpu}" ;;
-      esac
-
-      local _eff_gpu_count _eff_gpu_caps _eff_runtime
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_count" "${_gpu_count}" _eff_gpu_count
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_capabilities" "${_gpu_caps}" _eff_gpu_caps
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.runtime" "${_runtime}" _eff_runtime
-
-      local _eff_net_mode _eff_ipc_mode _eff_net_name _eff_privileged
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.mode" "${_net_mode}" _eff_net_mode
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.ipc" "${_ipc_mode}" _eff_ipc_mode
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.network_name" "${_net_name}" _eff_net_name
-      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "security.privileged" "" _eff_privileged
-
-      local _eff_volumes _eff_environment _eff_ports
-      _resolve_stage_list _so_filtered_keys _so_filtered_values "volumes.mount_" "volumes.mount_inherit" "${_top_volumes_str}" _eff_volumes
-      _resolve_stage_list _so_filtered_keys _so_filtered_values "environment.env_" "environment.env_inherit" "${_env_str}" _eff_environment
-      _resolve_stage_list _so_filtered_keys _so_filtered_values "network.port_" "network.port_inherit" "${_ports_str}" _eff_ports
+      # Resolve effective per-stage docker flags through the single
+      # shared resolution layer (#505). The deploy renderer (S6 #506)
+      # calls the same _resolve_docker_flags for the runtime stage, so
+      # the two renderers never drift. Modes (gui / gpu) inherit the
+      # parent's already-resolved boolean unless the stage forces
+      # off / force — no per-stage hardware re-detection. The resolved
+      # record is unpacked into the existing _eff_* locals so the emit
+      # blocks below stay untouched.
+      local -A _dflags_parent=(
+        [gui]="${_gui}"
+        [gpu]="${_gpu}"
+        [gpu_count]="${_gpu_count}"
+        [gpu_caps]="${_gpu_caps}"
+        [runtime]="${_runtime}"
+        [net_mode]="${_net_mode}"
+        [ipc_mode]="${_ipc_mode}"
+        [pid_mode]="${_pid_mode}"
+        [net_name]="${_net_name}"
+        [volumes_top]="${_top_volumes_str}"
+        [env_top]="${_env_str}"
+        [ports_top]="${_ports_str}"
+        [cap_add_top]="${_cap_add_str}"
+        [cap_drop_top]="${_cap_drop_str}"
+        [sec_opt_top]="${_sec_opt_str}"
+      )
+      local -A _dflags_eff=()
+      _resolve_docker_flags _so_filtered_keys _so_filtered_values _dflags_parent _dflags_eff
+      local _eff_gui="${_dflags_eff[gui]}"
+      local _eff_gpu="${_dflags_eff[gpu]}"
+      local _eff_gpu_count="${_dflags_eff[gpu_count]}"
+      local _eff_gpu_caps="${_dflags_eff[gpu_caps]}"
+      local _eff_runtime="${_dflags_eff[runtime]}"
+      local _eff_net_mode="${_dflags_eff[net_mode]}"
+      local _eff_ipc_mode="${_dflags_eff[ipc_mode]}"
+      local _eff_pid_mode="${_dflags_eff[pid_mode]}"
+      local _eff_net_name="${_dflags_eff[net_name]}"
+      local _eff_privileged="${_dflags_eff[privileged]}"
+      local _eff_volumes="${_dflags_eff[volumes]}"
+      local _eff_environment="${_dflags_eff[environment]}"
+      local _eff_ports="${_dflags_eff[ports]}"
+      local _eff_cap_add="${_dflags_eff[cap_add]}"
+      local _eff_cap_drop="${_dflags_eff[cap_drop]}"
+      local _eff_sec_opt="${_dflags_eff[security_opt]}"
+      # #482: pick up any named volumes this stage introduces (a per-stage
+      # mount_* override may add one the top-level list lacks).
+      _collect_named_volumes _named_vols "${_eff_volumes}"
 
       # ── Standalone emit (#220 v0.18.1 fix) ──────────────────────────
       #
@@ -1946,7 +2895,7 @@ YAML
 
       cat <<YAML
 
-  ${_emit_stage}:
+  ${_svc}:
     build:
       context: .
       dockerfile: Dockerfile
@@ -1967,13 +2916,16 @@ YAML
       _emit_target_arch_line
       _emit_user_build_args
       cat <<YAML
-    image: \${DOCKER_HUB_USER:-local}/${_name}:${_emit_stage}
-    container_name: \${USER_NAME}-${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
+    image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
+    container_name: \${USER_NAME}-${_name}-${_svc}\${INSTANCE_SUFFIX:-}
     stdin_open: false
     tty: false
     profiles:
-      - ${_emit_stage}
+      - ${_svc}
 YAML
+      # Workload overlay (#502): standalone block has no `extends: devel`
+      # to inherit from, so re-emit env_file explicitly.
+      _emit_env_file_block
       # privileged: literal when stage overrides; else env-var ref
       # (same shape devel emits — .env's PRIVILEGED applies).
       if [[ -n "${_eff_privileged}" ]]; then
@@ -1987,38 +2939,27 @@ YAML
       else
         echo "    ipc: \${IPC_MODE}"
       fi
+      # pid: only emitted for "host" — Docker rejects "private" as literal.
+      if [[ "${_eff_pid_mode}" == "host" ]]; then
+        if [[ "${_eff_pid_mode}" != "${_pid_mode}" ]]; then
+          echo "    pid: ${_eff_pid_mode}"
+        else
+          echo "    pid: \${PID_MODE}"
+        fi
+      fi
       # runtime: only when explicitly set non-empty / non-auto / non-off.
       if [[ -n "${_eff_runtime}" ]] && \
          [[ "${_eff_runtime}" != "off" ]] && \
          [[ "${_eff_runtime}" != "auto" ]]; then
         echo "    runtime: ${_eff_runtime}"
       fi
-      # cap_add / cap_drop / security_opt — re-emit from top-level
-      # (not yet in per-stage allowlist; v2 may revisit).
-      if [[ -n "${_cap_add_str}" ]]; then
-        echo "    cap_add:"
-        local _sa_cap
-        while IFS= read -r _sa_cap; do
-          [[ -z "${_sa_cap}" ]] && continue
-          echo "      - ${_sa_cap}"
-        done <<< "${_cap_add_str}"
-      fi
-      if [[ -n "${_cap_drop_str}" ]]; then
-        echo "    cap_drop:"
-        local _sa_cd
-        while IFS= read -r _sa_cd; do
-          [[ -z "${_sa_cd}" ]] && continue
-          echo "      - ${_sa_cd}"
-        done <<< "${_cap_drop_str}"
-      fi
-      if [[ -n "${_sec_opt_str}" ]]; then
-        echo "    security_opt:"
-        local _sa_so
-        while IFS= read -r _sa_so; do
-          [[ -z "${_sa_so}" ]] && continue
-          echo "      - ${_sa_so}"
-        done <<< "${_sec_opt_str}"
-      fi
+      # cap_add / cap_drop / security_opt: effective per-stage lists
+      # (#526) — a stage can override / clear inherited caps via [stage:*]
+      # security.cap_add_* / cap_drop_* / security_opt_* (+ *_inherit),
+      # else inherits the top-level [security] block. group_add is gated
+      # on the stage's effective gui. Shared emitter with devel (#410).
+      _emit_caps_block "${_eff_cap_add}" "${_eff_cap_drop}" "${_eff_sec_opt}"
+      _emit_group_add_block "${_eff_gui}"
       # network: literal mode + optional named network. When stage
       # didn't override mode, fall back to env-var ref (matches devel).
       if [[ "${_eff_net_mode}" == "bridge" ]] && [[ -n "${_eff_net_name}" ]]; then
@@ -2031,8 +2972,13 @@ YAML
       else
         echo "    network_mode: \${NETWORK_MODE}"
       fi
-      # environment: GUI baseline (effective gui) + effective env list.
-      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_environment}" ]]; then
+      # environment: GUI baseline (effective gui) + effective env list
+      # + #328 LOG_FILE_PATH for the per-stage tee target.
+      local _stage_llp=""
+      _logging_svc_local_path_mount "${_svc}" _stage_llp
+      local _stage_log_file=""
+      [[ -n "${_stage_llp}" ]] && _stage_log_file="/var/log/${_name}/${_svc}.log"
+      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_environment}" ]] || [[ -n "${_stage_log_file}" ]]; then
         echo "    environment:"
         if [[ "${_eff_gui}" == "true" ]]; then
           cat <<'YAML'
@@ -2049,6 +2995,7 @@ YAML
             echo "      - ${_ev}"
           done <<< "${_eff_environment}"
         fi
+        [[ -n "${_stage_log_file}" ]] && echo "      - LOG_FILE_PATH=${_stage_log_file}"
       fi
       # ports: only under bridge mode (compose ignores it under host).
       if [[ -n "${_eff_ports}" ]] && [[ "${_eff_net_mode}" == "bridge" ]]; then
@@ -2059,8 +3006,10 @@ YAML
           echo "      - \"${_sp}\""
         done <<< "${_eff_ports}"
       fi
-      # volumes: GUI baseline (effective gui) + effective volume list.
-      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_volumes}" ]]; then
+      # volumes: GUI baseline (effective gui) + effective volume list
+      # + #328 [logging] local_path per-stage bind mount. _stage_llp
+      # was resolved above the env block; reuse it here.
+      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_volumes}" ]] || [[ -n "${_stage_llp}" ]] || [[ "${_any_prop_device}" == true ]]; then
         echo "    volumes:"
         if [[ "${_eff_gui}" == "true" ]]; then
           cat <<'YAML'
@@ -2076,39 +3025,39 @@ YAML
             echo "      - ${_m}"
           done <<< "${_eff_volumes}"
         fi
+        [[ -n "${_stage_llp}" ]] && echo "      - ${_stage_llp}"
+        # #450: device entries with propagation redirect to volumes: long-form
+        if [[ -n "${_devices_str}" ]]; then
+          local _sd
+          while IFS= read -r _sd; do
+            [[ -z "${_sd}" ]] && continue
+            _device_has_propagation "${_sd}" && _emit_device_as_volume "${_sd}" "    "
+          done <<< "${_devices_str}"
+        fi
       fi
-      # devices: + cgroup_rules: from top-level (not yet per-stage).
+      # devices: from top-level (plain entries only, no propagation).
       if [[ -n "${_devices_str}" ]]; then
-        echo "    devices:"
-        local _sd
+        local _has_plain_sd=false _sd
         while IFS= read -r _sd; do
           [[ -z "${_sd}" ]] && continue
+          _device_has_propagation "${_sd}" && continue
+          if [[ "${_has_plain_sd}" != true ]]; then
+            echo "    devices:"
+            _has_plain_sd=true
+          fi
           echo "      - ${_sd}"
         done <<< "${_devices_str}"
       fi
-      if [[ -n "${_cgroup_rule_str}" ]]; then
-        echo "    device_cgroup_rules:"
-        local _scr
-        while IFS= read -r _scr; do
-          [[ -z "${_scr}" ]] && continue
-          echo "      - \"${_scr}\""
-        done <<< "${_cgroup_rule_str}"
-      fi
-      # tmpfs: from top-level.
-      if [[ -n "${_tmpfs_str}" ]]; then
-        echo "    tmpfs:"
-        local _stf
-        while IFS= read -r _stf; do
-          [[ -z "${_stf}" ]] && continue
-          echo "      - ${_stf}"
-        done <<< "${_tmpfs_str}"
-      fi
+      # device_cgroup_rules + tmpfs from top-level (#410 shared emitters).
+      _emit_cgroup_rules_block
+      _emit_tmpfs_block
       # shm_size: depends on effective ipc (only emitted under
       # non-host ipc, mirroring devel).
       if [[ -n "${_shm_size}" ]] && [[ "${_eff_ipc_mode}" != "host" ]]; then
         echo "    shm_size: ${_shm_size}"
       fi
-      # deploy / GPU block: emit when effective gpu is enabled.
+      # deploy / GPU block (#410 shared emitter): build the effective caps
+      # YAML (per-stage resolution differs from devel), then emit.
       if [[ "${_eff_gpu}" == "true" ]]; then
         local -a _eff_caps_arr=()
         read -ra _eff_caps_arr <<< "${_eff_gpu_caps}"
@@ -2119,50 +3068,26 @@ YAML
           else _eff_caps_yaml+=", ${_ec}"; fi
         done
         _eff_caps_yaml+="]"
-        cat <<YAML
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: ${_eff_gpu_count}
-              capabilities: ${_eff_caps_yaml}
-YAML
+        _emit_gpu_deploy_block "${_eff_gpu}" "${_eff_gpu_count}" "${_eff_caps_yaml}"
       fi
       # Stage emits a standalone block (no `extends: devel`), so it
       # carries no inherited logging — always emit the effective
       # logging block when [logging] or [logging.<stage>] is set.
-      _emit_logging_block "${_emit_stage}"
+      # Keyed by the service name (`_svc`) so devel-test's logging stays
+      # under [logging.test] (#493).
+      _emit_logging_block "${_svc}"
     done
 
-    cat <<YAML
+    # #493 (A1'-b): the `test` service is no longer a hardcoded bare
+    # block here — devel-test flows through the per-stage loop above
+    # (emitted under the legacy service name `test` via `_svc`), so it
+    # inherits devel by default and honours [stage:devel-test] overrides
+    # like any other non-baseline stage.
 
-  test:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: devel-test
-YAML
-    _emit_additional_contexts_block
-    _emit_build_network_line
-    cat <<YAML
-      args:
-        APT_MIRROR_UBUNTU: \${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
-        APT_MIRROR_DEBIAN: \${APT_MIRROR_DEBIAN:-deb.debian.org}
-        TZ: \${TZ:-Asia/Taipei}
-        USER_NAME: \${USER_NAME}
-        USER_GROUP: \${USER_GROUP}
-        USER_UID: \${USER_UID}
-        USER_GID: \${USER_GID}
-YAML
-    _emit_target_arch_line
-    _emit_user_build_args
-    cat <<YAML
-    image: \${DOCKER_HUB_USER:-local}/${_name}:test
-    profiles:
-      - test
-YAML
-    _emit_logging_block test
+    # #482: top-level volumes: declaration for any named volumes referenced
+    # by devel or a stage. Emitted before networks: (top-level section order).
+    # No-op (zero-diff) when only bind mounts are used.
+    _emit_volumes_block _named_vols
     if [[ -n "${_net_name}" ]]; then
       cat <<YAML
 
@@ -2181,7 +3106,7 @@ YAML
 #                  <hardware> <docker_hub_user> <gpu_detected>
 #                  <image_name> <ws_path>
 #                  <apt_mirror_ubuntu> <apt_mirror_debian> <tz>
-#                  <network_mode> <ipc_mode> <privileged>
+#                  <network_mode> <ipc_mode> <pid_mode> <privileged>
 #                  <gpu_count> <gpu_caps>
 #                  <gui_detected> <conf_hash>
 #                  [<network_name>] [<user_build_args>] [<target_arch>]
@@ -2213,6 +3138,7 @@ write_env() {
   local _tz="${1}"; shift
   local _network_mode="${1}"; shift
   local _ipc_mode="${1}"; shift
+  local _pid_mode="${1}"; shift
   local _privileged="${1}"; shift
   local _gpu_count="${1}"; shift
   local _gpu_caps="${1}"; shift
@@ -2258,6 +3184,7 @@ TZ=${_tz}
 NETWORK_MODE=${_network_mode}
 NETWORK_NAME=${_network_name}
 IPC_MODE=${_ipc_mode}
+PID_MODE=${_pid_mode}
 PRIVILEGED=${_privileged}
 GPU_COUNT=${_gpu_count}
 GPU_CAPABILITIES="${_gpu_caps}"
@@ -2325,6 +3252,29 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _scaffold_env_overlay <path>
+#
+# Create the hand-authored `.env` workload overlay with guidance
+# comments if it does not exist (#502, A2 file roles). Idempotent:
+# never overwrites an existing file -- the overlay is user-owned after
+# its first creation, so setup.sh leaves it alone on every later apply.
+# ════════════════════════════════════════════════════════════════════
+_scaffold_env_overlay() {
+  local _path="${1:?}"
+  [[ -e "${_path}" ]] && return 0
+  cat > "${_path}" << 'EOF'
+# Workload overlay -- hand-authored, gitignored. setup.sh creates this
+# file once and never edits it again. Put per-task / volatile env vars
+# here as KEY=VALUE (e.g. ROS_DOMAIN_ID=42, LOG_LEVEL=debug, API tokens).
+# They are injected into the container via `env_file: - .env` and take
+# effect with only `make run` -- no regenerate, no SETUP_CONF_HASH drift,
+# no git churn. Machine-bound / set-once params (GPU, privileged, mounts,
+# IMAGE_NAME, APT mirror) belong in config/docker/setup.conf instead.
+# See README "Where each parameter lives (env vs workload)".
+EOF
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _check_setup_drift <base_path>
 #
 # Compares current system state + setup.conf hash against .env's SETUP_*
@@ -2336,10 +3286,10 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 _check_setup_drift() {
   local _base="${1:?}"
-  local _env_file="${_base}/.env"
+  local _env_file="${_base}/.env.generated"
   [[ -f "${_env_file}" ]] || return 0
 
-  # Read stored values from .env without polluting caller's env
+  # Read stored values from .env.generated without polluting caller's env
   local _stored_hash="" _stored_df_hash="" _stored_gui="" _stored_gpu="" _stored_uid=""
   _stored_hash="$(   grep -oP '^SETUP_CONF_HASH=\K.*'       "${_env_file}" 2>/dev/null || true)"
   _stored_df_hash="$(grep -oP '^SETUP_DOCKERFILE_HASH=\K.*' "${_env_file}" 2>/dev/null || true)"
@@ -2369,9 +3319,9 @@ _check_setup_drift() {
 
   if (( ${#_drift[@]} > 0 )); then
     local _d
-    printf "[setup] drift detected since last setup.sh run:\n" >&2
+    _log_warn setup env_drift_detected "display=drift detected since last setup.sh run:"
     for _d in "${_drift[@]}"; do
-      printf "[setup]   - %s\n" "${_d}" >&2
+      _log_warn setup env_drift_detail "display=  - ${_d}" "detail=${_d}"
     done
     return 1
   fi
@@ -2410,14 +3360,14 @@ _setup_check_drift() {
         shift 2
         ;;
       *)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
     esac
   done
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   _announce_template_default_fallback "${_base_path}"
@@ -2442,9 +3392,9 @@ _announce_template_default_fallback() {
   # source of truth post-#201.
   local _repo_conf="${_base}/config/docker/setup.conf"
   if [[ ! -f "${_repo_conf}" ]]; then
-    _log_warn setup "$(_setup_msg warnings no_repo_conf)"
+    _log_warn setup conf_no_repo_conf "display=$(_setup_msg warnings no_repo_conf)"
   elif ! grep -qE '^[[:space:]]*\[[^]]+\]' "${_repo_conf}"; then
-    _log_warn setup "$(_setup_msg warnings empty_repo_conf)"
+    _log_warn setup conf_empty_repo_conf "display=$(_setup_msg warnings empty_repo_conf)"
   fi
 }
 
@@ -2458,7 +3408,12 @@ _announce_template_default_fallback() {
 _setup_known_section() {
   local _s="${1-}"
   case "${_s}" in
-    image|build|deploy|gui|network|security|resources|environment|tmpfs|devices|volumes|additional_contexts)
+    image|build|deploy|lifecycle|gui|network|security|resources|environment|tmpfs|devices|volumes|additional_contexts|logging)
+      return 0 ;;
+    logging.?*)
+      # Per-service override section [logging.<svc>] -- shape only;
+      # `<svc>` must be non-empty (rejects `logging.` trailing-dot).
+      # Caller decides whether <svc> matches a real Dockerfile stage.
       return 0 ;;
     *)
       return 1 ;;
@@ -2492,7 +3447,43 @@ _setup_validate_kv() {
       # non-empty values.
       [[ -z "${_value}" ]] && return 0
       _validate_shm_size "${_value}" ;;
+    lifecycle.restart)
+      # #478: 5 canonical docker restart policies. Empty allowed (= clear
+      # key, falls back to template default `no`).
+      [[ -z "${_value}" ]] && return 0
+      _validate_restart "${_value}" ;;
     *)
+      # [logging] + [logging.<svc>] share the same key validators —
+      # docker daemon's `logging.driver` + `logging.options.*` shape.
+      # Empty allowed = "clear key, fall through to template default".
+      case "${_section}" in
+        logging|logging.*)
+          case "${_key}" in
+            driver)
+              [[ -z "${_value}" ]] && return 0
+              _validate_log_driver "${_value}"
+              return $? ;;
+            max_size)
+              [[ -z "${_value}" ]] && return 0
+              _validate_log_max_size "${_value}"
+              return $? ;;
+            max_file)
+              [[ -z "${_value}" ]] && return 0
+              _validate_log_max_file "${_value}"
+              return $? ;;
+            compress)
+              [[ -z "${_value}" ]] && return 0
+              _validate_log_compress "${_value}"
+              return $? ;;
+            local_path)
+              [[ -z "${_value}" ]] && return 0
+              _validate_log_local_path "${_value}"
+              return $? ;;
+            *)
+              return 0 ;;
+          esac
+          ;;
+      esac
       case "${_section}" in
         volumes)
           if [[ "${_key}" == mount_* ]]; then
@@ -2600,7 +3591,7 @@ _setup_set() {
         fi
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
@@ -2609,7 +3600,7 @@ _setup_set() {
         elif [[ "${_have_value}" -eq 0 ]]; then
           _value="$1"; _have_value=1
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -2622,31 +3613,39 @@ _setup_set() {
     return 1
   fi
 
-  # Split <section>.<key>; the first '.' is the separator (keys
-  # themselves never contain dots in setup.conf).
+  # Split <section>.<key>; the first '.' is the separator. The only
+  # sub-section pattern is [logging.<svc>] (per-service override), so
+  # `logging.<svc>.<key>` is split as section=`logging.<svc>`,
+  # key=`<key>` (rightmost-dot). All other shapes use first-dot.
   if [[ "${_spec}" != *.* ]]; then
     _setup_msg usage set >&2
     return 1
   fi
-  local _section="${_spec%%.*}"
-  local _key="${_spec#*.}"
+  local _section _key
+  if [[ "${_spec}" == logging.*.* ]]; then
+    _section="${_spec%.*}"
+    _key="${_spec##*.}"
+  else
+    _section="${_spec%%.*}"
+    _key="${_spec#*.}"
+  fi
   if [[ -z "${_section}" || -z "${_key}" ]]; then
     _setup_msg usage set >&2
     return 1
   fi
 
   if ! _setup_known_section "${_section}"; then
-    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
   fi
 
   if ! _setup_validate_kv "${_section}" "${_key}" "${_value}"; then
-    _log_err setup "$(_setup_msg errors invalid_value): ${_section}.${_key} = ${_value}"
+    _log_err setup conf_invalid_value "display=$(_setup_msg errors invalid_value): ${_section}.${_key} = ${_value}" "section=${_section}" "key=${_key}" "value=${_value}"
     return 2
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   # Writes target the per-repo override file (setup.conf). Bootstrap
@@ -2662,7 +3661,7 @@ _setup_set() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] set [%s] %s = %s\n' "${_section}" "${_key}" "${_value}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
 }
 
@@ -2700,14 +3699,14 @@ _setup_show() {
         shift 2
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
         if [[ -z "${_spec}" ]]; then
           _spec="$1"
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -2721,7 +3720,12 @@ _setup_show() {
   fi
 
   local _section _key
-  if [[ "${_spec}" == *.* ]]; then
+  if [[ "${_spec}" == logging.*.* ]]; then
+    # [logging.<svc>] sub-section: section is `logging.<svc>`, key is
+    # the rightmost dot-delimited segment.
+    _section="${_spec%.*}"
+    _key="${_spec##*.}"
+  elif [[ "${_spec}" == *.* ]]; then
     _section="${_spec%%.*}"
     _key="${_spec#*.}"
   else
@@ -2730,19 +3734,19 @@ _setup_show() {
   fi
 
   if ! _setup_known_section "${_section}"; then
-    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   # show reads the merged view (template baseline ← repo override).
   # This is what `apply` would produce, so users see effective values
   # without having to re-run apply after every set/add/remove.
   local _repo_conf="${_base_path}/config/docker/setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   local -a _ss_sections=() _ss_keys=() _ss_values=()
   _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
       _ss_sections _ss_keys _ss_values
@@ -2755,7 +3759,7 @@ _setup_show() {
         return 0
       fi
     done
-    _log_err setup "$(_setup_msg errors key_not_found): ${_ns_key}"
+    _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_ns_key}" "key=${_ns_key}"
     return 1
   fi
 
@@ -2768,7 +3772,7 @@ _setup_show() {
     fi
   done
   if (( _printed == 0 )); then
-    _log_err setup "$(_setup_msg errors section_not_found): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors section_not_found): ${_section}" "section=${_section}"
     return 1
   fi
   return 0
@@ -2803,14 +3807,14 @@ _setup_list() {
         shift 2
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
         if [[ -z "${_spec}" ]]; then
           _spec="$1"
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -2831,13 +3835,13 @@ _setup_list() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   # list reads the merged view (template ← repo override) — same
   # rationale as `show`. Reflects what `apply` would materialize.
   local _repo_conf="${_base_path}/config/docker/setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   local -a _ll_sections=() _ll_keys=() _ll_values=()
   _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
       _ll_sections _ll_keys _ll_values
@@ -2924,7 +3928,7 @@ _setup_add() {
         fi
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
@@ -2933,7 +3937,7 @@ _setup_add() {
         elif [[ "${_have_value}" -eq 0 ]]; then
           _value="$1"; _have_value=1
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -2958,12 +3962,12 @@ _setup_add() {
   fi
 
   if ! _setup_known_section "${_section}"; then
-    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
   # Writes target the per-repo override (setup.conf); bootstrap as
   # empty when missing — `add` records only the user's intent.
@@ -2980,7 +3984,7 @@ _setup_add() {
   # lands past any inherited template slot the user hasn't yet bumped.
   local -a _sects=() _keys=() _vals=()
   local -a _local_k=() _local_v=()
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   _parse_ini_section "${_conf}" "${_section}" _local_k _local_v
   if (( ${#_local_k[@]} > 0 )); then
     # Override section present — replace strategy: only .local entries
@@ -3025,7 +4029,7 @@ _setup_add() {
   local _new_key="${_list}_${_new_idx}"
 
   if ! _setup_validate_kv "${_section}" "${_new_key}" "${_value}"; then
-    _log_err setup "$(_setup_msg errors invalid_value): ${_section}.${_new_key} = ${_value}"
+    _log_err setup conf_invalid_value "display=$(_setup_msg errors invalid_value): ${_section}.${_new_key} = ${_value}" "section=${_section}" "key=${_new_key}" "value=${_value}"
     return 2
   fi
 
@@ -3034,7 +4038,7 @@ _setup_add() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] add [%s] %s = %s\n' "${_section}" "${_new_key}" "${_value}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
 }
 
@@ -3100,7 +4104,7 @@ _setup_remove() {
         fi
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
@@ -3109,7 +4113,7 @@ _setup_remove() {
         elif [[ "${_have_value}" -eq 0 ]]; then
           _value="$1"; _have_value=1
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -3121,27 +4125,33 @@ _setup_remove() {
     _setup_msg usage remove >&2
     return 1
   fi
-  local _section="${_spec%%.*}"
-  local _rest="${_spec#*.}"
+  local _section _rest
+  if [[ "${_spec}" == logging.*.* ]]; then
+    _section="${_spec%.*}"
+    _rest="${_spec##*.}"
+  else
+    _section="${_spec%%.*}"
+    _rest="${_spec#*.}"
+  fi
   if [[ -z "${_section}" || -z "${_rest}" ]]; then
     _setup_msg usage remove >&2
     return 1
   fi
 
   if ! _setup_known_section "${_section}"; then
-    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
   # remove only operates on the per-repo override. If setup.conf
   # doesn't exist, there's nothing to remove (template baseline isn't
   # a removable input).
   local _conf="${_base_path}/config/docker/setup.conf"
   if [[ ! -f "${_conf}" ]]; then
-    _log_err setup "$(_setup_msg errors key_not_found): ${_spec}"
+    _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_spec}" "key=${_spec}"
     return 1
   fi
 
@@ -3159,7 +4169,7 @@ _setup_remove() {
       fi
     done
     if [[ -z "${_target_key}" ]]; then
-      _log_err setup "$(_setup_msg errors key_not_found): ${_section}.${_rest} = ${_value}"
+      _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_section}.${_rest} = ${_value}" "key=${_section}.${_rest}" "value=${_value}"
       return 1
     fi
   else
@@ -3172,7 +4182,7 @@ _setup_remove() {
       fi
     done
     if (( ! _found )); then
-      _log_err setup "$(_setup_msg errors key_not_found): ${_spec}"
+      _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_spec}" "key=${_spec}"
       return 1
     fi
     _target_key="${_rest}"
@@ -3192,7 +4202,7 @@ _setup_remove() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] remove [%s] %s\n' "${_section}" "${_target_key}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
 }
 
@@ -3244,31 +4254,32 @@ _setup_reset() {
         shift 2
         ;;
       *)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
     esac
   done
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   # reset clears the per-repo override (setup.conf) so the next `apply`
-  # rebuilds .env + compose.yaml purely from the template baseline. The
-  # workspace mount_1 is re-detected and re-written via the bootstrap
-  # path on the next apply.
+  # rebuilds .env.generated + compose.yaml purely from the template
+  # baseline. The workspace mount_1 is re-detected and re-written via the
+  # bootstrap path on the next apply. The hand-authored .env workload
+  # overlay is user-owned and intentionally left untouched by reset.
   local _conf="${_base_path}/config/docker/setup.conf"
-  local _env="${_base_path}/.env"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  local _env="${_base_path}/.env.generated"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   if [[ ! -f "${_tpl_conf}" ]]; then
-    printf "[setup] template setup.conf not found at %s\n" "${_tpl_conf}" >&2
+    _log_err setup conf_template_missing "display=template setup.conf not found at ${_tpl_conf}" "path=${_tpl_conf}"
     return 1
   fi
 
   if (( ! _yes )); then
     if [[ ! -t 0 ]]; then
-      _log_err setup "$(_setup_msg reset needs_yes)"
+      _log_err setup conf_reset_needs_yes "display=$(_setup_msg reset needs_yes)"
       return 1
     fi
     printf "[setup] %s [y/N]: " "$(_setup_msg reset confirm)"
@@ -3277,7 +4288,7 @@ _setup_reset() {
     case "${_ans}" in
       y|Y|yes|YES) ;;
       *)
-        _log_warn setup "$(_setup_msg reset aborted)"
+        _log_warn setup conf_reset_aborted "display=$(_setup_msg reset aborted)"
         return 1
         ;;
     esac
@@ -3293,9 +4304,9 @@ _setup_reset() {
   fi
 
   if [[ "${_quiet}" -eq 0 ]]; then
-    _log_info setup "$(_setup_msg reset "done")"
+    _log_info setup conf_reset "display=$(_setup_msg reset "done")"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
 }
 
@@ -3312,6 +4323,12 @@ _setup_reset() {
 _setup_apply() {
   local _base_path=""
   local _quiet=0
+  # #338: per-invocation overrides. Empty means "use setup.conf /
+  # SETUP_GUI env / built-in default" per the documented resolution
+  # order CLI > env > conf > default.
+  local _gui_override=""        # --gui=auto|force|off
+  local _no_x11_cookie=0        # --no-x11-cookie
+  local _print_resolved=0       # --print-resolved
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -3331,20 +4348,63 @@ _setup_apply() {
         _quiet=1
         shift
         ;;
+      --gui)
+        _gui_override="${2:?"--gui requires a value (auto|force|off)"}"
+        shift 2
+        ;;
+      --gui=*)
+        _gui_override="${1#--gui=}"
+        shift
+        ;;
+      --no-x11-cookie)
+        _no_x11_cookie=1
+        shift
+        ;;
+      --print-resolved)
+        _print_resolved=1
+        shift
+        ;;
       *)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
     esac
   done
 
+  # Validate --gui value early so the user sees the error before we
+  # spend cycles on detections.
+  if [[ -n "${_gui_override}" ]]; then
+    case "${_gui_override}" in
+      auto|force|off) ;;
+      *)
+        _log_err setup gui_override_invalid "display=$(_setup_msg errors invalid_value): --gui = ${_gui_override} (expected auto|force|off)" "value=${_gui_override}"
+        return 2
+        ;;
+    esac
+  fi
+
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   _announce_template_default_fallback "${_base_path}"
 
-  local _env_file="${_base_path}/.env"
+  # A2 file roles (#502): .env.generated is the derived interpolation
+  # cache written by setup.sh; .env is the hand-authored workload
+  # overlay (never touched here after the first-apply scaffold).
+  local _env_file="${_base_path}/.env.generated"
+  local _overlay_file="${_base_path}/.env"
+
+  # Migrate a pre-#502 layout where .env WAS the cache: if no
+  # .env.generated exists yet but .env carries the setup.sh auto-gen
+  # marker, it is a stale cache, not a user overlay. Back it up and
+  # promote it to .env.generated so the prior-values source below still
+  # resolves; write_env regenerates it and a fresh overlay is scaffolded.
+  if [[ ! -f "${_env_file}" && -f "${_overlay_file}" ]] \
+      && grep -q '^SETUP_CONF_HASH=' "${_overlay_file}" 2>/dev/null; then
+    cp -- "${_overlay_file}" "${_overlay_file}.bak"
+    mv -- "${_overlay_file}" "${_env_file}"
+  fi
 
   if [[ -f "${_env_file}" ]]; then
     set -o allexport
@@ -3366,23 +4426,19 @@ _setup_apply() {
   BASE_PATH="${_base_path}" detect_image_name image_name "${_base_path}"
 
   # ── Load setup.conf sections ──
-  local -a _dep_k=() _dep_v=() _gui_k=() _gui_v=() _net_k=() _net_v=() _vol_k=() _vol_v=()
-  local -a _build_k=() _build_v=()
-  local -a _dev_k=() _dev_v=()
-  local -a _res_k=() _res_v=()
-  local -a _env_k=() _env_v=()
-  local -a _tmp_k=() _tmp_v=()
-  local -a _sec_k=() _sec_v=()
+  # Only the sections apply still consumes directly are loaded here:
+  # [build] (build args / target_arch), [volumes] (WS_PATH + extra_volumes),
+  # [security] (the #450 propagation guard re-reads privileged), and
+  # [additional_contexts]. Every docker/build scalar + list-string the
+  # compose call needs (gpu / gui / network / devices / env / tmpfs /
+  # ports / caps / shm / restart / dri / build_network) is resolved by the
+  # shared _resolve_deploy_context below (S6b, #506), which loads its own
+  # sections -- the same resolver the deploy generator uses, so the field
+  # deploy can never drift from apply.
+  local -a _build_k=() _build_v=() _vol_k=() _vol_v=() _sec_k=() _sec_v=()
   local -a _ac_k=() _ac_v=()
   _load_setup_conf "${_base_path}" "build"               _build_k _build_v
-  _load_setup_conf "${_base_path}" "deploy"              _dep_k _dep_v
-  _load_setup_conf "${_base_path}" "gui"                 _gui_k _gui_v
-  _load_setup_conf "${_base_path}" "network"             _net_k _net_v
   _load_setup_conf "${_base_path}" "volumes"             _vol_k _vol_v
-  _load_setup_conf "${_base_path}" "devices"             _dev_k _dev_v
-  _load_setup_conf "${_base_path}" "resources"           _res_k _res_v
-  _load_setup_conf "${_base_path}" "environment"         _env_k _env_v
-  _load_setup_conf "${_base_path}" "tmpfs"               _tmp_k _tmp_v
   _load_setup_conf "${_base_path}" "security"            _sec_k _sec_v
   _load_setup_conf "${_base_path}" "additional_contexts" _ac_k   _ac_v
 
@@ -3440,23 +4496,38 @@ _setup_apply() {
   # compose.yaml and `--network <value>` to the auxiliary test-tools
   # docker build. Typical value: `host`, for hosts whose docker bridge
   # NAT is unusable (stripped embedded kernels, iptables:false).
-  local build_network_mode=""
-  _get_conf_value _build_k _build_v "network" "auto" build_network_mode
-  local build_network=""
-  _resolve_build_network "${build_network_mode}" build_network
+  # ── Resolve conf-derived docker/build params via the shared layer ──
+  # S6b (#506): _resolve_deploy_context is the single conf resolution that
+  # both apply and the deploy generator use, so the field deploy never
+  # drifts from what apply produces for the same setup.conf. Its record is
+  # unpacked into the existing locals below; the --gui / SETUP_GUI override,
+  # the detection-dependent enabled booleans, the WS_PATH / mount_1
+  # migration, and the #450 device/volume validation stay apply-side.
+  local -A _dctx=()
+  _resolve_deploy_context "${_base_path}" _dctx
+  local build_network="${_dctx[build_network]}"
+  local gpu_mode="${_dctx[gpu_mode]}"
+  local gpu_count="${_dctx[gpu_count]}"
+  local gpu_caps="${_dctx[gpu_caps]}"
+  local gpu_runtime_mode="${_dctx[gpu_runtime_mode]}"
+  local gui_mode="${_dctx[gui_mode]}"
+  local net_mode="${_dctx[net_mode]}"
+  local ipc_mode="${_dctx[ipc_mode]}"
+  local pid_mode="${_dctx[pid_mode]}"
+  local network_name="${_dctx[network_name]}"
+  local privileged="${_dctx[privileged]}"
+  local restart_policy="${_dctx[restart_policy]}"
+  local dri_groups_str="${_dctx[dri_groups_str]}"
 
-  local gpu_mode="" gpu_count="" gpu_caps="" runtime_mode=""
-  local gui_mode=""
-  local net_mode="" ipc_mode="" privileged="" network_name=""
-  _get_conf_value _dep_k _dep_v "gpu_mode"         "auto" gpu_mode
-  _get_conf_value _dep_k _dep_v "gpu_count"        "all"  gpu_count
-  _get_conf_value _dep_k _dep_v "gpu_capabilities" "gpu"  gpu_caps
-  _get_conf_value _dep_k _dep_v "runtime"          "auto" runtime_mode
-  _get_conf_value _gui_k _gui_v "mode"             "auto" gui_mode
-  _get_conf_value _net_k _net_v "mode"             "host" net_mode
-  _get_conf_value _net_k _net_v "ipc"              "host" ipc_mode
-  _get_conf_value _net_k _net_v "network_name"     ""     network_name
-  _get_conf_value _sec_k _sec_v "privileged"       "true" privileged
+  # #338: resolution order CLI > env > conf > default. The shared resolver
+  # returns the conf gui_mode; layer the --gui / SETUP_GUI override on top.
+  if [[ -n "${_gui_override}" ]]; then
+    gui_mode="${_gui_override}"
+  elif [[ -n "${SETUP_GUI:-}" ]]; then
+    case "${SETUP_GUI}" in
+      auto|force|off) gui_mode="${SETUP_GUI}" ;;
+    esac
+  fi
 
   # ── WS_PATH + workspace mount ──
   #
@@ -3494,7 +4565,7 @@ _setup_apply() {
     fi
     [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
     local _tpl_conf
-    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
     if [[ -f "${_tpl_conf}" ]]; then
       # Ensure config/docker/ parent dir exists before cp (post-#262
       # path; first-time bootstrap on a fresh repo will not have it).
@@ -3528,12 +4599,7 @@ _setup_apply() {
       # a stale bake from another contributor's clone. Warn loudly so
       # the user understands the rewrite, then migrate mount_1 back to
       # the portable form.
-      printf "[setup] WARNING: [volumes] mount_1 host path '%s' does not exist on this machine.\n" \
-        "${_mount_1_host}" >&2
-      printf "[setup]          This is usually a stale absolute path committed from\n" >&2
-      printf "[setup]          a different machine. Rewriting mount_1 to the portable\n" >&2
-      printf "[setup]          '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting\n" >&2
-      printf "[setup]          WS_PATH locally. Commit the updated setup.conf to share.\n" >&2
+      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.conf to share." "path=${_mount_1_host}"
       ws_path=""
       detect_ws_path ws_path "${_base_path}"
       [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
@@ -3556,59 +4622,74 @@ _setup_apply() {
   local -a extra_volumes=()
   _get_conf_list_sorted _vol_k _vol_v "mount_" extra_volumes
 
-  # ── Collect [devices] entries (device_*) ──
-  local -a _devices_arr=()
-  _get_conf_list_sorted _dev_k _dev_v "device_" _devices_arr
-  local _devices_str=""
-  if (( ${#_devices_arr[@]} > 0 )); then
-    _devices_str="$(printf '%s\n' "${_devices_arr[@]}")"
+  # S4 (#504): structured app-config channel. When the repo ships a
+  # config/app/ dir, dev-bind it into the container at a fixed path so
+  # structured runtime config (e.g. ros1_bridge bridge topics) is
+  # editable on the host with edit + restart, no rebuild. Convention over
+  # configuration: the directory's presence is the only switch (no
+  # setup.conf knob). The deploy flow (S6) COPY-bakes the same dir into
+  # the field image instead (immutable artifact, ADR-00000003 / #506).
+  # Emitted through the regular mount path so per-stage mount_inherit and
+  # the top-level volumes: classifier (#482, a ./ bind) apply uniformly.
+  if [[ -d "${_base_path}/config/app" ]]; then
+    extra_volumes+=("./config/app:/opt/app/config")
   fi
 
-  # ── Collect [devices] cgroup_rule_* ──
-  local -a _cgroup_rule_arr=()
-  _get_conf_list_sorted _dev_k _dev_v "cgroup_rule_" _cgroup_rule_arr
-  local _cgroup_rule_str=""
-  if (( ${#_cgroup_rule_arr[@]} > 0 )); then
-    _cgroup_rule_str="$(printf '%s\n' "${_cgroup_rule_arr[@]}")"
+  # ── [devices] device_* + cgroup_rule_* (from the shared resolver) ──
+  local _devices_str="${_dctx[devices_str]}"
+  local _cgroup_rule_str="${_dctx[cgroup_rule_str]}"
+
+  # ── #450 P2: propagation + privileged guard ──
+  if [[ -n "${_devices_str}" ]]; then
+    local _has_prop=false _d_check
+    while IFS= read -r _d_check; do
+      [[ -z "${_d_check}" ]] && continue
+      if _device_has_propagation "${_d_check}"; then
+        _has_prop=true
+        break
+      fi
+    done <<< "${_devices_str}"
+    if [[ "${_has_prop}" == true ]]; then
+      local _priv_val=""
+      _get_conf_value _sec_k _sec_v "privileged" "" _priv_val
+      if [[ "${_priv_val}" != "true" ]]; then
+        _log_warn setup conf_invalid_value \
+          "display=device entry uses mount propagation but [security] privileged is not true. Device I/O may be blocked by cgroup."
+      fi
+    fi
   fi
 
-  # ── Collect [environment] env_*, [tmpfs] tmpfs_*, [network] port_* ──
-  local -a _env_arr=() _tmpfs_arr=() _ports_arr=()
-  _get_conf_list_sorted _env_k _env_v "env_"    _env_arr
-  _get_conf_list_sorted _tmp_k _tmp_v "tmpfs_"  _tmpfs_arr
-  _get_conf_list_sorted _net_k _net_v "port_"   _ports_arr
-  local _env_str="" _tmpfs_str="" _ports_str=""
-  (( ${#_env_arr[@]}    > 0 )) && _env_str="$(printf '%s\n'    "${_env_arr[@]}")"
-  (( ${#_tmpfs_arr[@]}  > 0 )) && _tmpfs_str="$(printf '%s\n'  "${_tmpfs_arr[@]}")"
-  (( ${#_ports_arr[@]}  > 0 )) && _ports_str="$(printf '%s\n'  "${_ports_arr[@]}")"
+  # ── #450 P4: duplicate device/volume target path detection ──
+  if [[ -n "${_devices_str}" ]]; then
+    local _d_dup
+    while IFS= read -r _d_dup; do
+      [[ -z "${_d_dup}" ]] && continue
+      _device_has_propagation "${_d_dup}" || continue
+      local -a _dup_parts=()
+      IFS=':' read -ra _dup_parts <<< "${_d_dup}"
+      local _dup_target="${_dup_parts[1]}"
+      local _ev
+      for _ev in "${extra_volumes[@]}"; do
+        local -a _ev_parts=()
+        IFS=':' read -ra _ev_parts <<< "${_ev}"
+        if [[ "${_ev_parts[1]}" == "${_dup_target}" ]]; then
+          _log_warn setup conf_invalid_value \
+            "display=duplicate target path '${_dup_target}': appears in both [devices] (with propagation) and [volumes]. The [devices] entry with propagation takes precedence."
+          break
+        fi
+      done
+    done <<< "${_devices_str}"
+  fi
 
-  # ── Collect [security] cap_add_*, cap_drop_*, security_opt_* ──
-  local -a _cap_add_arr=() _cap_drop_arr=() _sec_opt_arr=()
-  _get_conf_list_sorted _sec_k _sec_v "cap_add_"      _cap_add_arr
-  _get_conf_list_sorted _sec_k _sec_v "cap_drop_"     _cap_drop_arr
-  _get_conf_list_sorted _sec_k _sec_v "security_opt_" _sec_opt_arr
-
-  # Security fallback: if the per-repo [security] section wiped a list
-  # (no cap_add_* entries at all, likewise for cap_drop_* / security_opt_*),
-  # fall back to the template's baseline rather than Docker's stripped-
-  # down default — avoids surprising the user with "my container lost
-  # SYS_ADMIN / unconfined seccomp after I cleared the list".
-  local _tpl_setup_conf
-  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
-  local -a _tpl_sec_k=() _tpl_sec_v=()
-  [[ -f "${_tpl_setup_conf}" ]] \
-    && _parse_ini_section "${_tpl_setup_conf}" "security" _tpl_sec_k _tpl_sec_v
-  (( ${#_cap_add_arr[@]}  == 0 )) \
-    && _get_conf_list_sorted _tpl_sec_k _tpl_sec_v "cap_add_"      _cap_add_arr
-  (( ${#_cap_drop_arr[@]} == 0 )) \
-    && _get_conf_list_sorted _tpl_sec_k _tpl_sec_v "cap_drop_"     _cap_drop_arr
-  (( ${#_sec_opt_arr[@]}  == 0 )) \
-    && _get_conf_list_sorted _tpl_sec_k _tpl_sec_v "security_opt_" _sec_opt_arr
-
-  local _cap_add_str="" _cap_drop_str="" _sec_opt_str=""
-  (( ${#_cap_add_arr[@]}  > 0 )) && _cap_add_str="$(printf '%s\n'  "${_cap_add_arr[@]}")"
-  (( ${#_cap_drop_arr[@]} > 0 )) && _cap_drop_str="$(printf '%s\n' "${_cap_drop_arr[@]}")"
-  (( ${#_sec_opt_arr[@]}  > 0 )) && _sec_opt_str="$(printf '%s\n'  "${_sec_opt_arr[@]}")"
+  # ── [environment] env_*, [tmpfs] tmpfs_*, [network] port_* + [security]
+  # cap_add_* / cap_drop_* / security_opt_* (template-fallback applied) and
+  # [resources] shm_size all come from the shared resolver. ──
+  local _env_str="${_dctx[env_str]}"
+  local _tmpfs_str="${_dctx[tmpfs_str]}"
+  local _ports_str="${_dctx[ports_str]}"
+  local _cap_add_str="${_dctx[cap_add_str]}"
+  local _cap_drop_str="${_dctx[cap_drop_str]}"
+  local _sec_opt_str="${_dctx[sec_opt_str]}"
 
   # ── Collect [additional_contexts] context_* ──
   # Each entry is `NAME=PATH`. Validation (NAME shape, PATH non-empty)
@@ -3621,8 +4702,7 @@ _setup_apply() {
   (( ${#_ac_arr[@]} > 0 )) && _additional_contexts_str="$(printf '%s\n' "${_ac_arr[@]}")"
 
   # ── [resources] shm_size (only meaningful when ipc != host) ──
-  local _shm_size=""
-  _get_conf_value _res_k _res_v "shm_size" "" _shm_size
+  local _shm_size="${_dctx[shm_size]}"
 
   # ── [logging] + [logging.<svc>] (#310) ──
   local _logging_global_str="" _logging_per_svc_str=""
@@ -3648,17 +4728,60 @@ _setup_apply() {
     _user_build_args_str="$(printf '%s\n' "${_user_build_args[@]}")"
   fi
 
+  # ── #338 `--print-resolved`: dump effective state, do not touch
+  # .env / compose.yaml / .gitignore. Output is machine-readable
+  # `key=value` lines (one pair per line). Subsumes the dry-run
+  # piece of base#230's `setup_resolve` MCP plan.
+  if (( _print_resolved )); then
+    printf 'USER_NAME=%s\n' "${user_name}"
+    printf 'USER_GROUP=%s\n' "${user_group}"
+    printf 'USER_UID=%s\n' "${user_uid}"
+    printf 'USER_GID=%s\n' "${user_gid}"
+    printf 'HARDWARE=%s\n' "${hardware}"
+    printf 'DOCKER_HUB_USER=%s\n' "${docker_hub_user}"
+    printf 'IMAGE_NAME=%s\n' "${image_name}"
+    printf 'WS_PATH=%s\n' "${ws_path}"
+    printf 'APT_MIRROR_UBUNTU=%s\n' "${apt_mirror_ubuntu}"
+    printf 'APT_MIRROR_DEBIAN=%s\n' "${apt_mirror_debian}"
+    printf 'TZ=%s\n' "${tz}"
+    printf 'GPU_DETECTED=%s\n' "${gpu_detected}"
+    printf 'GPU_MODE=%s\n' "${gpu_mode}"
+    printf 'GPU_ENABLED=%s\n' "${gpu_enabled_eff}"
+    printf 'GPU_COUNT=%s\n' "${gpu_count}"
+    printf 'GPU_CAPABILITIES=%s\n' "${gpu_caps}"
+    printf 'RUNTIME=%s\n' "${gpu_runtime_mode}"
+    printf 'GUI_DETECTED=%s\n' "${gui_detected}"
+    printf 'GUI_MODE=%s\n' "${gui_mode}"
+    printf 'GUI_ENABLED=%s\n' "${gui_enabled_eff}"
+    printf 'NETWORK_MODE=%s\n' "${net_mode}"
+    printf 'IPC_MODE=%s\n' "${ipc_mode}"
+    printf 'PID_MODE=%s\n' "${pid_mode}"
+    printf 'PRIVILEGED=%s\n' "${privileged}"
+    printf 'NETWORK_NAME=%s\n' "${network_name}"
+    printf 'TARGET_ARCH=%s\n' "${target_arch}"
+    printf 'BUILD_NETWORK=%s\n' "${build_network}"
+    printf 'SSH_X11=%s\n' "$(_is_ssh_x11 && echo true || echo false)"
+    printf 'X11_COOKIE_SKIP=%s\n' "$(( _no_x11_cookie ))"
+    return 0
+  fi
+
   # ── SSH X11 forwarding cookie rewrite (#321) ──
   # When the user is on an SSH X11 forward (`ssh -X` / `ssh -Y`),
   # rewrite their per-session cookie so libX11 inside the container
   # accepts it regardless of hostname. Also warn when [network] mode
   # is non-host because `localhost:N` (which SSH writes into DISPLAY)
   # only reaches the host's SSH X11 listener via host networking.
+  #
+  # #338: `--no-x11-cookie` skips the rewrite for one invocation
+  # (debug knob — `XAUTHORITY` stays at the host value the user's
+  # SSH session already populated). GUI itself stays enabled per
+  # `gui_enabled_eff`.
   local _ssh_x11_xauth=""
-  if [[ "${gui_enabled_eff}" == "true" ]] && _is_ssh_x11; then
+  if [[ "${gui_enabled_eff}" == "true" ]] && _is_ssh_x11 \
+      && (( _no_x11_cookie == 0 )); then
     _ssh_x11_xauth="$(_setup_ssh_x11_cookie "${_base_path}")" || _ssh_x11_xauth=""
     if [[ "${net_mode}" != "host" ]]; then
-      _log_warn setup "SSH X11 forwarding detected but [network] mode = ${net_mode}; localhost:${DISPLAY##*:} from inside the container will not reach the host's SSH X11 listener. Set [network] mode = host in setup.conf to fix. See base#321."
+      _log_warn setup ssh_x11_network_mismatch "display=SSH X11 forwarding detected but [network] mode = ${net_mode}; localhost:${DISPLAY##*:} from inside the container will not reach the host's SSH X11 listener. Set [network] mode = host in setup.conf to fix. See base#321." "mode=${net_mode}"
     fi
   fi
 
@@ -3668,7 +4791,7 @@ _setup_apply() {
     "${hardware}" "${docker_hub_user}" "${gpu_detected}" \
     "${image_name}" "${ws_path}" \
     "${apt_mirror_ubuntu}" "${apt_mirror_debian}" "${tz}" \
-    "${net_mode}" "${ipc_mode}" "${privileged}" \
+    "${net_mode}" "${ipc_mode}" "${pid_mode}" "${privileged}" \
     "${gpu_count}" "${gpu_caps}" \
     "${gui_detected}" "${conf_hash}" "${dockerfile_hash}" \
     "${network_name}" \
@@ -3677,8 +4800,12 @@ _setup_apply() {
     "${build_network}" \
     "${_ssh_x11_xauth}"
 
+  # Create the hand-authored .env workload overlay on first apply (#502).
+  # Idempotent: never overwrites an existing user-owned overlay.
+  _scaffold_env_overlay "${_overlay_file}"
+
   local runtime_resolved=""
-  _resolve_runtime "${runtime_mode}" runtime_resolved
+  _resolve_runtime "${gpu_runtime_mode}" runtime_resolved
 
   # Propagate generate_compose_yaml's exit explicitly: when sourced
   # (no `set -e`) a hard-error return from the stage validator (#215
@@ -3690,7 +4817,7 @@ _setup_apply() {
     extra_volumes "${network_name}" \
     "${_devices_str}" \
     "${_env_str}" "${_tmpfs_str}" "${_ports_str}" \
-    "${_shm_size}" "${net_mode}" "${ipc_mode}" \
+    "${_shm_size}" "${net_mode}" "${ipc_mode}" "${pid_mode}" \
     "${_cap_add_str}" "${_cap_drop_str}" "${_sec_opt_str}" \
     "${_cgroup_rule_str}" \
     "${_user_build_args_str}" \
@@ -3700,16 +4827,125 @@ _setup_apply() {
     "${_additional_contexts_str}" \
     "${_logging_global_str}" \
     "${_logging_per_svc_str}" \
+    "${restart_policy}" \
+    "${dri_groups_str}" \
     || return $?
 
+  # S7 (#507): runtime.env (#462) retired. Under the A2 model its purpose
+  # is superseded -- [environment] defaults are baked into the runtime
+  # image as ENV (S3), and host-side standalone helpers source
+  # .env.generated (resolved cache) + .env (overlay) instead.
+
   if [[ "${_quiet}" -eq 0 ]]; then
-    _log_info setup "$(_setup_msg env "done")"
+    _log_info setup env_regenerated "display=$(_setup_msg env "done")"
     printf "[setup] USER=%s (%s:%s)  GPU=%s/%s  GUI=%s/%s  IMAGE=%s  WS=%s\n" \
       "${user_name}" "${user_uid}" "${user_gid}" \
       "${gpu_enabled_eff}" "${gpu_mode}" \
       "${gui_enabled_eff}" "${gui_mode}" \
       "${image_name}" "${ws_path}"
   fi
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_deploy [-h] [--base-path P] [--lang L] [--stage S]
+#               [--output|-o F] [--dry-run] [-y|--yes] [-q|--quiet]
+#
+# S6d of #497 (#506): user-facing entry for the self-contained field
+# deploy bundle. Previews the resolved field launcher (every inlined
+# docker-level flag -- the per-parameter review), asks for confirmation,
+# then calls _generate_deploy_bundle (S6c) to build the immutable image
+# and write the tar.xz bundle. `--dry-run` prints the build plan without
+# building (and skips the prompt); `-y` skips the prompt; a non-tty shell
+# without `-y` refuses (mirrors `reset`). Default stage is `runtime`;
+# default output is <base>/deploy/<name>-<stage>.tar.xz.
+#
+# Note: the graphical per-param TUI page (setup_tui.sh) is an optional
+# fast-follow -- this plain-text preview already surfaces every resolved
+# flag and is script / CI friendly (the issue invited the lighter flow).
+# ════════════════════════════════════════════════════════════════════
+_setup_deploy() {
+  local _base_path="" _stage="runtime" _output="" _yes=0 _quiet=0 _dry=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)     usage ;;
+      --base-path)   _base_path="${2:?"--base-path requires a value"}"; shift 2 ;;
+      --lang)        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"; _sanitize_lang _LANG "setup"; shift 2 ;;
+      --stage)       _stage="${2:?"--stage requires a value"}"; shift 2 ;;
+      --stage=*)     _stage="${1#--stage=}"; shift ;;
+      --output|-o)   _output="${2:?"--output requires a value"}"; shift 2 ;;
+      --output=*)    _output="${1#--output=}"; shift ;;
+      --dry-run)     _dry=1; shift ;;
+      -y|--yes)      _yes=1; shift ;;
+      -q|--quiet)    _quiet=1; shift ;;
+      *)
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
+        return 1
+        ;;
+    esac
+  done
+
+  if [[ -z "${_base_path}" ]]; then
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
+  fi
+  if [[ ! -f "${_base_path}/Dockerfile" ]]; then
+    _log_err setup deploy_no_dockerfile "display=[setup] deploy: no Dockerfile at ${_base_path}; cannot build the field image." "path=${_base_path}"
+    return 1
+  fi
+
+  local _name=""
+  BASE_PATH="${_base_path}" detect_image_name _name "${_base_path}"
+  [[ -z "${_output}" ]] && _output="${_base_path}/deploy/${_name}-${_stage}.tar.xz"
+
+  # Per-parameter review: generate the launcher to a temp file and print
+  # it so the user sees every inlined docker-level flag before building.
+  if (( ! _quiet )); then
+    local _preview
+    _preview="$(mktemp)"
+    _generate_deploy_sh "${_base_path}" "${_stage}" "${_name}:${_stage}" "${_name}-${_stage}" "${_preview}"
+    printf '[setup] deploy plan: stage=%s image=%s:%s bundle=%s\n' \
+      "${_stage}" "${_name}" "${_stage}" "${_output}"
+    printf '[setup] field launcher to be generated (review every flag):\n'
+    sed 's/^/    /' "${_preview}"
+    rm -f "${_preview}"
+  fi
+
+  # Confirmation: skipped on --dry-run / -y; a non-tty shell without -y
+  # refuses rather than build silently (mirrors reset).
+  if (( ! _dry )) && (( ! _yes )); then
+    if [[ ! -t 0 ]]; then
+      _log_err setup deploy_needs_yes "display=[setup] deploy: refusing to build without confirmation in a non-interactive shell; pass -y to proceed."
+      return 1
+    fi
+    printf "[setup] build the field image and write %s? [y/N]: " "${_output}"
+    local _ans=""
+    read -r _ans
+    case "${_ans}" in
+      y|Y|yes|YES) ;;
+      *)
+        _log_warn setup deploy_aborted "display=[setup] deploy aborted."
+        return 1
+        ;;
+    esac
+  fi
+
+  mkdir -p "$(dirname -- "${_output}")"
+  local _rc=0
+  if (( _dry )); then
+    DRY_RUN=true _generate_deploy_bundle "${_base_path}" "${_stage}" "${_output}" || _rc=$?
+  else
+    _generate_deploy_bundle "${_base_path}" "${_stage}" "${_output}" || _rc=$?
+  fi
+  if (( _rc != 0 )); then
+    _log_err setup deploy_failed "display=[setup] deploy: bundle generation failed (rc=${_rc})." "rc=${_rc}"
+    return "${_rc}"
+  fi
+
+  if (( ! _quiet )) && (( ! _dry )); then
+    _log_info setup deploy_done "display=[setup] deploy bundle written: ${_output}"
+    printf "[setup] field flow: tar -xJf %s && docker load < image.tar && ./deploy.sh\n" \
+      "$(basename -- "${_output}")"
+  fi
+  return 0
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -3741,15 +4977,20 @@ main() {
     -h|--help)
       usage
       ;;
-    apply|check-drift|set|show|list|add|remove|reset)
+    apply|check-drift|set|show|list|add|remove|reset|deploy)
       _subcmd="$1"
       shift
       ;;
     *)
-      _log_err setup "$(_setup_msg errors unknown_subcmd): $1"
+      _log_err setup conf_unknown_subcmd "display=$(_setup_msg errors unknown_subcmd): $1" "subcmd=$1"
       return 1
       ;;
   esac
+
+  # #440: pre-setup hook fires before any subcommand runs. Skipped
+  # under --dry-run. Captured here (not per-subcommand) so all
+  # subcommands get uniform pre/post coverage.
+  _run_pre_hook setup "$@" || exit $?
 
   case "${_subcmd}" in
     apply)        _setup_apply       "$@" ;;
@@ -3760,7 +5001,13 @@ main() {
     add)          _setup_add         "$@" ;;
     remove)       _setup_remove      "$@" ;;
     reset)        _setup_reset       "$@" ;;
+    deploy)       _setup_deploy      "$@" ;;
   esac
+  local _rc=$?
+
+  # #440: post-setup hook fires after the subcommand returns.
+  _run_post_hook setup "$@" || exit $?
+  return "${_rc}"
 }
 
 # Guard: only run main when executed directly, not when sourced (for testing)

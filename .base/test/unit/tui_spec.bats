@@ -11,7 +11,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/script/docker/_tui_conf.sh
+  source /source/script/docker/lib/_tui_conf.sh
 
   create_mock_dir
   TEMP_DIR="$(mktemp -d)"
@@ -61,6 +61,48 @@ teardown() {
 
 @test "_validate_mount rejects too many colons" {
   run _validate_mount "/a:/b:/c:/d"
+  [ "${status}" -ne 0 ]
+}
+
+# ── #450 mount propagation modes ──────────────────────────────────
+
+@test "_validate_mount accepts propagation mode rslave (#450)" {
+  _validate_mount "/dev:/dev:rslave"
+}
+
+@test "_validate_mount accepts propagation mode rshared (#450)" {
+  _validate_mount "/mnt:/mnt:rshared"
+}
+
+@test "_validate_mount accepts propagation mode rprivate (#450)" {
+  _validate_mount "/data:/data:rprivate"
+}
+
+@test "_validate_mount accepts combined rw,rslave (#450)" {
+  _validate_mount "/dev:/dev:rw,rslave"
+}
+
+@test "_validate_mount accepts combined ro,rshared (#450)" {
+  _validate_mount "/data:/data:ro,rshared"
+}
+
+@test "_validate_mount accepts non-recursive variants (#450)" {
+  _validate_mount "/dev:/dev:slave"
+  _validate_mount "/dev:/dev:shared"
+  _validate_mount "/dev:/dev:private"
+}
+
+@test "_validate_mount accepts combined rw,slave non-recursive (#450)" {
+  _validate_mount "/dev:/dev:rw,slave"
+}
+
+@test "_validate_mount rejects invalid propagation mode (#450)" {
+  run _validate_mount "/dev:/dev:bogus"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_mount rejects rw,bogus combo (#450)" {
+  run _validate_mount "/dev:/dev:rw,bogus"
   [ "${status}" -ne 0 ]
 }
 
@@ -327,6 +369,99 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _validate_log_* — [logging] section validators (#328)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_validate_log_driver accepts registered + plugin-shaped names (#328)" {
+  _validate_log_driver "json-file"
+  _validate_log_driver "journald"
+  _validate_log_driver "syslog"
+  _validate_log_driver "fluentd"
+  _validate_log_driver "awslogs"
+  _validate_log_driver "splunk"
+  _validate_log_driver "none"
+  _validate_log_driver "vendor.plugin_1"
+}
+
+@test "_validate_log_driver rejects empty / whitespace / leading-digit (#328)" {
+  run _validate_log_driver ""
+  [ "${status}" -ne 0 ]
+  run _validate_log_driver "bad name"
+  [ "${status}" -ne 0 ]
+  run _validate_log_driver "1starts-with-digit"
+  [ "${status}" -ne 0 ]
+  run _validate_log_driver "-leading-dash"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_log_max_size accepts <num><unit> in b/k/m/g (#328)" {
+  _validate_log_max_size "10m"
+  _validate_log_max_size "1g"
+  _validate_log_max_size "512k"
+  _validate_log_max_size "100B"   # case-insensitive
+  _validate_log_max_size "2G"
+}
+
+@test "_validate_log_max_size rejects malformed values (#328)" {
+  run _validate_log_max_size ""
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_size "10X"
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_size "abc"
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_size "10mb"     # multi-letter unit unsupported
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_size "10.5m"    # no decimals
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_log_max_file accepts positive integers (#328)" {
+  _validate_log_max_file "1"
+  _validate_log_max_file "3"
+  _validate_log_max_file "100"
+}
+
+@test "_validate_log_max_file rejects zero/negative/non-numeric (#328)" {
+  run _validate_log_max_file "0"
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_file "-1"
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_file "abc"
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_file ""
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_log_compress accepts true/false; rejects others (#328)" {
+  _validate_log_compress "true"
+  _validate_log_compress "false"
+  run _validate_log_compress "True"
+  [ "${status}" -ne 0 ]
+  run _validate_log_compress "1"
+  [ "${status}" -ne 0 ]
+  run _validate_log_compress ""
+  [ "${status}" -ne 0 ]
+  run _validate_log_compress "yes"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_log_local_path accepts relative / absolute / tilde paths (#328)" {
+  _validate_log_local_path "./logs/"
+  _validate_log_local_path "/var/log/app/"
+  _validate_log_local_path "~/logs/"
+  _validate_log_local_path "logs"
+}
+
+@test "_validate_log_local_path rejects empty / whitespace / newline (#328)" {
+  run _validate_log_local_path ""
+  [ "${status}" -ne 0 ]
+  run _validate_log_local_path "   "
+  [ "${status}" -ne 0 ]
+  run _validate_log_local_path $'logs\nbad'
+  [ "${status}" -ne 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _warn_if_lang_rejected — TUI msgbox when --lang fell back to "en"
 # ════════════════════════════════════════════════════════════════════
 #
@@ -341,7 +476,7 @@ teardown() {
 
 @test "_warn_if_lang_rejected opens a msgbox when given a bad input" {
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   local _log="${TEMP_DIR}/msgbox.log"
   _tui_msgbox() {
     printf 'title=%s\nbody=%s\n---\n' "$1" "$2" > "${_log}"
@@ -356,7 +491,7 @@ teardown() {
 
 @test "_warn_if_lang_rejected is a no-op on empty input" {
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   local _log="${TEMP_DIR}/msgbox.log"
   _tui_msgbox() {
     printf 'CALLED\n' >> "${_log}"
@@ -785,7 +920,7 @@ EOF
 _b5_setup_tui() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   _tui_init_lang
 
   # Reset session state between tests
@@ -985,7 +1120,7 @@ fi'
   # BASH_SOURCE guard at the bottom of setup_tui.sh prevents main() from
   # running on source.
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
 
   # Stub the interactive backend wrappers. _edit_section_deploy calls
   # _tui_select (mode), _tui_inputbox (count), _tui_checklist (caps),
@@ -1027,7 +1162,7 @@ fi'
 
 @test "_edit_section_deploy skips MIG msgbox when MIG disabled" {
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
 
   TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"
   : > "${TUI_MSGBOX_LOG}"
@@ -1065,7 +1200,7 @@ esac'
 _b6_setup_tui() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   _tui_init_lang
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
@@ -1167,7 +1302,7 @@ _b6_setup_tui() {
 _b_swap_setup() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   _tui_init_lang
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
@@ -1222,7 +1357,7 @@ _b_swap_setup() {
 _b_remove_setup() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   _tui_init_lang
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
@@ -1458,4 +1593,123 @@ EOF
   # Section header appears exactly once (no duplicate appended at EOF)
   run grep -c "^\[stage:headless\]$" "${TEMP_DIR}/out.conf"
   assert_output "1"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _edit_section_lifecycle — [lifecycle] restart TUI page (#514)
+# ════════════════════════════════════════════════════════════════════
+
+_lc_setup_tui() {
+  export _LANG="en"
+  # shellcheck disable=SC1091
+  source /source/script/docker/wrapper/setup_tui.sh
+  _tui_init_lang
+  _TUI_OVR_KEYS=()
+  _TUI_OVR_VALUES=()
+  _TUI_REMOVED=()
+  _TUI_CURRENT=()
+}
+
+@test "_edit_section_lifecycle writes a simple policy (always)" {
+  _lc_setup_tui
+  _tui_select() { printf '%s' "always"; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "always" ]
+}
+
+@test "_edit_section_lifecycle writes the default no policy" {
+  _lc_setup_tui
+  _tui_select() { printf '%s' "no"; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "no" ]
+}
+
+@test "_edit_section_lifecycle on-failure with N assembles on-failure:N" {
+  _lc_setup_tui
+  _tui_select()   { printf '%s' "on-failure"; }
+  _tui_inputbox() { printf '%s' "3"; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "on-failure:3" ]
+}
+
+@test "_edit_section_lifecycle on-failure with empty N falls back to bare on-failure" {
+  _lc_setup_tui
+  _tui_select()   { printf '%s' "on-failure"; }
+  _tui_inputbox() { printf '%s' ""; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "on-failure" ]
+}
+
+@test "_edit_section_lifecycle on-failure re-prompts on invalid N then accepts" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _tui_select()  { printf '%s' "on-failure"; }
+  # First inputbox call returns an invalid value, second a valid one.
+  _tui_inputbox() {
+    local _f="${TEMP_DIR}/n_calls"
+    local _c; _c="$(cat "${_f}" 2>/dev/null || echo 0)"; _c=$((_c + 1)); echo "${_c}" > "${_f}"
+    if [[ "${_c}" -eq 1 ]]; then printf '%s' "0xy"; else printf '%s' "5"; fi
+  }
+  _tui_msgbox() { printf 'BODY<<<%s>>>\n' "${2}" >> "${TUI_MSGBOX_LOG}"; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "on-failure:5" ]
+  run cat "${TUI_MSGBOX_LOG}"
+  assert_output --partial "retry count"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _edit_section_deploy — legacy runtime -> gpu_runtime migration (#517)
+# ════════════════════════════════════════════════════════════════════
+
+# Drive _edit_section_deploy through to the runtime block: mode auto (not
+# off), MIG disabled, count all, caps gpu. _tui_select branches on the
+# prompt so the runtime radiolist returns nvidia while GPU mode stays auto.
+_517_stub_deploy() {
+  _tui_select() { case "${2}" in *runtime*) printf '%s' "nvidia" ;; *) printf '%s' "auto" ;; esac; }
+  _tui_inputbox()  { printf '%s' "all"; }
+  _tui_checklist() { printf '%s\n' "gpu"; }
+  _tui_msgbox()    { printf 'BODY<<<%s>>>\n' "${2}" >> "${TUI_MSGBOX_LOG}"; }
+  mock_cmd "nvidia-smi" 'case "$1 $2" in "--query-gpu=mig.mode.current --format=csv,noheader") echo "Disabled";; esac; [[ "$1" == "-L" ]] && echo "GPU 0: x"'
+}
+
+@test "_edit_section_deploy suggests migration when legacy [deploy] runtime present (no silent rewrite) (#517)" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _TUI_CURRENT[deploy.runtime]="nvidia"   # legacy key loaded from setup.conf
+  _517_stub_deploy
+  run _edit_section_deploy
+  assert_success
+  run cat "${TUI_MSGBOX_LOG}"
+  assert_output --partial "legacy [deploy] runtime"
+}
+
+@test "_edit_section_deploy: no migration suggestion when gpu_runtime already used (#517)" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _TUI_CURRENT[deploy.gpu_runtime]="auto"  # already migrated
+  _517_stub_deploy
+  run _edit_section_deploy
+  assert_success
+  run cat "${TUI_MSGBOX_LOG}"
+  refute_output --partial "legacy [deploy] runtime"
+}
+
+@test "_show_runtime_env_info shows an info msgbox about .env and writes nothing (#497)" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _tui_msgbox() { printf 'TITLE=%s\nBODY<<<%s>>>\n' "${1}" "${2}" >> "${TUI_MSGBOX_LOG}"; }
+  _show_runtime_env_info
+  run cat "${TUI_MSGBOX_LOG}"
+  assert_output --partial ".env"
+  assert_output --partial "informational"
+  # Info-only: never records a config override (S2 invariant: never writes .env).
+  [ "${#_TUI_OVR_KEYS[@]}" -eq 0 ]
+}
+
+@test "_edit_section_deploy writes the canonical gpu_runtime key (#517)" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _517_stub_deploy
+  _edit_section_deploy
+  [ "$(_override_get "deploy.gpu_runtime" "")" == "nvidia" ]
 }

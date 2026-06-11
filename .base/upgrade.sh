@@ -28,12 +28,12 @@ VERSION_FILE="${REPO_ROOT}/${TEMPLATE_REL}/.version"
 readonly VERSION_FILE
 
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/script/docker/_lib.sh"
+source "${SCRIPT_DIR}/script/docker/lib/_lib.sh"
 
 cd "${REPO_ROOT}"
 
-_log() { _log_info upgrade "$*"; }
-_error() { _log_err upgrade "$*"; exit 1; }
+_log() { _log_info upgrade upgrade_started "display=$*"; }
+_error() { _log_err upgrade upgrade_rollback "display=$*"; exit 1; }
 
 # ── Safety guards ────────────────────────────────────────────────────────────
 #
@@ -84,21 +84,49 @@ _require_clean_merge_state() {
 #   markers, and hard-reset back to <pre_head_sha> if integrity is lost.
 _verify_subtree_intact() {
   local _pre_head="$1"
-  local _markers=(
-    "${TEMPLATE_REL}/.version"
-    "${TEMPLATE_REL}/init.sh"
-    "${TEMPLATE_REL}/script/docker/setup.sh"
-  )
-  local _marker
-  for _marker in "${_markers[@]}"; do
-    if [[ ! -f "${_marker}" ]]; then
-      _log_err upgrade "post-pull integrity check failed — '${_marker}' missing."
-      _log_err upgrade "Likely cause: git-subtree fast-forwarded destructively."
-      _log_info upgrade "Rolling back to ${_pre_head:0:12} ..."
-      git reset --hard "${_pre_head}" >/dev/null 2>&1 || true
-      _error "upgrade aborted; repo restored to pre-upgrade state"
-    fi
-  done
+  local _target_ver="${2:-}"
+
+  # R1+ structural invariant (#477): instead of asserting specific
+  # files exist at hard-coded paths (which broke on the v0.39.0
+  # `script/docker/setup.sh` -> `wrapper/setup.sh` reorg), check that
+  # the subtree directory exists, is non-empty, and carries a
+  # well-formed `.version`. Then verify the pulled version matches
+  # the target the caller asked for (catches wrong-tag / wrong-remote
+  # cases that pass the structural check but deliver the wrong thing).
+  # Sibling path-coupling regions in upgrade.sh are intentionally not
+  # covered here -- tracked in #492.
+  if [[ ! -d "${TEMPLATE_REL}" ]]; then
+    _log_err upgrade upgrade_subtree_pull_failed "display=post-pull integrity check failed -- '${TEMPLATE_REL}/' subtree dir missing." "marker=${TEMPLATE_REL}"
+    _rollback_subtree_pull "${_pre_head}"
+  fi
+  if [[ -z "$(ls -A "${TEMPLATE_REL}" 2>/dev/null)" ]]; then
+    _log_err upgrade upgrade_subtree_pull_failed "display=post-pull integrity check failed -- '${TEMPLATE_REL}/' subtree dir is empty." "marker=${TEMPLATE_REL}"
+    _rollback_subtree_pull "${_pre_head}"
+  fi
+  if [[ ! -f "${TEMPLATE_REL}/.version" ]]; then
+    _log_err upgrade upgrade_subtree_pull_failed "display=post-pull integrity check failed -- '${TEMPLATE_REL}/.version' missing." "marker=${TEMPLATE_REL}/.version"
+    _rollback_subtree_pull "${_pre_head}"
+  fi
+
+  local _pulled_ver
+  _pulled_ver="$(tr -d '[:space:]' < "${TEMPLATE_REL}/.version")"
+  if [[ ! "${_pulled_ver}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$ ]]; then
+    _log_err upgrade upgrade_subtree_pull_failed "display=post-pull integrity check failed -- '${TEMPLATE_REL}/.version' content is not semver: '${_pulled_ver}'." "pulled=${_pulled_ver}"
+    _rollback_subtree_pull "${_pre_head}"
+  fi
+
+  if [[ -n "${_target_ver}" ]] && [[ "${_pulled_ver#v}" != "${_target_ver#v}" ]]; then
+    _log_err upgrade upgrade_version_mismatch "display=pulled ${_pulled_ver}, expected ${_target_ver}" "pulled=${_pulled_ver}" "expected=${_target_ver}"
+    _rollback_subtree_pull "${_pre_head}"
+  fi
+}
+
+_rollback_subtree_pull() {
+  local _pre_head="$1"
+  _log_err upgrade upgrade_rollback "display=Likely cause: git-subtree fast-forwarded destructively or pulled wrong tag."
+  _log_info upgrade upgrade_rollback "display=Rolling back to ${_pre_head:0:12} ..." "commit=${_pre_head:0:12}"
+  git reset --hard "${_pre_head}" >/dev/null 2>&1 || true
+  _error "upgrade aborted; repo restored to pre-upgrade state"
 }
 
 # ── Get versions ─────────────────────────────────────────────────────────────
@@ -258,21 +286,24 @@ _upgrade() {
   _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/config/docker/setup.conf" 2>/dev/null || true)"
 
   # Step 1: subtree pull
-  _log "Step 1/4: git subtree pull"
+  _log "Step 1/5: git subtree pull"
   git subtree pull --prefix="${TEMPLATE_REL}" \
     "${TEMPLATE_REMOTE}" "${target_ver}" --squash \
     -m "chore: upgrade ${TEMPLATE_REL} subtree to ${target_ver}"
 
   # Step 2: post-pull integrity check (rolls back on corruption)
-  _log "Step 2/4: verify ${TEMPLATE_REL}/ subtree integrity"
-  _verify_subtree_intact "${_pre_head}"
+  _log "Step 2/5: verify ${TEMPLATE_REL}/ subtree integrity"
+  _verify_subtree_intact "${_pre_head}" "${target_ver}"
 
   # Step 3: re-run init.sh to sync symlinks (in case template structure changed)
-  _log "Step 3/4: re-run init.sh to sync symlinks"
+  _log "Step 3/5: re-run init.sh to sync symlinks"
+  # #330: when upgrading from <v0.30.0, init.sh's stale-removal loop
+  # migrates the seven root *.sh symlinks into the script/ subfolder.
+  _log "  (init.sh migrates root *.sh -> script/*.sh on upgrades from pre-v0.30.0)"
   "./${TEMPLATE_REL}/init.sh"
 
   # Step 4: update main.yaml @tag references
-  _log "Step 4/4: update workflow @tag references"
+  _log "Step 4/5: update workflow @tag references"
   local main_yaml="${REPO_ROOT}/.github/workflows/main.yaml"
   if [[ -f "${main_yaml}" ]]; then
     # Replace @vX.Y.Z(-prerelease)? with new version in reusable workflow
@@ -284,6 +315,58 @@ _upgrade() {
     sed -i -E "s|build-worker\.yaml@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|build-worker.yaml@${target_ver}|g" "${main_yaml}"
     sed -i -E "s|release-worker\.yaml@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|release-worker.yaml@${target_ver}|g" "${main_yaml}"
     git add "${main_yaml}"
+  fi
+
+  # Step 5: patch downstream Dockerfile lint stage for the #284 lib/ split
+  # (closes #348). The split lives inside the subtree
+  # (`.base/script/docker/lib/{log,env,conf,compose,config_summary,gitignore}.sh`)
+  # and propagates via subtree pull, but the downstream Dockerfile's
+  # `COPY .base/script/docker/*.sh /lint/` only copies the umbrella loaders —
+  # not the lib/ subdirectory the umbrella source-chains into. Every
+  # post-#284 fanout has tripped the same `/lint/lib/log.sh: No such file
+  # or directory` failure on 12 of 13 downstream repos until manually
+  # patched. This step auto-heals each downstream Dockerfile on first
+  # upgrade so the next fanout is clean.
+  _log "Step 5/5: patch Dockerfile lint stage for lib/ split (#284 / #348)"
+  local _dockerfile="${REPO_ROOT}/Dockerfile"
+  if [[ ! -f "${_dockerfile}" ]]; then
+    _log "  no Dockerfile at repo root — skip"
+  elif grep -qE '^[[:space:]]*COPY[[:space:]]+\.base/script/docker/lib[[:space:]/]' "${_dockerfile}"; then
+    _log "  Dockerfile already copies .base/script/docker/lib — skip (idempotent)"
+  elif ! grep -qE '^RUN shellcheck -S warning /lint/\*\.sh$' "${_dockerfile}"; then
+    # Custom Dockerfile shape (no stock /lint/*.sh shellcheck anchor) —
+    # do not force-patch. The user can adopt the COPY + extended shellcheck
+    # invocation manually, or upgrade.sh will re-detect on the next run
+    # once they normalize.
+    _log "  Dockerfile lacks stock 'RUN shellcheck -S warning /lint/*.sh' anchor — skip (custom shape)"
+  else
+    # Insert COPY before the shellcheck anchor and extend the shellcheck
+    # invocation to also cover /lint/lib/*.sh.
+    sed -i '/^RUN shellcheck -S warning \/lint\/\*\.sh$/i COPY .base/script/docker/lib /lint/lib' "${_dockerfile}"
+    sed -i 's|^RUN shellcheck -S warning /lint/\*\.sh$|RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh|' "${_dockerfile}"
+    git add "${_dockerfile}"
+    _log "  Dockerfile patched: COPY .base/script/docker/lib /lint/lib + shellcheck extended"
+  fi
+
+  # Patch downstream Dockerfile for the #330 wrapper consolidation
+  # (closes #399). v0.31.0+ moves user-facing wrappers from the repo
+  # root into a script/ subfolder. init.sh (Step 3 above) migrates the
+  # symlinks, but the Dockerfile's `COPY *.sh /lint/` directive is
+  # still anchored at root — which is now empty, so the COPY grabs zero
+  # files and the smoke tests that depend on `/lint/build.sh` etc. all
+  # fail. This step auto-heals by rewriting the COPY to
+  # `COPY script/*.sh /lint/`. Idempotent: already-patched → skip.
+  # Modelled on the Step 5 / #348 precedent above.
+  if [[ ! -f "${_dockerfile}" ]]; then
+    _log "  no Dockerfile at repo root — skip (#399 wrapper-copy patch)"
+  elif grep -qE '^[[:space:]]*COPY[[:space:]]+script/\*\.sh[[:space:]]+/lint/?[[:space:]]*$' "${_dockerfile}"; then
+    _log "  Dockerfile already uses COPY script/*.sh /lint/ — skip (#399 idempotent)"
+  elif grep -qE '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' "${_dockerfile}"; then
+    sed -i -E 's|^([[:space:]]*)COPY[[:space:]]+\*\.sh[[:space:]]+/lint/|\1COPY script/*.sh /lint/|' "${_dockerfile}"
+    git add "${_dockerfile}"
+    _log "  Dockerfile patched: COPY *.sh /lint/ -> COPY script/*.sh /lint/ (#399)"
+  else
+    _log "  Dockerfile has no COPY *.sh /lint/ line — skip (#399)"
   fi
 
   # Step 3 ran init.sh which (re-)synced .gitignore via lib/gitignore.sh
