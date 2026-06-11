@@ -22,7 +22,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
 
   # Reset per-test global state. The arrays are declared at module load
   # time (setup_tui.sh declare -gA / declare -ga); zero them out so
@@ -508,31 +508,32 @@ EOF
 # branches: bridge → network_name + ports; ipc!=host → shm_size.
 # ════════════════════════════════════════════════════════════════════
 
-@test "_edit_section_network: host + host writes both modes, no shm prompt" {
-  queue "0|host" "0|host"
+@test "_edit_section_network: host + host + private writes all modes, no shm prompt" {
+  queue "0|host" "0|host" "0|private"
   _edit_section_network
   [[ "$(ovr_get network.mode)" == "host" ]]
   [[ "$(ovr_get network.ipc)" == "host" ]]
+  [[ "$(ovr_get network.pid)" == "private" ]]
   [[ "$(ovr_get network.network_name)" == "" ]]
 }
 
 @test "_edit_section_network: bridge + host prompts for network_name + ports menu" {
-  # mode=bridge → name inputbox + ports submenu (back immediately).
-  queue "0|bridge" "0|host" "0|mynet" "0|back"
+  # mode=bridge → ipc → pid → name inputbox + ports submenu (back immediately).
+  queue "0|bridge" "0|host" "0|private" "0|mynet" "0|back"
   _edit_section_network
   [[ "$(ovr_get network.mode)" == "bridge" ]]
   [[ "$(ovr_get network.network_name)" == "mynet" ]]
 }
 
 @test "_edit_section_network: ipc=private prompts for shm_size" {
-  queue "0|host" "0|private" "0|2gb"
+  queue "0|host" "0|private" "0|private" "0|2gb"
   _edit_section_network
   [[ "$(ovr_get network.ipc)" == "private" ]]
   [[ "$(ovr_get resources.shm_size)" == "2gb" ]]
 }
 
 @test "_edit_section_network: empty network_name allowed (compose default bridge)" {
-  queue "0|bridge" "0|host" "0|" "0|back"
+  queue "0|bridge" "0|host" "0|private" "0|" "0|back"
   _edit_section_network
   [[ "$(ovr_get network.network_name)" == "" ]]
 }
@@ -593,6 +594,23 @@ _make_dockerfile_with_stages() {
   local -a _out=()
   _list_dockerfile_stages_available _out "${_base}"
   [[ "${#_out[@]}" -eq 0 ]] || { echo "got ${_out[*]}"; return 1; }
+}
+
+@test "_list_dockerfile_stages_available: includes devel-test as an editable stage (#493)" {
+  # #493 (A1'-b): devel-test is the override surface for the test
+  # service, so the per-stage TUI editor must offer it.
+  local _df="${BATS_TEST_TMPDIR}/Dockerfile"
+  cat > "${_df}" <<'EOF'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS headless
+EOF
+  local -a _out=()
+  _list_dockerfile_stages_available _out "${BATS_TEST_TMPDIR}"
+  printf '%s\n' "${_out[@]}" | grep -qx "devel-test" \
+    || { echo "devel-test missing from: ${_out[*]}"; return 1; }
 }
 
 @test "_count_stage_overrides: counts unique non-empty keys across OVR + CURRENT" {
@@ -827,6 +845,46 @@ _make_dockerfile_with_stages() {
   queue "0|environment" "0|__back"
   _render_runtime_menu
   [[ "${_called}" -eq 1 ]]
+}
+
+@test "_render_runtime_menu: logging choice dispatches to _edit_section_logging (#328)" {
+  local _called=0
+  _edit_section_logging() { _called=1; }
+  queue "0|logging" "0|__back"
+  _render_runtime_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_edit_section_logging: global choice dispatches to _edit_logging_keys logging (#328)" {
+  local _seen=""
+  _edit_logging_keys() { _seen="$1"; }
+  queue "0|global" "0|__back"
+  _edit_section_logging
+  [[ "${_seen}" == "logging" ]]
+}
+
+@test "_edit_section_logging: devel choice dispatches to _edit_logging_keys logging.devel (#328)" {
+  local _seen=""
+  _edit_logging_keys() { _seen="$1"; }
+  queue "0|devel" "0|__back"
+  _edit_section_logging
+  [[ "${_seen}" == "logging.devel" ]]
+}
+
+@test "_edit_section_logging: test choice dispatches to _edit_logging_keys logging.test (#328)" {
+  local _seen=""
+  _edit_logging_keys() { _seen="$1"; }
+  queue "0|test" "0|__back"
+  _edit_section_logging
+  [[ "${_seen}" == "logging.test" ]]
+}
+
+@test "_edit_section_logging: runtime choice dispatches to _edit_logging_keys logging.runtime (#328)" {
+  local _seen=""
+  _edit_logging_keys() { _seen="$1"; }
+  queue "0|runtime" "0|__back"
+  _edit_section_logging
+  [[ "${_seen}" == "logging.runtime" ]]
 }
 
 # Mounts sub-menu

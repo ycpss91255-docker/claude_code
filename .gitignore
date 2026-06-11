@@ -18,3 +18,5 @@ coverage/
 setup.conf.local
 
 .docker.xauth
+
+.env.generated

@@ -7,6 +7,734 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.41.0] - 2026-06-10
+
+### Added
+- **`justfile` user-facing entry point, additive alongside the Makefile (#545, ADR-00000005 phase 1)** — new `script/docker/justfile` (symlinked from the downstream repo root as `justfile` by `init.sh`) provides `just <verb>` recipes (`build` / `run` / `start` / `exec` / `stop` / `prune` / `setup` / `setup-tui` / `upgrade` / `upgrade-check`) that forward 1:1 to `./script/<wrapper>.sh` with full `{{args}}` passthrough. Because `just` does not treat `VAR=VALUE` as overrides or consume `--`/`-flag` argv for itself, the make-era workarounds (`MAKEOVERRIDES` guard #414, mandatory `--` separator #448, `EXEC_ARGS` shim #469) are simply unnecessary: `just exec -t cli --/app/k=v` passes through verbatim. Bare `just` runs `just --list` (replaces `make help`). This is the **additive** phase -- the Makefile stays; its retirement + the downstream fanout is #546. `Makefile.ci` is unrelated and stays on make. Closes #545. Refs ADR-00000005, #475.
+- **TUI runtime-env (`.env`) info page (#497 acceptance: TUI points at the `.env` overlay)** — `setup_tui.sh`'s Runtime sub-menu gains a `workload env (.env)` entry whose page is **informational only**: it explains the #502 two-role split -- volatile per-task env vars (ROS_DOMAIN_ID, LOG_LEVEL, tokens) go in the hand-edited, gitignored `.env` overlay (taking effect with `make run` alone, no regenerate / no hash drift), while set-once defaults live in `[environment]` (baked as image `ENV`, emitted into compose, overridden by `.env` at runtime). Per the S2 (#502) invariant that `setup.sh` / the TUI never write `.env`, this is a guidance msgbox, not an editor. i18n in all four locales (en / zh-TW / zh-CN / ja). Refs #497, #502 (does not close #497 -- the remaining acceptance item is the 17-repo downstream migration tracked separately).
+- **TUI legacy `runtime` -> `gpu_runtime` migration prompt (#517, fast-follow of #481)** — `setup_tui.sh`'s deploy page now detects when the per-repo `setup.conf` still carries the legacy `[deploy] runtime` key (and no `gpu_runtime`) and surfaces a migration suggestion msgbox -- it never silently rewrites the user's `setup.conf`. The deploy page reads the runtime value honouring both keys (gpu_runtime preferred, legacy `runtime` as fallback for the radiolist pre-selection) and writes the canonical `gpu_runtime` key on save, so editing via the TUI migrates the config forward; the user then removes the old line themselves. The per-stage scalar override prompt text now says `gpu_runtime (legacy runtime)` instead of `runtime`. i18n in all four locales (en / zh-TW / zh-CN / ja). Closes #517. Refs #481.
+- **`[lifecycle]` restart TUI page (#514, fast-follow of #478)** — `setup_tui.sh` gains a Lifecycle page (under the Runtime sub-menu) for the `[lifecycle] restart` policy added by #478. A radiolist picks `no` / `always` / `unless-stopped` / `on-failure`; choosing `on-failure` adds a two-step optional integer retry count (>= 1; empty falls back to bare `on-failure`, assembling `on-failure:N`). Reuses `_validate_restart` from `lib/_tui_conf.sh`. i18n in all four locales (en / zh-TW / zh-CN / ja), including the value descriptions and the `always` / `unless-stopped` infinite-restart caveat (a stage that extends devel and exits 0 would loop). The feature was already usable via `setup.sh set lifecycle.restart` / editing `setup.conf`; this closes the interactive gap. Closes #514. Refs #478.
+- **`lint_mixed_test_layout.sh` -- advisory lint for mixed-runner test layout (#495)** — new `script/ci/lint_mixed_test_layout.sh` warns when a `test/<category>/` directory holds files from more than one test runner at the same level (e.g. `.bats` + `test_*.py`), suggesting the `test/<category>/<tool>/` subdir split that ADR-00000004 (#473) defines. WARNING-only and non-blocking (it always exits 0): a mixed state is sometimes a legitimate mid-migration intermediate, so it surfaces the drift via `_log_warn` without failing CI. Wired into `ci.sh`'s `_run_shellcheck` lint phase (so it runs on the local `make test` path and the dedicated `--shellcheck-only` GHA job) and shellchecked itself. Downstream repos inherit the guard via the `.base/` subtree. Closes #495.
+- **`ci.sh --bats-path <file|dir>` + `--filter <regex>` single-path test mode (#523)** — the test engine gains a fast TDD inner loop: `--bats-path` runs one spec FILE or DIRECTORY (repo-root-relative, resolved inside the `ci` container) and `--filter` passes a `bats -f` name filter (usable with or without `--bats-path`). Both run via the `ci` container reusing the existing env plumbing (`BATS_FILE` / `BATS_FILTER` / `BATS_ONLY=1`), skipping ShellCheck (covered by `--shellcheck-only` / full `test`) and kcov so iterating on one spec no longer forces the whole `test/unit/` + `test/integration/` suite. Guards: a path under `test/behavioural/` exits with a hint to use `make test-behavioural` (the host `ci.sh` cannot launch the `ci-behavioural` service); a non-existent path exits `ci_bats_path_not_found`; `--bats-path` + `--coverage` is rejected (single-path is the fast no-kcov loop). `Makefile.ci` stays a thin forwarder and is out of scope (#475). Closes #523.
+- **Per-stage `[security]` cap_add / cap_drop / security_opt overrides (#526)** — the per-stage `[stage:<name>]` override allowlist (`_validate_stage_override_key`) is extended to `security.cap_add_<N>`, `security.cap_drop_<N>`, `security.security_opt_<N>` plus the matching `*_inherit` toggles, resolved through the same `_resolve_docker_flags` list layer as `volumes` / `ports` / `environment` (append-by-default; `<list>_inherit = false` replaces/clears). This lets a downstream drop capabilities / `security_opt` for individual stages instead of only image-wide: e.g. `ycpss91255-docker/jetson_sdk_manager` keeps `SYS_ADMIN` + `seccomp:unconfined` on its `flash` stage but a read-only `probe` stage sets `security.cap_add_inherit = false` (+ `security_opt_inherit = false`) to run with zero inherited caps -- minimal blast radius for stages that never flash. Both renderers consume the effective per-stage lists: the compose standalone block (`_emit_caps_block` now takes the resolved lists) and the field `deploy.sh` generator (`_generate_deploy_sh`). Stages with no `[stage:*]` security override inherit the top-level `[security]` block byte-identically (compose output unchanged for existing repos). This is the `[security]` half of the v1 "Excluded by design" note; the global caps opt-in (#466) and per-stage mechanism (#220) are unchanged. Closes #526. Refs #466, #493, #505.
+- **`setup.sh deploy` -- one-command self-contained field bundle (S6d of #497, completes the #506 deploy generator)** — new subcommand that builds the immutable field image and writes the `tar.xz` bundle for a stage (default `runtime`): it previews the resolved field launcher (every inlined docker-level flag -- the per-parameter review), prompts for confirmation, then runs `_generate_deploy_bundle` (S6c). `--dry-run` prints the build plan without building (and skips the prompt); `-y` skips the prompt; a non-interactive shell without `-y` refuses (mirrors `reset`); `--stage <name>` picks the target stage and `--output <file>` the bundle path (default `<base>/deploy/<name>-<stage>.tar.xz`). Field flow: extract the bundle, `docker load < image.tar`, `./deploy.sh`. With S1-S6 this closes the ADR-00000003 delivery story -- channel 1 (baked image: ENV via S3 + structured config via S4) and the docker-level run flags travel; the dev-only `.env`/workspace bind do not. The graphical per-param TUI confirmation page (setup_tui.sh) is an optional fast-follow: the plain-text preview already surfaces every resolved flag and is script / CI friendly (the issue invited the lighter flow). The orchestrator invokes `docker build` / `docker save` directly (no `script/` wrapper exists for image build/save -- the wrappers cover compose run/build/exec/stop/prune). Closes #506. Refs #497, #498, #503, #504, #505.
+- **`_generate_deploy_bundle` -- self-contained `tar.xz` field-bundle orchestrator (S6c of #497)** — new `setup.sh` helper that assembles the full field deliverable for a baked stage: resolves the image name + `[environment]`, bakes the env defaults as `ENV` via `_generate_runtime_dockerfile` (S3), `COPY`s `config/app` into the image via the new `_bake_config_copy` when the repo ships one (S4 deploy half), runs `docker build --target <stage>`, generates the launcher via `_generate_deploy_sh` (S6b-gen), `docker save`s the image, and `tar -cJf`s `{image.tar, deploy.sh}` into the bundle. Field flow: extract -> `docker load < image.tar` -> `./deploy.sh`. The generated Dockerfile + launcher are written under a temp dir (build context stays the repo via `docker build -f <tmp> <base>`, no repo side effect), and the docker / tar steps run through `_dry_run_cmd` so `DRY_RUN=true` prints the plan without building. This is the **deploy-only orchestrator**; the user-facing `setup.sh deploy` subcommand + per-param TUI confirmation are the remaining S6 follow-ups (S6d). Refs #497, #498, #503, #504, #505, #506.
+- **`_generate_deploy_sh` -- self-contained `deploy.sh` field-launcher generator (S6b-gen of #497)** — new `setup.sh` helper that writes a runnable `docker run` launcher for a baked stage image by tying the three resolution layers together: `_resolve_deploy_context` (global conf, S6b) supplies the stage parent, `_resolve_docker_flags` (per-stage overrides, S5) computes the effective record for the chosen stage, and `_emit_docker_run_flags` (S6a) turns it into the `docker run` argv. The generated script is `chmod +x`, ShellCheck-clean, runs `docker run --detach --name <name> <flags> "${IMAGE}" "$@"`, and exposes `DEPLOY_IMAGE` / `DEPLOY_CONTAINER_NAME` overrides + trailing-arg passthrough. By design the launcher carries docker-level flags only: `[environment]` is omitted (baked into the image as `ENV` by S3) and bind volumes are omitted (they reference dev-host paths absent in the field; structured config is COPY-baked by S4) -- so the field image is self-contained. The global `[security] privileged` is honoured even when the stage does not override it (the field has no devel `${PRIVILEGED}` env layer). GPU enablement uses the generating host's detection, same as `apply`. This is the **deploy-only primitive** consumed by the S6 bundle orchestrator (S6c: `docker build --target <stage>` -> `docker save` -> `tar.xz {image, deploy.sh}`); it is not wired into `apply`. Refs #497, #498, #503, #504, #505, #506.
+- **`_emit_docker_run_flags` -- docker-run flag-mapping primitive for the field launcher (S6a of #497)** — new `setup.sh` helper that maps a resolved docker-flag record (the `_resolve_docker_flags` S5 output, plus the top-level-only fields `devices` / `cap_add` / `cap_drop` / `security_opt` / `shm_size` / `dri_groups` / `cgroup_rules` / `restart`) into a `docker run` argv fragment for the self-contained `deploy.sh` field launcher (#506). The mapping mirrors the compose emit conditions exactly so the field run matches dev: `--gpus all` (or `count=N,capabilities=csv` when a count is set), `--runtime`, `--network=host|<name>`, `--ipc` (skipped for the `private` default), `--pid=host`, `--shm-size` (only when ipc != host), `--restart` (only when set & != no), `-v` per volume, `-p` per port (only under bridge), `--device` for plain devices and `-v` for propagation devices (mirroring #450), `--cap-add` / `--cap-drop` / `--security-opt`, `--group-add` per DRI gid, `--device-cgroup-rule`. `[environment]` is intentionally NOT mapped (it is baked into the image as `ENV` by S3, so the launcher carries only docker-level flags), and gui / X11 is out of scope (the field launcher targets headless run; GUI is a dev-only compose concern). This is the **deploy-only primitive** consumed by the S6 deploy generator (resolution glue + `docker save` + `tar.xz` bundle land in the S6 follow-ups); it is not wired into `apply`, so dev builds are unaffected. Refs #497, #498, #505.
+- **`config/app/` structured app-config channel -- dev bind-mount (S4 of #497)** — when a repo ships a `config/app/` directory, `setup.sh apply` bind-mounts it into the dev container at `/opt/app/config` (emitted through the regular mount path, so per-stage `mount_inherit` and the #482 top-level-`volumes:` classifier treat it like any other `./` bind). This gives structured runtime config (e.g. ros1_bridge bridge-topic YAML, pipeline definitions) the edit-on-host + restart, no-rebuild dev loop -- the third routing channel from ADR-00000003, distinct from the flat `.env` overlay (which carries only `KEY=VALUE` env vars). Convention over configuration: the directory's presence is the only switch (no `setup.conf` knob). The deploy flow (S6, #506) COPY-bakes the same dir into the field image instead (immutable artifact). Refs #497, #498.
+- **`_generate_runtime_dockerfile` -- runtime-stage `[environment]` ENV bake primitive (S3 of #497)** — new `setup.sh` helper that copies a repo `Dockerfile` to `.Dockerfile.generated`, splicing the resolved `[environment]` defaults as real `ENV KEY="VALUE"` instructions immediately after the `FROM ... AS runtime` line (cross-refs `${KEY}` expanded against earlier siblings, same as the compose `environment:` block). This is delivery channel 1 per ADR-00000003: a bare `docker run <runtime-image>` then carries sane defaults with no env file -- for the field-deployment scenario where only the image ships. The primitive is **deploy-only**: it is invoked by the deploy generator (S6, #506) at bundle time, NOT by `apply`. Day-to-day dev (`make run`) still gets `[environment]` via the compose `environment:` block + the `.env` overlay (S2), so dev builds are unaffected and produce no `.Dockerfile.generated`. Returns non-zero (no-op, writes nothing) when the Dockerfile has no `AS runtime` stage or `[environment]` is empty, so a repo without a runtime stage is untouched. Refs #497, #498.
+- **`[stage:devel-test]` override surface for the `test` service (A1'-b)** — `devel-test` is promoted out of the baseline blocklist and now flows through the per-stage inherit-with-override model like any other non-baseline stage, while keeping the legacy service **name** `test` (so `./script/exec.sh -t test` and the `:test` image tag are unchanged); `build.target` stays `devel-test`. By default the `test` service `extends: devel` (previously a hardcoded bare block with no `deploy` / `environment` entry point, so no `setup.conf` knob could reach it); declaring `[stage:devel-test]` lets it diverge -- e.g. `deploy.gpu_mode = force` gives GPU-requiring runtime tests (the `ycpss91255-docker/isaac` Isaac Sim pytest case, ADR-0011) a GPU even when devel has none. Because the test service is now emitted from the `devel-test` stage, a Dockerfile must declare `FROM ... AS devel-test` for the service to appear (every template-based repo already does). Existing repos with no `[stage:devel-test]` gain the `extends: devel` shape on next regenerate (was a bare block); `_warn_config_drift` flags it at `make upgrade` time. Closes #493 (Bug A).
+- **`[deploy] dri_groups` for non-NVIDIA (Intel/AMD iGPU) /dev/dri access** — `setup.sh` resolves the host's video + render GIDs (`stat -c %g /dev/dri/{card*,renderD*}`, deduped) at generation time and emits them as `group_add:` (numeric GIDs, quoted) on GUI-enabled services, so containers on iGPU hosts can open `/dev/dri/render*` for hardware GL (fixing the `libEGL ... renderD128: Permission denied` software-rendering fallback). `dri_groups = auto` (default) detects + emits; `off` disables; no `/dev/dri` -> emits nothing. GUI-gated (DRI is for GL rendering) and complements the NVIDIA `gpu_*` path. Numeric GIDs (the render GID varies per host, so names are non-portable) land in the gitignored generated `compose.yaml`; `setup.conf` stores only the portable `auto` token. Closes #496.
+- **`[lifecycle] restart` policy** — `setup.conf` gains a `[lifecycle]` section with a `restart` key controlling `services.devel.restart:` (stages that `extends: devel` inherit it). Accepts the 5 docker policies `no` / `always` / `unless-stopped` / `on-failure` / `on-failure:N` (validated on `setup.sh set` and in the TUI validator). Default `no` emits no `restart:` field (compose unchanged for existing repos); `on-failure:N` is emitted quoted. Caveat documented in the section comment + README: `always` / `unless-stopped` restart on any exit, so a stage that extends devel and exits 0 (e.g. the `test` service after #493) would loop -- prefer `on-failure` for auto-retry. Set via `setup.sh set lifecycle.restart <policy>` or by editing `setup.conf`; an interactive TUI page is a fast-follow (#514). Closes #478.
+- **Top-level `volumes:` declaration for named-volume mounts** — `setup.sh` now auto-emits a top-level `volumes:` block declaring every named volume that a service references, so a `setup.conf [volumes] mount_N = my_state:/srv/state` no longer fails compose with `service refers to undefined volume`. Option A (D-Strict): a mount's LHS is classified by prefix — `/`, `./`, `~/`, or `${` is a bind mount; anything else is a named volume. Named volumes are collected across devel + all stages, deduplicated, mode-suffix stripped, and emitted as bare stubs (default `local` driver) before `networks:`. Bind-only repos are byte-identical (no `volumes:` block emitted). Variable-named volumes (`${VAR}_state`) are intentionally unsupported (classified as bind; YAGNI per the design). Closes #482.
+
+### Changed
+- **BREAKING: the container-ops `Makefile` is retired in favour of `just` (#546, ADR-00000005 phase 2)** — `script/docker/Makefile` is removed; `init.sh` no longer symlinks a root `Makefile` and drops a stale one on upgrade (so it does not dangle once `.base/` ships no Makefile). The justfile (added in #545) is now the sole user-facing entry: `just build` / `run` / `exec` / `stop` / `prune` / `setup` / `setup-tui` / `upgrade` / `upgrade-check`. The make-era workarounds retire with the wrapper -- no more `MAKEOVERRIDES` guard (#414), mandatory `--` separator (#448), or `EXEC_ARGS` shim (#469); `just exec -t cli --/app/k=v` passes through verbatim. The test-tools image now ships `just` (+ a release smoke check) so the entry point keeps executable test coverage (`justfile_user_spec`, parity with the removed `makefile_user_spec`); those tests skip until the test-tools image is re-released with `just`. **`Makefile.ci` is unrelated and stays on make** (`make -f Makefile.ci test/lint` unchanged). Downstream migration (`make X` -> `just X`, install `just`, root-Makefile-symlink cleanup) rides the v0.41.0 fanout. README + i18n updated. Closes #546. Refs #475, #545, ADR-00000005, #414, #448, #469.
+- **Global conf resolution extracted into a shared `_resolve_deploy_context` layer (S6b of #497)** — the docker/build scalar + list-string resolution that `_setup_apply` did inline (gpu family + legacy `runtime` alias, gui mode, network mode/ipc/pid/name, privileged, restart, dri groups, build network, and the aggregated `devices` / `cgroup_rule` / `env` / `tmpfs` / `ports` / `cap_add` / `cap_drop` / `security_opt` / `shm_size` strings with the #466 security template fallback) is pulled into one `setup.sh` helper, `_resolve_deploy_context <base_path> <out_assoc>`, that loads its own setup.conf sections and returns the record in an associative array. `apply` now calls it and unpacks the record into its existing locals; the deploy generator (S6b-gen) will feed the same record as the parent for the runtime stage, so the field deploy can never drift from what `apply` produces for the same `setup.conf`. This is the global counterpart to the per-stage `_resolve_docker_flags` (S5) and completes the #497 goal of a single flag-resolution layer feeding both compose and deploy. Kept apply-side (not moved): the `--gui` / `SETUP_GUI` override, the detection-dependent enabled booleans (callers run `_resolve_gpu` / `_resolve_gui` with their own host detection), the WS_PATH / `mount_1` migration, and the #450 device/volume validation warnings -- all dev-specific side effects. The one intrinsic side effect kept in the resolver is the legacy `[deploy] runtime` deprecation warning (#481). Pure internal refactor: compose.yaml output is **byte-identical** (the S5 golden master + the full `apply` bats suite stay green) and `apply` loads only the four sections it still consumes directly. Refs #497, #498, #505. Refs #506.
+- **Per-stage docker-flag resolution consolidated into a single `_resolve_docker_flags` layer (S5 of #497)** — the inline block in `generate_compose_yaml`'s per-stage loop that resolved each stage's effective flags (gui / gpu / gpu_count / gpu_capabilities / gpu_runtime + legacy `runtime` alias / network mode-ipc-pid-name / privileged / volumes / environment / ports) via a dozen `_resolve_stage_scalar` + `_resolve_stage_list` calls is extracted into one `setup.sh` helper, `_resolve_docker_flags <stage_keys> <stage_values> <parent_assoc> <out_assoc>`. It takes a stage's allowlist-filtered `[stage:*]` overrides layered over the parent (devel / top-level) already-resolved values and returns the effective record in an associative array. Modes (gui / gpu) inherit the parent's resolved boolean unless the stage forces `off` / `force` -- no per-stage hardware re-detection (that host-specific step stays in the global resolution, upstream). The compose renderer now calls this single layer, and the deploy renderer (S6, #506) will call the same function for the `runtime` stage so the two never drift. Pure internal refactor: compose.yaml output is **byte-identical** (verified by a new full-file golden master exercising a `[stage:*]` override across every branch -- gui off, gpu off, ipc override, privileged override, runtime/net inherit, env/volume replace, port append -- plus 11 direct `_resolve_docker_flags` unit tests and the full bats suite). Refs #497, #498. Closes #505.
+- **`.env` split into `.env.generated` (cache) + `.env` workload overlay (S2 of #497, A2 core; breaking-semantic)** — the derived interpolation cache `setup.sh` writes is renamed `.env` -> `.env.generated`; the `.env` name is repurposed as a hand-authored, gitignored **workload overlay** that `setup.sh` never edits after scaffolding it on first apply. Each generated service now carries `env_file: - .env` so per-task env vars (e.g. `ROS_DOMAIN_ID`, `LOG_LEVEL`, tokens) take effect with `make run` alone -- no compose regenerate, no `SETUP_CONF_HASH` drift, no git churn. The wrappers' compose `--env-file` and every cache read (`write_env`, drift-check, `_load_env`, reset backup) now point at `.env.generated`; `.env.generated` feeds compose interpolation only (it is NOT injected into containers, so USER_UID / PRIVILEGED / SETUP_* metadata do not leak into the runtime env -- the env_file split). `apply` self-heals a pre-#502 layout: a `.env` carrying the auto-gen marker is treated as a stale cache, backed up to `.env.bak`, promoted to `.env.generated`, and a fresh overlay scaffolded -- so every repo migrates automatically on next apply. `.env.generated` added to the canonical gitignore blocklist. Bare `docker compose up` is unsupported (empty interpolation -- the wrappers always pass `--env-file`); this is what frees the `.env` name. The full overlay-overrides-`[environment]`-defaults semantics complete in S3 (when `[environment]` becomes baked `ENV`, the lowest-precedence layer). 17-repo migration is handled by the downstream-upgrade workflow. Refs #497, #498; folds part of #439 (the stale `.env.example` doc references are dropped here).
+- **INI read/write consolidated into `lib/conf.sh` via a shared tokenizer (#411)** — the full-file parser `_load_setup_conf_full`, the comment-preserving writer `_write_setup_conf`, and the single-key writer `_upsert_conf_value` moved from the TUI lib `lib/_tui_conf.sh` into `lib/conf.sh` (which already held `_parse_ini_section` since #402), so all `setup.conf` I/O lives in one module instead of the non-interactive core CLI reaching into the TUI lib for parsing/writeback. `_tui_conf.sh` now sources `conf.sh` (idempotent via conf.sh's own guard) so its existing consumers still get the primitives, and is left as pure validators + mount/GPU field assemblers. The two readers (`_parse_ini_section`, `_load_setup_conf_full`) are now thin projections over one new tokenizer `_ini_tokenize`, which emits each entry's `(section, key, value)` triple rather than a lossy `<section>.<key>` string -- this lets `_parse_ini_section` match sections EXACTLY even when keys contain dots (per-stage override keys like `gui.mode` under `[stage:NAME]`) or when a section name contains dots (`[logging.web]` vs `[logging]`), neither of which a namespaced-string split can disambiguate. Pure internal refactor: behaviour is unchanged (full bats suite plus new `_ini_tokenize` and dotted-section / dotted-key characterization tests stay green). Closes #411.
+- **`generate_compose_yaml` section emitters deduplicated (#410, partial)** — the `cap_add` / `cap_drop` / `security_opt` / `group_add` / `device_cgroup_rules` / `tmpfs` / `deploy`-GPU blocks were emitted by near-identical inline code in both the devel block and the per-stage standalone block (each iterating the same top-level `[security]` / `[devices]` / `[tmpfs]` strings). They are now shared nested helpers (`_emit_caps_block` / `_emit_group_add_block` / `_emit_cgroup_rules_block` / `_emit_tmpfs_block` / `_emit_gpu_deploy_block`) called from both paths. Pure internal refactor: compose.yaml output is **byte-identical** (verified against golden masters for 5 representative fixtures + the full bats suite). The issue's "single emit loop" goal is intentionally NOT pursued: the code has three principled emission modes (devel emits env-var refs like `${PRIVILEGED}` / `${NETWORK_MODE}` for runtime overridability + is the `extends:` base; per-stage no-override is a minimal `extends: devel`; per-stage override emits resolved literals to suppress inherited values per #220), so a single 3-mode loop would increase branching complexity rather than reduce it. Refs #410.
+- **Wrapper bootstrap preamble extracted to `lib/bootstrap.sh` + exit-code standardization (#408 sub-tasks A + C)** — the ~37-line preamble each dispatch wrapper repeated (resolve FILE_PATH across the symlink / script-subfolder / direct / `/lint` layouts, honor `-C/--chdir`, source `_lib.sh`) is hoisted into `_bootstrap "$@"` in the new `lib/bootstrap.sh`. `build.sh` / `run.sh` / `exec.sh` / `stop.sh` / `prune.sh` now open with a short locator (resolves the wrapper's real path via `readlink -f`, tries `../lib/` then `lib/` then `.base/script/docker/lib/` for bootstrap.sh) + `_bootstrap "$@"`, removing ~185 lines of duplication. A broken install (no bootstrap.sh) emits a clear `cannot find lib/bootstrap.sh` diagnostic instead of a cryptic `_bootstrap: command not found`. Also unifies prune.sh's stale flat `${FILE_PATH}/_lib.sh` fallback onto the post-#406 `lib/_lib.sh` path. Exit codes standardized to POSIX convention (sub-task C): argument/usage errors exit 2 (e.g. an invalid `run.sh --instance` value, previously 1), runtime errors exit 1. `setup_tui.sh` keeps its own preamble (it sources the TUI libs, not `_lib.sh`, and takes no `-C`), so it is intentionally out of scope. Refs #408.
+- **Wrapper dry-run dispatch unified through `log.sh`'s `_dry_run_cmd` (#408 sub-task B)** — added `_dry_run_cmd <cmd> [args...]` to `lib/log.sh`: under `DRY_RUN=true` it prints the planned command (`[dry-run]` + `%q`-quoted argv) and skips execution, otherwise runs it verbatim. The duplicated inline `if DRY_RUN; then printf '[dry-run] ...'` blocks in `lib/compose.sh` (`_compose`, the central `docker compose` dispatcher behind run/exec/stop/build), `stop.sh` (`_maybe_prune`), `prune.sh` (engine prune + `docker rmi`), and `build.sh` (`init.sh` regen) now delegate to it; output is byte-identical (the wrapper-dispatch specs stay green). `compose.sh` sources `log.sh` directly (idempotent guard, mirrors `config_summary.sh`) so it stays self-sufficient. The test-tools `docker build` path keeps its inline form (its real exec needs a `>/dev/null` redirect `_dry_run_cmd` can't carry). Per-wrapper operational messages already route through `_log_*`; the remaining bare `printf` are the irreducible cases (pre-`_lib.sh` bootstrap errors, interactive `[y/N]` prompts, pre-formatted list output) -- `_log_plain` was removed in #438, so user-facing/interactive output stays raw by design. Refs #408.
+- **`[deploy] runtime` renamed to `[deploy] gpu_runtime`** — puts the GPU-runtime key in the GPU family (`gpu_mode` / `gpu_count` / `gpu_capabilities` / `gpu_runtime`) and removes the overloaded "runtime" word in `setup.conf`. `setup.sh` reads `gpu_runtime` first; the old `[deploy] runtime` key keeps working as a **permanent legacy alias** (consumed with a `_log_warn` deprecation; `gpu_runtime` wins when both are present). Per-stage `[stage:X] deploy.gpu_runtime` is accepted (legacy `deploy.runtime` too). The `.env` variable name stays `RUNTIME` for downstream back-compat. Closes #481.
+- **`compose.yaml` now carries a top-level `name:`** — `setup.sh` emits `name: ${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX:-}` (literal, compose-interpolated from `.env`) right after the AUTO-GENERATED header, matching the wrapper's `PROJECT_NAME` rule. Non-wrapper tools (`lazydocker`, plain `docker compose ps`, IDE Docker panels) now resolve the same project name instead of falling back to the directory basename, so they see the wrapper-managed containers. The wrapper's `-p` still wins (compose precedence `-p` > `name:`), so wrapper behaviour is unchanged; `INSTANCE_SUFFIX` expands empty for non-wrapper tools (base instance). Additive: each downstream gains one `name:` line on next regenerate. Closes #472.
+- **Wrapper -> compose dispatch is now asserted behaviourally** — new `test/integration/wrapper_compose_dispatch_spec.bats` runs each wrapper (`build` / `run` / `exec` / `stop`) with `--dry-run` and checks the planned `docker compose -p <project> <verb>` (including the `-p` flag), replacing the name-coupled `_compose_project` / `_app_cleanup` greps in `template_spec.bats`. The behavioural assertions are immune to internal renames (which broke the old greps twice during the v0.40.0 cycle: #480's `_compose_dispatch` shim, #484's `_app_cleanup` rename) and additionally catch a raw-`docker compose` bypass (a missing `-p`) that a grep could not. Closes #490.
+- **Template privilege defaults are now opt-in (breaking-semantic)** — the template `config/docker/setup.conf` no longer ships `cap_add` (`SYS_ADMIN` / `NET_ADMIN` / `MKNOD`), `security_opt` (`seccomp:unconfined`), or `device_1 = /dev:/dev` defaults, and `privileged` flips from `true` to `false`. They become commented examples. The `privileged` resolution default also flips to `false` so a `[security]` section that omits the key does not silently run privileged. A repo with an empty `[security]` / `[devices]` section (which previously fell back to the fat template baseline) now gets a clean `compose.yaml` with no privilege escalation -- fixing lightweight repos (static servers, CI runners) like `omniverse_web_viewer` that explicitly opted out, and incidentally resolving the over-inheritance of GPU/devices/X11 by tooling stages that `extends: devel` (the #493 Bug B case). Repos that need privileges declare them explicitly via `setup.sh add` / the TUI / uncommenting the template examples; the 15 active repos that already declare their own are unaffected. Closes #466, resolves #493 Bug B.
+
+### Deprecated
+- **`[deploy] runtime` legacy alias** — kept working indefinitely (W3 strategy) but scheduled for removal at **v1.0.0**; migrate to `[deploy] gpu_runtime`. Tracked in `doc/deprecations.md` (new -- grep it before cutting v1.0.0). Refs #481.
+
+### Removed
+- **`runtime.env` retired (S7 of #497, completes the epic; supersedes #462)** — `setup.sh apply` no longer emits `runtime.env`, and the `_write_runtime_env` helper is deleted. Under the A2 model (#502) its job is covered by two channels that already exist: in-container, `[environment]` defaults are baked as real `ENV` in the runtime image (S3, so a bare `docker run` sees them); host-side standalone helpers (e.g. the isaac `run_instance.sh`) source `.env.generated` (the resolved interpolation cache) + `.env` (the workload overlay) instead. `runtime.env` is dropped from the canonical `.gitignore` blocklist (10 -> 9 entries). The single known downstream consumer (`ycpss91255-docker/isaac`) is migrated via the downstream-upgrade workflow, not this PR -- its `PUBLIC_IP` etc. resolve identically from `.env.generated` + `.env`. `runtime.env` shipped only in v0.40.0 (#462), so no long-lived consumer relies on it. With S1-S7 the #497 epic is complete. Refs #497, #498, #462, #502, #503.
+
+### Fixed
+- **detached `run.sh -d` now runs the repo-local `post/run` hook (#537)** — the `post/run` hook (#440) only fired in foreground, via the `trap _app_cleanup EXIT` handler, which detached mode does not install -- so `run.sh -t <stage> -d` silently skipped it (a consumer's documented detached post-bring-up steps, e.g. starting a sidecar / `docker cp`-ing a config into the just-started container, never ran). The detached branch now calls `_run_post_hook run` directly after `compose up -d`, decoupled from the foreground `compose down` teardown (the `-d` lifecycle is user-managed, so no down); hook failure surfaces as a non-zero exit, matching the foreground trap. Closes #537. Refs #440.
+- **`test-tools` release downloads retry transient 504s (#550)** — `dockerfile/Dockerfile.test-tools` fetches the `shellcheck` + `hadolint` binaries from the GitHub release CDN at build time; a transient `504` there used to fail the whole `test-tools:local` 3-layer-fallback build first-hit (no retry), which repeatedly blocked code-PR CI during the #497 epic until the CDN recovered. Both `curl` invocations now use `--retry 5 --retry-all-errors --retry-delay 3`, so a 504 / timeout retries transparently instead of failing the build. No image-content change. Closes #550.
+- **`upgrade.sh` post-pull integrity check rewritten as R1+ (structural invariant + target match)** — `_verify_subtree_intact` no longer asserts specific files exist at hard-coded paths (the v0.39.0 reorg of `script/docker/setup.sh` -> `wrapper/setup.sh` tripped the legacy marker list and broke `make upgrade v0.39.0+` from any pre-v0.39.0 release; tested v0.34.1 reproducer rolled back at Step 2/5). The new check is path-agnostic: it verifies `${TEMPLATE_REL}/` is a non-empty directory, `${TEMPLATE_REL}/.version` exists and parses as semver, and the pulled version matches the caller's target (catches wrong-tag / wrong-remote pulls that pass the structural check but deliver the wrong thing). Sibling path-coupling regions in upgrade.sh (`init.sh` invocation, `config/` drift detection, Dockerfile lib auto-patch) are intentionally not covered here -- tracked in #492. Pre-v0.39.0 downstream repos still need a manual one-shot patch of their stale `.base/upgrade.sh` before they can reach a version carrying this fix. Closes #477.
+
+### Documentation
+- **ADR-00000006: `upgrade.sh` hard-coded paths are a protocol-stable contract (#492)** — declares three `.base/` interior path regions that `upgrade.sh` depends on as protocol-stable (must not move/rename without updating `upgrade.sh` in the same change): `.base/init.sh` (Region A -- direct invocation; a move leaves a half-upgraded repo with no rollback), `.base/config/` + `config/docker/setup.conf` (Region B -- drift detection; a move makes the warning silently no-op), and `.base/script/docker/lib/` + the `script/docker/*.sh` umbrella loaders (Region C -- Dockerfile lint-stage auto-patch; a move breaks the downstream build). Chosen over a path-manifest file or `find`/glob discovery (no new artifact / parse surface / mid-upgrade guessing, for paths with no relocation pressure); the cost is a remembered convention, captured by this ADR + #492's trigger checklist. No code change -- ratifies the existing paths as intentional. Complements the #477 R1+ structural-invariant integrity check (which made the integrity check path-agnostic; this freezes the remaining interior paths). Closes #492.
+- **ADR-00000005: adopt `just` over the Makefile wrapper (#475)** — records the decision to replace the GNU make wrapper (`make build` / `run` / ...) with a `just` `justfile`. Root cause: make treats `VAR=VALUE` as overrides and consumes `--`/`-flag` argv for itself, which forced the accreting #414 / #448 / #469 workarounds; `just` passes recipe + trailing args through cleanly so those disappear. Rollout is additive-first (introduce the justfile alongside the Makefile) then retire the Makefile bound to the 13-repo batch fanout (the Makefile is symlinked, so removal must land in lockstep). Records the trade-off vs alternatives (A retire-to-raw-scripts, B custom dispatcher, D keep-patching-make) and resolves the open questions (single-entry is nice-to-have; `make help` -> `just --list`; downstream migration via fanout; CI/IDE callsite grep-sweep; `Makefile.ci` out of scope). Implementation split into #545 (phase 1, additive justfile) + #546 (phase 2, Makefile retirement + fanout). Closes #475.
+- **README rewritten against the current codebase (#437)** — the `template` -> `base` rename left the READMEs stale; applied targeted corrections across `README.md` + the three i18n READMEs (zh-TW / zh-CN / ja): title `# template` -> `# base`; both Mermaid diagrams' `template` labels -> `base`; consumer-repo symlink paths corrected to the repo-root `.base/script/docker/wrapper/*.sh` layout (adding `prune.sh` / `setup.sh` / `setup_tui.sh`); CI/CD flow path `./script/build.sh test` -> `./build.sh test`; CI-container label -> `ghcr.io/ycpss91255-docker/test-tools:latest`; the directory tree regenerated from the actual filesystem (adds `script/docker/lib/` modules, `script/docker/runtime/`, `script/ci/` lints, `test/behavioural/`, the full `test/unit/` + `test/integration/` spec set, `config/shell/bashrc.d/`, the ADR set, `doc/deprecations.md`; drops the removed `dockerfile/setup/`); the "What's included" table extended with `prune.sh` / `setup_tui.sh` / the `lib`/`runtime`/`ci` modules; and the Quick Start / TL;DR `git subtree add` switched from `main` to a pinned `vX.Y.Z` tag. Closes #437.
+- **env-vs-workload parameter boundary documented (S1 of #497)** — README gains a "Where each parameter lives (env vs workload)" section: the axis-A criterion ("does this value change when you switch machines?"), a 3-channel routing table (machine-bound -> `setup.conf`; volatile env -> `.env` overlay; structured config -> app YAML), and which channels survive a field deployment that ships only the image. The template `setup.conf` `[environment]` comment is reworded to mark the section as machine-bound / set-once env defaults (the future runtime-stage `ENV` bake, #497 S3) and to point per-task / volatile env vars at the gitignored `.env` overlay (#497 S2) instead. Conceptual / foundational only -- no behaviour change; the `.env` overlay, `ENV` bake, and `deploy.sh` launcher mechanics land across the rest of the #497 epic. Refs #497, ADR-00000003. Closes #501.
+
+## [v0.40.0] - 2026-05-30
+
+### Added
+- **`EXEC_ARGS` env var passthrough for `make exec`** — Kit-style args containing `=` (e.g. `--/app/livestream/port=49100`) historically tripped the #414 `MAKEOVERRIDES` guard, forcing users to call `./script/exec.sh` directly. Setting `EXEC_ARGS='--/app/k=v ...'` in the env now forwards those tokens to `exec.sh` via `$(EXEC_ARGS)`, bypassing make's variable-override interception. Existing `make exec -- -t target cmd` invocations are unaffected; EXEC_ARGS is appended after the `--`-forwarded args. Documented in README + zh-TW/zh-CN/ja translations. Closes #469.
+- **Per-instance compose overlay for `run.sh --instance NAME`** — `run.sh --instance NAME` now also auto-detects `config/instances/<NAME>.yaml` (compose `-f` overlay) and `config/instances/<NAME>.env` (compose `--env-file` overlay) on top of the existing `INSTANCE_SUFFIX`-only behaviour. Either file may exist alone; missing files are silently skipped. Yaml handles structural overrides (per-instance ports, volumes, cache dirs); env handles pure `${VAR}` overrides shared with `compose.yaml`. `NAME` is validated against `^[a-z0-9][a-z0-9_-]*$` (lowercase alphanumeric + `_-`) for path safety -- `--instance ../etc/passwd` and similar are rejected up front. New `lib/compose.sh::_compose_project_with_overlay` wraps the underlying invocation; `lib/compose.sh::_validate_instance_name` enforces the rule. README + 3 translations updated. Closes #465.
+- **Per-wrapper `pre`/`post` hooks for downstream host-side customisation** — every wrapper (`run` / `build` / `exec` / `stop` / `prune` / `setup` / `setup_tui`) now sources `lib/hook.sh` via `lib/_lib.sh` and calls `_run_pre_hook <name>` after env validation and `_run_post_hook <name>` at the end of main (run.sh's renamed `_app_cleanup` EXIT trap covers Ctrl-C too). Hooks live at `script/hooks/{pre,post}/<wrapper>.sh`; `init.sh` creates 14 executable stubs on new-repo (idempotent on existing-repo / upgrade so pre-#440 templates pick up scaffolding). Pre-hook non-zero exit aborts the wrapper; post-hook non-zero overrides the wrapper exit code but `compose down` still runs (strict + cleanup). `--dry-run` skips both hooks per the no-side-effects contract. Non-executable hook files hard-fail with a clear `chmod +x` hint. Solves `jetson_sdk_manager`'s need to register `qemu-aarch64` binfmt on the host before run.sh launches the ARM64 container, without breaking the upstream-symlink upgrade chain. Closes #440.
+- **`build-worker.yaml` `free_disk_space` opt-in input** — pre-build cleanup step that runs `jlumbroso/free-disk-space@main` to remove ~30 GB of pre-installed runner tooling (Android SDK, .NET, GHC, tool-cache) so repos whose `BASE_IMAGE` exceeds ubuntu-latest's ~14 GB free disk (Isaac Sim ~15 GB extracted) stop deterministically hitting `no space left on device` during the BuildKit COPY phase. Default `false` preserves zero behavior change for existing small-image callers; downstream opts in with `with: free_disk_space: true`. Step is positioned before `Set up Docker Buildx` so the overlayfs snapshot dir lands on the freed space. Closes #470.
+- **`runtime.env` emitted by `setup.sh apply`** — `[environment] env_*` entries land in a new `runtime.env` file alongside `.env` / `compose.yaml`, with the same cross-ref expansion as compose. Standalone scripts that bypass compose (e.g. `docker run` wrappers, host-side helpers like `isaac/script/run_instance.sh`) can now `source runtime.env` and see the same values compose injects, instead of getting empty `PUBLIC_IP` (WebRTC ICE fell back to 127.0.0.1). Backwards compatible: `.env` and `compose.yaml` unchanged; opt-in for callers that need it. Added to `_canonical_gitignore_entries` so downstream repos pick it up via the next `make upgrade`. Closes #462.
+- **TUI mount mode picker for `[devices]`/`[volumes]`** — new `_prompt_mount_with_picker` walks the user through host path, container path, access mode (`ro`/`rw`/none), and propagation mode (`rslave`/`rshared`/`rprivate`/`slave`/`shared`/`private`/none) via separate radiolist prompts. Pure `_assemble_mount_value` helper builds the final `host:container[:mode]` string. Lets users discover propagation modes from #450 without reading docs. Closes #461.
+- **`runtime/smoke.sh` ldd-based missing-dep check** — new helper script scans `.so` files under given roots (default `/usr/local/lib` + `/opt/ros/*/lib`) and fails if any has a "not found" dependency. Default `RUNTIME_SMOKE_CMD` in `Dockerfile.example` now invokes it, catching missing shared-library installs that the old `whoami && bash --version` default silently passed (e.g. `libboost_regex.so` absent in ros1_bridge#123). Downstream repos that uncomment the runtime-test stage get the stronger check automatically. Closes #430.
+
+### Changed
+- **`[logging] local_path` gitignore sync moved to init/upgrade lifecycle** — previously fired on every `setup.sh apply` (so the `.gitignore` managed block was only refreshed when a wrapper ran). New `lib/gitignore.sh::_sync_logging_gitignore` is called from `init.sh` (both new-repo and existing-repo paths), and `upgrade.sh` re-runs `init.sh`, so the file stays in step across template versions even when no wrapper has fired since the last `setup.conf` edit. Behaviour-equivalent: same marker block, same prune logic. `_parse_ini_section` also relocates from `setup.sh` to `lib/conf.sh` so `init.sh` can reach the parser without sourcing `setup.sh`. Closes #402.
+- **`[logging]` parsers extracted to `lib/conf_logging.sh`** — `_parse_logging_svc_sections` and `_collect_logging` moved out of `script/docker/wrapper/setup.sh` into a new shared lib, wired via `lib/_lib.sh`. Internal refactor only; no behaviour change. Sets up PR-B (#402) where `lib/gitignore.sh` will reuse the same parsers to take over the `[logging] local_path` gitignore sync from `setup.sh apply`. Refs #402.
+
+### Fixed
+- **`run.sh` non-devel stages now use `compose up`** — previously used `compose run --rm` which generated random hash container names (e.g. `user-repo-runtime-run-63e8313ab536`), bypassing the `container_name:` directive emitted by `setup.sh` (#215, #322, #335). Empty CMD → foreground `compose up`; CMD passed → `compose up -d` + `compose exec`. Container names now consistent across all stages. Closes #458.
+
+## [v0.39.0] - 2026-05-28
+
+### Added
+- **`[devices]` mount propagation support** — device entries like `device_1 = /dev:/dev:rslave` are auto-redirected from compose `devices:` to `volumes:` long-form bind mount (compose `devices:` does not support propagation). Plain devices without propagation emit to `devices:` as before. Validator (`_validate_mount`) extended to accept `rslave|rshared|rprivate|slave|shared|private` modes, combinable with `ro|rw` (e.g. `rw,rslave`). Warns when propagation is used without `[security] privileged = true` (P2, #453). Warns on duplicate target paths between `[devices]` and `[volumes]` (P4, #455). Per-stage emit supports propagation (P3, #454). Closes #450, closes #453, closes #454, closes #455.
+
+### Changed
+- **`run.sh` CMD separator `--` + positional stop** — first positional arg now stops run.sh flag parsing so CMD flags like `--target` no longer collide with run.sh's own `-t/--target`. Explicit `--` separator documented in usage (4 languages). Closes #448.
+- **`script/docker/` reorganized into role-based subdirectories** — wrappers move to `wrapper/`, all libs consolidate into `lib/`, container-side helpers move to `runtime/`. `_entrypoint_logging.sh` renamed to `runtime/logging.sh` (container path `/usr/local/lib/base/logging.sh`). New `runtime/entrypoint.sh` template replaces init.sh heredoc. Breaking: downstream symlink paths change; `make upgrade` handles migration automatically. Closes #406.
+
+## [v0.38.0] - 2026-05-27
+
+### Added
+- **`build-worker.yaml` `submodules` input** — optional checkout mode (`true` / `recursive`) for repos whose Dockerfile source lives in a git submodule. Default empty string preserves existing behavior (no submodule checkout). Only the `build` job checkout is affected; `path-filter` stays `submodules: false`. Closes #444.
+
+## [v0.37.0] - 2026-05-27
+
+### Added
+- **`make start` combined build+run target** — runs `./script/build.sh` then `./script/run.sh` in one step, reducing friction for new repo onboarding. Args after `--` are forwarded to build.sh only; run.sh runs with defaults. Closes #428.
+
+### Changed
+- **`run.sh` first-run auto-build gate** — when the target image is missing locally, `run.sh` now delegates to `./build.sh <target>` instead of letting Compose auto-build (which silently skips the test stage). Makes `make run` on a fresh clone equivalent to `make build && make run`. Build failure aborts the run. The `--build` flag (explicit `./build.sh test` with lint+smoke) is unchanged. Closes #429.
+- **`lib/log.sh` single-sink tty-detect + strict body + microsecond UTC** (#438). (1) Dispatch switches on `test -t <fd>`: TTY emits text, pipe/redirect emits JSON; `LOG_FORMAT=auto|text|json` overrides. `LOG_JSON_FILE` dual-sink removed. (2) Unregistered body is a fatal error by default; all callers migrated to registered event names with `display=` attribute for i18n text. (3) Timestamps now ISO 8601 UTC with microsecond precision (`%6NZ`) in both text and JSON. (4) `_log_plain` removed; `config_summary.sh` uses local `_summary_print` helper. Breaking changes: `LOG_JSON_FILE` env dropped, `LOG_STRICT_BODY` env dropped (strict is now default). Closes #438.
+
+## [v0.36.0] - 2026-05-27
+
+### Changed
+- **`lib/log.sh` rewritten as OTel-aligned 5-level JSON logger** (P1 of #423). 5 functions (`_log_debug` / `_log_info` / `_log_warn` / `_log_err` / `_log_fatal`) with `(service, body, [attr=val]...)` API. Registered body emits JSON per OTel Logs Data Model; unregistered body falls back to legacy text for backward compat. W3C TRACEPARENT propagation via `_log_with_trace` / `_log_with_span` scoped wrappers. Ships `lib/log-events.txt` (body enum registry) and `lib/log.lnav-format.json`. Closes #423.
+- **`lib/log.sh` dual output + text format upgrade** (P2). Terminal always receives text with ISO 8601 timestamp + 5-char aligned level (`DEBUG`/`INFO`/`WARN`/`ERROR`/`FATAL`). `LOG_JSON_FILE` env enables parallel structured JSON output to file. `attr=val` args are filtered from text display but included in JSON. `WARNING` label shortened to `WARN` for alignment. i18n messages preserved in text mode only.
+- **P3+P4: bare stderr migration + lint enforcement**. Converted remaining bare `printf >&2` in `setup.sh`, `run.sh`, `ci.sh` to `_log_*` helpers. Added `script/ci/lint_bare_stderr.sh` to flag bare stderr output outside `_log_*` / `_die` / allowlisted patterns.
+
+## [v0.35.0] - 2026-05-27
+
+### Added
+- **`[network] pid` setting** for PID namespace mode (`host` / `private`). Default `private` (Docker default). Set `pid = host` when running multiple GPU-rendering containers on the same GPU to avoid NVIDIA driver pthread robust mutex failures (`ESRCH`). Follows the `[network] ipc` precedent: setup.conf -> `.env` `PID_MODE` -> compose.yaml `pid:`. Per-stage override and TUI selection (4 languages) included. Closes #412.
+- **`build-worker.yaml` `extra_stages` input** — opt-in comma-separated list of extra Dockerfile stages to build after the standard pipeline. For each stage `<name>`, if a corresponding `<name>-test` stage exists in the Dockerfile it is built first (same convention as `devel-test` / `runtime-test`). Each extra stage gets its own GHA cache scope. Blocklist validation rejects attempts to re-build standard pipeline stages. Closes #415.
+
+### Changed
+- **`.hadolint.yaml` cleanup** — removed 5 globally ignored rules (DL3003, DL3006, DL3007, DL3046, DL4006) and properly fixed the underlying violations: pinned bats/alpine versions via `ARG` in `Dockerfile.test-tools`, added `-l` flag to `useradd` in `Dockerfile.example`, replaced `RUN cd` with `WORKDIR`, and moved DL4006 to inline ignore on the Alpine `RUN` with pipe. Closes #405.
+
+### Removed
+- **`dockerfile/setup/` pip scaffolding** — removed entirely (reverses #261). `python3-pip` dropped from `Dockerfile.example` apt install, `SETUP_DIR` ARG and all COPY/RUN pip references removed. Downstream repos that need pip handle it independently in their own Dockerfiles. Closes #407.
+
+### Fixed
+- **Makefile forwarding: absolute container paths** — `make exec -- /root/demo/test.sh` failed with `No rule to make target` because GNU Make's built-in implicit rules stat every goal on the host filesystem. Added `--no-builtin-rules` + `.SUFFIXES:` so the `%:` catch-all fires correctly for arbitrary absolute paths. Closes #414 (case 2).
+- **Makefile forwarding: VAR=VALUE args silently lost** — `make setup set build.arg_4 ROS2_DISTRO=jazzy` dropped the `ROS2_DISTRO=jazzy` token because Make treats any `KEY=VALUE` CLI token as a variable override, not a goal. Added a `MAKEOVERRIDES` guard that detects swallowed args and aborts with a clear error message pointing users to the underlying script. Closes #414 (case 1).
+- `upgrade.sh` #399 idempotency regex false-positive: `COPY script/*.sh /lint/script/` was matching the already-patched check because `/lint/` is a prefix of `/lint/script/`. Anchored the regex with `$` so only the exact `/lint/` destination triggers the skip. Closes #403.
+
+## [v0.34.1] - 2026-05-25
+
+Patch release: single feature from #399 / PR #400.
+
+### Added
+
+- **`upgrade.sh` auto-patches downstream Dockerfile `COPY *.sh /lint/`
+  → `COPY script/*.sh /lint/`** (closes #399). v0.31.0 (#330) moved
+  user-facing wrappers from the repo root into a `script/` subfolder;
+  `init.sh` migrates the symlinks but the Dockerfile's COPY directive
+  is user-owned and stayed anchored at root, pulling zero files after
+  the migration. Every post-#330 fanout hit the same smoke-test
+  failure (`build.sh -h exits 0` → `assert_success` failed because
+  `/lint/build.sh` did not exist). `upgrade.sh` now detects the stale
+  `COPY *.sh /lint/` pattern and rewrites it to `COPY script/*.sh
+  /lint/` in the same chore commit, so the next fanout is clean.
+  Idempotent: already-patched Dockerfiles are skipped. Modelled on
+  the #348 `COPY .base/script/docker/lib` sibling patch.
+
+## [v0.34.0] - 2026-05-21
+
+Stable v0.34.0 minor feature release, promoting v0.34.0-rc1 (#396) with no follow-up fixes — RC tag CI (`Self Test` + `release-test-tools`) was green.
+
+Single feature carried over from #390 / PR #395 (full detail under [v0.34.0-rc1] below):
+
+- **#390 / PR #395** — `setup.sh apply` prunes stale `[logging] local_path` entries from the managed `.gitignore` block, plus docs example flipped `./logs/` → `./log/` (singular-directory convention).
+
+Downstream consumers receive the change on next `make -f Makefile.ci upgrade VERSION=v0.34.0`. The 12 of 13 downstream repos that inherit base's empty default `local_path` see no change. `ros1_bridge` (the one that overrides to `./logs/`) needs a small follow-up PR to flip its override to `./log/`; the new prune logic will then clean the stale `/logs/` line from its `.gitignore` on next `setup.sh apply`. Fan out across the 2 active downstream repos via `/batch-template-upgrade v0.34.0` after this tag's CI is green.
+
+## [v0.34.0-rc1] - 2026-05-21
+
+Release Candidate for v0.34.0 — single feature PR carried over from #390 that landed too late for the v0.33.0 window. Also doubles as the CHANGELOG-history fix that relocates the #390 entry out of `[v0.33.0-rc1]` (where the rebase replay misplaced it; the actual v0.33.0 GitHub release notes never included #390 since the entry was added in [Unreleased] AFTER v0.33.0 was tagged).
+
+### Added
+
+- **`setup.sh apply` prunes stale `[logging] local_path` entries
+  from the managed `.gitignore` block** (#390). Pre-#390 the helper
+  `_sync_logging_local_paths_gitignore` only appended; when a
+  downstream rewrote its `local_path` value (e.g. `./logs/` →
+  `./log/` to match the project's singular directory convention),
+  the prior `/logs/` entry persisted forever inside the managed
+  marker block. Post-#390 each apply rewrites the block to exactly
+  the current candidate set: stale entries drop out, new ones
+  appear, and when the resulting block is empty the marker comment
+  itself is removed so a feature-off repo carries no trace. Lines
+  outside the managed block stay user-owned and untouched.
+
+  Also relocates the docs example from `./logs/` → `./log/` to align
+  with the project's singular-directory convention (`script/` /
+  `test/` / `doc/` / `config/` / `dockerfile/`). The default
+  `local_path` stays empty (opt-in semantics preserved) so consumers
+  inheriting the default see no change; only repos that override to
+  the new singular form will materialise a `log/` directory.
+
+## [v0.33.0] - 2026-05-21
+
+Stable v0.33.0 minor feature release, promoting v0.33.0-rc1 (#393) with no follow-up fixes — RC tag CI (`Self Test` + `release-test-tools`) was green and the three feature PRs already shipped with full integration coverage (1356 → 1440 tests, +84 across the three lifecycle changes).
+
+Two BREAKING default-flips + one Added opt-in mode (full detail under [v0.33.0-rc1] below):
+
+- **#386 / PR #389** — `run.sh` foreground exit now auto compose-down (`--no-rm` opts out).
+- **#387 / PR #391** — `build.sh` after success auto rmi displaced predecessor (`--no-prune` opts out).
+- **#388 / PR #392** — new `prune.sh --worktree-orphans` opt-in mode, owner-strict safety gates.
+
+Downstream consumers receive the changes on next `make -f Makefile.ci upgrade VERSION=v0.33.0`. The two BREAKING items are behavior changes only — no API or invocation shape changes — so the upgrade is a documentation-only event for callers that don't rely on the pre-#386 keep-alive or pre-#387 keep-old-image defaults. Fan out across the 2 active downstream repos via `/batch-template-upgrade v0.33.0` after this tag's CI is green.
+
+## [v0.33.0-rc1] - 2026-05-21
+
+Release Candidate for v0.33.0 — bundled lifecycle-cleanup wave:
+
+- **#386 / PR #389** `run.sh` auto compose-down on foreground exit (BREAKING; `--no-rm` opts out).
+- **#387 / PR #391** `build.sh` auto-prune displaced predecessor image (BREAKING; `--no-prune` opts out).
+- **#388 / PR #392** `prune.sh --worktree-orphans` opt-in mode (Added; owner-strict safety gates).
+
+Closes the multi-worktree-workflow lifecycle leaks (orphan `<projname>_default` networks; dangling `<none>:<none>` images from rebuilt tags; tagged orphans from removed worktrees). The two BREAKING entries are default-flip with explicit escape hatches — downstream pulls should not need code changes, only awareness when `./run.sh` / `./build.sh` behave differently on exit / completion. See per-entry detail below.
+
+### Added
+
+- **`./prune.sh --worktree-orphans`** (#388). New opt-in mode that
+  removes tagged images left behind by removed worktrees. Algorithm:
+  for each tagged image matching `<owner>/<name>-<suffix>:<tag>` where
+  `<owner>` equals the current `DOCKER_HUB_USER` (loaded from `.env`
+  or detected via the same chain `setup.sh` uses), check if
+  `<workspace>/worktree/<name>-<suffix>/` exists — if not, the
+  worktree is gone and the tagged image is an orphan. `docker image
+  prune` cannot reach these (not dangling), and `docker system prune
+  -a` is too aggressive (kills every idle tagged image on the
+  daemon). Closes the leak case for the multi-worktree workflow where
+  `git worktree remove` wipes the cwd before the image is cleaned.
+
+  Safety gates: bare-name images (no `<owner>/` prefix) and images
+  owned by a different `<other>/` prefix are **always skipped** —
+  ownership cannot be confirmed, so we refuse to delete. Cleaning
+  those is left to manual `docker rmi`.
+
+  Companion flags:
+  - `--workspace <dir>` to point at the workspace root (defaults to
+    `WS_PATH` from `.env` when run from a repo with one).
+  - `--owner <name>` to override the detected owner (rare; useful
+    when migrating images between machines).
+  - `--repo <name>` (repeatable) to scope the scan to a specific repo
+    basename — only `<owner>/<name>-*` candidates considered.
+  - `-y` / `--dry-run` honored same as the existing prune flags.
+
+  Not included in `--all` (requires workspace + filesystem context
+  that the bulk prune doesn't have). Chain explicitly:
+  `./prune.sh --all --worktree-orphans`.
+
+### BREAKING
+
+- **`./build.sh` now auto-prunes the displaced predecessor image after
+  a successful build** (#387). Pre-#387: every rebuild that moved the
+  same tag (e.g. `mockuser/mockimg:devel`) left the old image ID
+  dangling as `<none>:<none>` on the daemon; one dev box accumulated
+  281 images / 357 GB / 200+ dangling before anyone noticed. Post-#387:
+  build.sh snapshots the tag's image ID before invoking
+  `_compose_project build`, and on success runs `docker rmi <old-id>`
+  iff (a) the ID actually moved AND (b) no other tag still references
+  the old ID. Surgical scope — only the image we just displaced; never
+  touches the buildx cache (use `prune.sh --builder` for that), other
+  repos' tagged images, or volumes. Pass **`--no-prune`** to opt out
+  (keep the previous version around for rollback / debug-diff).
+  First-build, cache-hit no-op, multi-tag, and build-failure paths are
+  all guarded — no rmi attempted in those cases. Under `--dry-run` a
+  `[dry-run] docker rmi <old-id-of <tag> if displaced>` line surfaces
+  for visibility without touching the daemon.
+
+- **`./run.sh` foreground exit now auto-tears-down the compose
+  project by default** (#386). Pre-#386: leaving an interactive
+  `./run.sh` session (or any one-shot `-t test` / `-t runtime`
+  invocation) left the container and the compose project's default
+  network on the daemon; users had to run `./stop.sh` separately, and
+  worktree workflows accumulated orphan `<projname>_default` networks
+  when `git worktree remove` deleted the cwd before `./stop.sh` could
+  resolve. Post-#386: a `trap _compose_cleanup EXIT` is installed for
+  every foreground invocation (devel + non-devel) and runs
+  `COMPOSE_PROFILES='*' docker compose ... down --remove-orphans -t 0`
+  — same teardown stop.sh performs — on normal exit, Ctrl-C, and
+  signal. Pass **`--no-rm`** to restore the pre-#386 keep-alive
+  behavior (re-attach later via `./exec.sh`, inspect post-mortem
+  logs). `-d` / `--detach` is unchanged (background lifecycle is
+  already user-managed; the trap is suppressed automatically).
+
+### Changed
+
+- **`build-worker.yaml` buildx GHA cache split into 4 per-target
+  scopes** (#378 b1 mitigation). Pre-#378 all 4 build steps
+  (`devel-test` / `devel` / `runtime-test` / `runtime`) shared one
+  `<image_name>[-<variant>]-<hardware>-cache` scope under `mode=max`,
+  so a late-stage `COPY .base/...` change in `devel` cascaded the
+  shared scope's manifest pointer and invalidated `runtime` /
+  `runtime-test` caches on the next PR. Each target now writes to its
+  own scope: `<base>-devel-test-cache`, `<base>-devel-cache`,
+  `<base>-runtime-test-cache`, `<base>-runtime-cache`. **Migration
+  cost**: every existing GHA cache entry is orphaned by the shape
+  change; first PR per active downstream pays a 4-way cold restart
+  (sequentially within the same build job — the 4 build steps share
+  layers via the buildx local store, so the wall-time hit is
+  meaningfully less than 4×). After that, every PR enjoys
+  per-target-isolated caches. Caller contract (workflow `inputs:`)
+  unchanged. Refs the b1 mitigation direction in the #378 audit
+  comment.
+
+### Fixed
+
+- **`exec.sh` one-shot commands no longer leak terminal escape
+  sequences** (#382). Pre-fix, `docker compose exec` defaulted to
+  `-it` so a one-shot like `./exec.sh bash -c 'ls /foo'` inherited
+  the host terminal's focus-in / bracketed-paste sequences (e.g.
+  `^[[I^[[I`) into stdout, polluting downstream pipelines.
+
+### Added
+
+- **`exec.sh` gained `-T` / `--no-tty`, `-i` / `--tty`, plus auto-
+  detect for `bash|sh|dash|zsh|ash|ksh -c '...'`** (#382, Option 1+2).
+  Three-tier resolution with last-wins between the explicit flags:
+  - Explicit `-T` / `--no-tty` → no TTY (`docker compose exec -T`).
+    Use for one-shots the auto-detect heuristic misses (`whoami`,
+    `ls /foo`, `env BAR=1 bash -c '...'`).
+  - Explicit `-i` / `--tty` → TTY. Use to override the auto-detect
+    when a `bash -c '...'` invocation genuinely wants a TTY (e.g.
+    `-i bash -c 'tput cols'`).
+  - Auto-detect: first positional `bash|sh|dash|zsh|ash|ksh` plus
+    a following `-c` → no TTY (covers the 90% one-shot wrapping
+    pattern).
+  - Otherwise: keep `-it` (preserves `./exec.sh` and
+    `./exec.sh htop` muscle memory).
+
+  Usage text + examples updated in all 4 languages (en / zh-TW /
+  zh-CN / ja).
+- **Bats matrix shards + dedicated coverage job in `self-test.yaml`**
+  (#377). Three new sibling jobs replace the pre-#377 monolithic
+  `test` job:
+  - `bats-unit` (matrix `shard: ['1/2', '2/2']`, `fail-fast: false`) —
+    each shard runs a round-robin partition of `test/unit/*_spec.bats`
+    via `ci.sh --bats-unit-shard ${{ matrix.shard }}`. Drops PR
+    wall-time from ~5min serial to ~2min parallel.
+  - `bats-integration` — runs `test/integration/` via
+    `ci.sh --bats-integration`. Pulled out of the unit serial path.
+  - `coverage` — gated on `push && ref == refs/heads/main`. Runs the
+    full Kcov pipeline (`ci.sh --coverage`) and uploads to Codecov.
+    Intentionally NOT in `ci-rollup`'s `needs:` so a coverage hiccup
+    never blocks PR merge. The Codecov upload step migrated here from
+    the old `test` job.
+
+  `ci-rollup needs:` reshaped to
+  `[actionlint, classify, shellcheck, hadolint, bats-unit,
+  bats-integration, integration-e2e, behavioural]`. `release needs:`
+  swaps `test` → `bats-unit + bats-integration`. The old `test` job
+  is fully removed.
+- **Dedicated `shellcheck` + `hadolint` parallel jobs in
+  `self-test.yaml`** (#376). ShellCheck runs on plain ubuntu-latest
+  (pre-installed binary, no buildx, no test-tools image) via
+  `script/ci/ci.sh --shellcheck-only` — a 30s regression now surfaces
+  in ~45s wall time instead of waiting for the full bats suite inside
+  the `test` job. Hadolint uses
+  `hadolint/hadolint-action@v3.1.0` to lint
+  `dockerfile/Dockerfile.example` + `dockerfile/Dockerfile.test-tools`
+  (template-owned; downstream consumers inherit). Both jobs gate on
+  `needs.classify.outputs.code_changed == 'true'` so doc-only PRs SKIP
+  them. `ci-rollup`'s `needs:` and the `release` job's `needs:` both
+  extend to include these two jobs.
+- **`ci-rollup` aggregator job in `self-test.yaml`** (#337). A single
+  always-running job sits downstream of every PR check and collapses
+  results into one pass/fail signal. Hard-mandatory jobs (actionlint /
+  classify / test) must succeed; conditionally-gated jobs (shellcheck
+  / hadolint / integration-e2e / behavioural) may be SKIPPED (their
+  job-level `if:` gates fire on doc-only / non-behavioural PRs per
+  #317 P1/P3, #376). Enables follow-up sub-jobs (#377 bats-unit /
+  bats-integration / coverage) to join the rollup's `needs:` list
+  without further branch-protection churn. **Branch protection
+  switched from `test` → `ci-rollup` post-merge** (admin step,
+  separate from the workflow change).
+
+### Changed
+
+- **`script/ci/ci.sh` gained `--shellcheck-only`, `--bats-only`,
+  `--bats-unit-shard N/T`, and `--bats-integration` flags** (#376,
+  #377). `--shellcheck-only` short-circuits before any mode dispatch
+  and runs the lint phase directly on the host (no compose, no
+  apt-install) — caller must have `shellcheck` in PATH.
+  `--bats-only`, `--bats-unit-shard N/T`, and `--bats-integration`
+  plumb `BATS_ONLY=1` plus the appropriate `BATS_UNIT_SHARD` /
+  `BATS_INTEGRATION` env var through `_run_via_compose` to the inner
+  `--ci` dispatch, which then routes to the right subset of the bats
+  suite (and skips `_run_shellcheck` in all three). Local `make test`
+  keeps the full pipeline (shellcheck + bats unit + bats integration)
+  unchanged because none of these flags is set by default.
+- **`script/ci/ci.sh` factored `_run_tests` into `_run_unit_tests` +
+  `_run_integration_tests` + new `_run_unit_shard <N>/<T>`** (#377).
+  Shared parallelism / label-formatting logic extracted into
+  `_bats_args_with_label`. Round-robin partition over
+  `find test/unit -name '*_spec.bats' | sort` keeps each shard's file
+  count balanced at the current ~30 spec scale; weight-by-test-count
+  is a deferred follow-up.
+
+## [v0.32.0] - 2026-05-15
+
+Stable v0.32.0 minor feature release, promoting v0.32.0-rc1 (#371)
+plus three logging-feature follow-up fixes:
+
+- **#368 / PR #372** — ship `_entrypoint_logging.sh` into every
+  downstream image at `/usr/local/lib/base/_entrypoint_logging.sh`
+  so the source-line works at build-time AND runtime in every
+  workspace layout.
+- **#364 / PR #373** — `init.sh` default-sources the helper from
+  the generated `script/entrypoint.sh`, closing the v0.30.0 2-knob
+  UX gap (set `local_path` is now the only step for new repos).
+- **#367 / PR #374** — `setup.sh` emits per-stage `LOG_FILE_PATH` +
+  volume mount on extends-based compose services so per-service
+  file naming (`runtime.log`, `builder.log`) materialises instead
+  of inheriting devel's `LOG_FILE_PATH=devel.log` through compose
+  `extends` merge.
+
+Bundled BREAKING from v0.32.0-rc1 (carried below): `#344` rewrite
+of `multi-distro-build-worker.yaml` from 1D scalar-axis to N-D
+`include`-shape matrix-mode. Callers using the dispatcher must
+migrate from `pr_distros` / `tag_distros` / `distro_input_name` /
+`extra_build_args` to `pr_matrix` / `tag_matrix` (full JSON
+`include`-shape arrays of `{name, build_args, ...}` entries). The
+3 caller migration tracking issues remain open (ros1_bridge#108,
+ros_distro#24, ros2_distro#23); ros1_bridge migration follows in
+this session as Phase 3 of the original #344 plan.
+
+External callers reusing `multi-distro-build-worker.yaml@vX.Y.Z`
+break — the `### Changed` entry under [v0.32.0-rc1] carries the
+full input migration table.
+
+### Fixed
+
+- `script/docker/setup.sh`: emit per-stage `LOG_FILE_PATH` env var
+  and `[logging] local_path` volume mount on extends-based compose
+  services (the zero-diff `extends: service: devel` branch from
+  #215, used by auto-emitted Dockerfile stages like `builder` /
+  `runtime` / `test-tools-stage`). Closes #367. The v0.30.0 emit
+  was three-point (devel inline / standalone auto-emitted stages
+  with overrides / test); the zero-diff extends path was missing,
+  so compose's `extends` merge inherited devel's
+  `LOG_FILE_PATH=/var/log/<repo>/devel.log` into every extending
+  service. `./run.sh -d runtime` ended up tee'ing the runtime
+  container's stdout to `logs/devel.log` instead of
+  `logs/runtime.log`. Result: per-service file naming
+  (`runtime.log`, `builder.log`, ...) silently never materialised;
+  users running multiple services concurrently got interleaved
+  content in `logs/devel.log`. Fix is Option A from #367: every
+  service block now emits its own `LOG_FILE_PATH` +
+  `<resolved>:/var/log/<repo>` volume mount uniformly when
+  `local_path` is set, regardless of whether the service uses
+  `extends`. compose's `environment:` list merge concatenates entries
+  and last-wins resolution at runtime picks the override; the
+  duplicate volume mount string against the inherited one is
+  harmless because compose dedups identical bind strings.
+  Back-compat: when `local_path` is unset the zero-diff emit stays
+  byte-for-byte identical to pre-#367, so repos that haven't opted
+  into `[logging] local_path` see zero change. 3 new tests in
+  `compose_logging_spec.bats` (extending stage LOG_FILE_PATH emit,
+  volume mount emit, and back-compat no-emit when local_path
+  unset).
+
+- `init.sh` now default-sources `_entrypoint_logging.sh` from the
+  stable in-image path `/usr/local/lib/base/_entrypoint_logging.sh`
+  in the generated `script/entrypoint.sh`, closing the v0.30.0
+  `[logging] local_path` UX gap (#364). Before this change, the
+  user-facing model was 2-knob: edit `setup.conf` AND hand-add a
+  source line to `entrypoint.sh`; out-of-the-box, setting `local_path`
+  emitted `LOG_FILE_PATH` env + the host volume mount in
+  `compose.yaml` but no file ever materialised because the helper
+  was never sourced. Default-sourcing is no-op safe
+  (`_entrypoint_logging.sh:51` early-returns when `LOG_FILE_PATH`
+  is unset), so stock repos see zero behavioural change. **New
+  repos** generated via `init.sh` from this version on get the
+  helper pre-wired — setting `[logging] local_path` is now the
+  only step. **Existing repos** need a one-time manual addition of
+  the source line before `exec` in `script/entrypoint.sh`;
+  `init.sh` / `upgrade.sh` deliberately do NOT modify existing
+  entrypoints to preserve downstream customisations (ROS sourcing,
+  conda activation, etc). The emitted source line uses the in-image
+  path shipped by #368 / PR #372 (no `$USER` deref, no workspace
+  bind-mount dependence), so it works at build-time AND runtime
+  across every workspace layout. README (en + 3 translations)
+  gains a "Logging output to host" section covering the 1-step
+  setup, the existing-repo migration line, and a `grep`
+  troubleshooting hint. `test/integration/init_new_repo_spec.bats`
+  gains one assertion verifying the freshly-generated entrypoint
+  contains the source line + explanatory comment, plus regression
+  guards against the broken v0.30.0 example (`${USER}` / `/home/`
+  must be absent). Closes #364.
+
+- `dockerfile/Dockerfile.example`, `script/docker/_entrypoint_logging.sh`,
+  `config/docker/setup.conf`: ship `_entrypoint_logging.sh` into every
+  downstream image at the stable in-image path
+  `/usr/local/lib/base/_entrypoint_logging.sh` so the documented
+  source-line works at build-time AND runtime in every workspace
+  layout (#368). The v0.30.0 example
+  `. /home/${USER}/work/.base/script/docker/_entrypoint_logging.sh`
+  had two failure modes that hit every adopter: (a) `$USER` is unset
+  in the Dockerfile test stage, so `set -u` entrypoints crashed
+  during build-time bats smoke (`USER: unbound variable`); (b) on
+  multi-repo workspace layouts (the org-wide norm), `WS_PATH` resolves
+  to the workspace parent rather than the repo root, so the bind mount
+  `<WS_PATH>:/home/<user>/work` places the repo's `.base/` at
+  `/home/<user>/work/<repo>/.base/`, not the documented
+  `/home/<user>/work/.base/` -- the helper silently never ran and
+  no host-side log file was ever produced. Path A fix: Dockerfile.example's
+  devel stage now COPYs `.base/script/docker/_entrypoint_logging.sh`
+  into `/usr/local/lib/base/_entrypoint_logging.sh`, the commented-out
+  runtime stage block carries a matching COPY example, and the helper
+  header + setup.conf `[logging]` comment block both document the
+  in-image source-line. Downstream entrypoints can adopt the helper
+  with a single un-guarded line:
+  ```
+  . /usr/local/lib/base/_entrypoint_logging.sh
+  ```
+  The line is safe to add unconditionally because the helper is a
+  no-op when `LOG_FILE_PATH` is unset; repos that haven't opted into
+  `[logging] local_path` stay unaffected. Existing downstream guards
+  (e.g. ros1_bridge#107's `if [[ -f ... ]]` + `${USER:-root}`) become
+  unnecessary and can be simplified in a follow-up PR. 5 new tests:
+  3 in `template_spec.bats` (Dockerfile.example devel COPY directive +
+  stage placement, commented runtime stage COPY example, helper header
+  positive + negative regression guards), 1 in `compose_logging_spec.bats`
+  (setup.conf `[logging]` comment block path reference + negative guard),
+  1 in `init_new_repo_spec.bats` (init.sh-generated Dockerfile contains
+  the helper COPY).
+
+## [v0.32.0-rc1] - 2026-05-15
+
+Release Candidate for v0.32.0 minor feature release. Bundles a
+single BREAKING change: **#344 multi-distro-build-worker N-D
+matrix-mode** (merged via #370). The dispatcher's 1D inputs
+(`pr_distros` / `tag_distros` / `distro_input_name` /
+`extra_build_args`) are removed; callers must use `pr_matrix` /
+`tag_matrix` (full JSON `include`-shape arrays of
+`{name, build_args, ...}` entries). Migration unlocks first-time
+adoption of the dispatcher by `env/ros_distro` / `env/ros2_distro`
+(which previously couldn't use it due to their 4-cell matrix's
+cross-axis correlations).
+
+External callers reusing `multi-distro-build-worker.yaml@vX.Y.Z`
+break — the `### Changed` entry below carries the full input
+migration table. Per-shard GHCR tag shape (`<image_name>-<cell-name>`)
+preserved, so registry artifacts produced by existing callers stay
+compatible after migration.
+
+RC validation strategy: three caller migration tracking issues
+filed against the affected repos (ros1_bridge#108, ros_distro#24,
+ros2_distro#23). Each tracking issue carries the exact diff for
+that repo's `main.yaml`. RC promotion to formal v0.32.0 happens
+after all three caller migration PRs land green against
+`@v0.32.0-rc1`.
+
+### Changed
+
+- **BREAKING** (#344) — `multi-distro-build-worker.yaml` dispatcher
+  rewritten from 1D scalar-axis to N-D `include`-shape matrix-mode.
+  Legacy inputs `pr_distros` / `tag_distros` / `distro_input_name` /
+  `extra_build_args` are removed; callers must use `pr_matrix` /
+  `tag_matrix` (full JSON arrays of `{name, build_args, ...}` entries).
+  Each cell's `name` field is REQUIRED and drives both the per-shard
+  `image_name` suffix (`<inputs.image_name>-<matrix.name>`, hyphen
+  per #339 v0.29.1 convention) and the buildx cache scope
+  (`cache_variant: ${{ matrix.name }}`, #272 contract). `build_args`
+  is forwarded verbatim — caller fully owns per-cell args. Motivation:
+  the 1D dispatcher cannot represent `env/ros_distro` /
+  `env/ros2_distro`'s 4-cell shape (strong cross-axis correlations
+  between distro/variant/registry/ubuntu suffix); switching to
+  GitHub matrix's native `include` form unlocks both env repos as
+  callers and any future N-axis case without dispatcher changes.
+
+  Migration table for the only existing 1D caller (`app/ros1_bridge`):
+
+  | Old (v0.29.x — v0.31.x) | New (v0.32.0+) |
+  |---|---|
+  | `pr_distros: '["humble"]'` | `pr_matrix: '[{"name":"humble","build_args":"ROS2_DISTRO=humble"}]'` |
+  | `tag_distros: '["humble", "jazzy"]'` | `tag_matrix: '[{"name":"humble","build_args":"ROS2_DISTRO=humble"},{"name":"jazzy","build_args":"ROS2_DISTRO=jazzy"}]'` |
+  | `distro_input_name: ROS2_DISTRO` | (removed — encoded per-cell in `build_args`) |
+  | `extra_build_args: ...` | (removed — append directly in each cell's `build_args` via multi-line) |
+
+  Per-shard GHCR tag shape unchanged (`<image_name>-<cell-name>`),
+  so registry artifacts produced by existing callers stay compatible
+  after migration. `ci-passed` rollup job unchanged — branch
+  protection contexts don't move. Existing inline-matrix callers
+  (`env/ros_distro` / `env/ros2_distro`) can now adopt the dispatcher
+  for the first time. Test spec
+  `multi_distro_build_worker_yaml_spec.bats` rewritten (14 → 16
+  tests; new negative assertion verifies the 1D inputs are gone).
+  Closes #344.
+
+## [v0.31.0] - 2026-05-15
+
+Promoted from `v0.31.0-rc1` (#363). RC tag CI green: `Self Test`
+(with `release` job) + `Release test-tools image to GHCR` both
+completed/success. RC validation on `env/ros_distro` (PR
+ycpss91255-docker/ros_distro#23, closed without merge per RC
+convention) confirmed the wrapper consolidation migration works
+across all 4 ROS 1 distro shards (kinetic-ros-base /
+kinetic-desktop-full / noetic-ros-base / noetic-desktop-full). One
+unrelated `-h` usage-string alignment fix (#366) landed between rc1
+and stable and is carried into v0.31.0; details in `### Fixed`
+below.
+
+Migration note for downstream consumers: Dockerfiles using
+`COPY *.sh /lint/` to lint the wrapper scripts must be updated to
+`COPY script/*.sh /lint/` after the v0.31.0 upgrade, because the
+wrapper layout no longer keeps `*.sh` at the repo root. The
+`/batch-template-upgrade v0.31.0` flow patches active downstream
+repos automatically via `.claude/scripts/fix-dockerfile-copy-script.sh`;
+external consumers must patch their Dockerfiles manually. Surfaced
+during RC validation on `env/ros_distro` (commit `32624a3` on the
+closed RC PR).
+
+### Fixed
+
+- `build.sh -h` / `run.sh -h` usage strings (all 4 languages — en /
+  zh-TW / zh-CN / ja) claimed pre-#88 "warn on drift" semantics that
+  were superseded by #88's auto-apply behavior (`build.sh:453-477` /
+  `run.sh:442-456` already call `setup.sh apply` automatically when
+  `setup.sh check-drift` reports drift). Help text now describes the
+  default as auto-regeneration of `.env` + `compose.yaml` when
+  `setup.conf` / Dockerfile stages / GPU / GUI / USER_UID change, and
+  clarifies that `-s` is for forcing a rerun (opens the TUI on an
+  interactive TTY, otherwise non-interactive apply). Two new smoke
+  tests in `test/smoke/script_help.bats` lock the new phrasing
+  (`auto-regenerate` present, `warn on drift` absent) for both
+  scripts. Closes #365.
+
+## [v0.31.0-rc1] - 2026-05-15
+
+Release Candidate for v0.31.0 minor feature release. Bundles a single
+breaking change: **#330 wrapper consolidation + Makefile UX overhaul**
+(merged via #359). The seven user-facing wrappers move from the
+downstream repo root into a `script/` subfolder; `Makefile` stays at
+the root as the elevated user-facing entry, rewritten as a 1:1
+forwarder with `--` separator for flags. Migration is automatic via
+`make -f Makefile.ci upgrade VERSION=v0.31.0-rc1` (or
+`./.base/upgrade.sh v0.31.0-rc1`) — `init.sh`'s `_create_symlinks`
+loop drops the seven legacy root symlinks and creates `script/<name>.sh`
+equivalents.
+
+External callers hardcoding `./build.sh` / `./run.sh` / etc. break —
+the `### Changed` section below carries the full migration table.
+
+RC validation strategy: `/batch-template-upgrade v0.31.0-rc1 --only
+env/ros_distro` opens a single downstream PR; manual verification on
+`env/ros_distro` confirms (a) old root symlinks gone, (b) `script/*.sh`
+present, (c) `./script/build.sh test` / `make build test` green, (d)
+`make build -- --no-cache test` flag forwarding works, (e) `make help`
+lists 10 targets without `test` / `runtime` / `run-detach`. RC promotion
+to formal v0.31.0 happens after ros_distro validation passes.
+
+### Changed
+
+- **BREAKING** (#330) — wrapper consolidation: the seven user-facing wrappers (`build.sh` / `run.sh` / `exec.sh` / `stop.sh` / `prune.sh` / `setup.sh` / `setup_tui.sh`) move from the downstream repo root into a `script/` subfolder. `Makefile` stays at the root as the elevated user-facing entry. `init.sh` produces the new layout on fresh repos and migrates existing repos automatically (the stale-root-removal loop in `_create_symlinks` drops the seven legacy root symlinks plus the pre-rename `tui.sh`). `upgrade.sh` calls `init.sh` after the subtree pull, so `make -f Makefile.ci upgrade VERSION=v0.31.0` (or `./.base/upgrade.sh v0.31.0`) is the one-shot migration trigger for downstream consumers. The Dockerfile-level `script/entrypoint.sh` already lived under `script/` and coexists with the new wrappers. External callers hardcoding `./build.sh` / `./run.sh` / etc. break — migration table below.
+
+- **BREAKING** (#330) — Makefile rewrite: the user-facing `.base/script/docker/Makefile` is rewritten to a 1:1 wrapper Makefile with positional-argument forwarding via `$(filter-out $@,$(MAKECMDGOALS))` and a `%:` catch-all rule. Net effect: `make build test` now forwards `test` to `./script/build.sh test` (positional sub-cmds align with `.sh` calling convention); flags require the `--` separator (`make build -- --no-cache test` -> `./script/build.sh --no-cache test`) because Make's argument parser consumes `-` / `--` tokens before `MAKECMDGOALS` is computed. The previously-existing sub-cmd targets `test` / `runtime` / `run-detach` are removed in favour of the positional forwarding pattern. Three new targets ship: `prune` / `setup` / `setup-tui`. `.DEFAULT_GOAL := help` flips the bare-`make` default from "build" to "print help" for better discoverability. `Makefile.ci` is unchanged — the user-facing vs CI-facing split is intentional and preserved (CI keeps using `make -f Makefile.ci test` / `lint` / `upgrade VERSION=vX.Y.Z`).
+
+  Migration table for external consumers:
+
+  | Old | New |
+  |---|---|
+  | `./build.sh` | `make build` (no args) or `./script/build.sh` |
+  | `./build.sh test` | `make build test` or `./script/build.sh test` |
+  | `./build.sh --no-cache test` | `make build -- --no-cache test` or `./script/build.sh --no-cache test` |
+  | `./run.sh -d` | `make run -- -d` or `./script/run.sh -d` |
+  | `./exec.sh -t bats-src bash` | `make exec -- -t bats-src bash` or `./script/exec.sh -t bats-src bash` |
+  | `make test` (removed) | `make build test` (positional forward to `./script/build.sh test`) |
+  | `make runtime` (removed) | `make build runtime` |
+  | `make run-detach` (removed) | `make run -- -d` |
+  | `make` (was: build) | `make` now prints help (`.DEFAULT_GOAL := help`); use `make build` to build |
+
+  New tests cover the 1:1 invocation, positional forwarding, `--` separator, `.DEFAULT_GOAL`, and catch-all behaviour (NEW `test/unit/makefile_user_spec.bats`, ~25 cases) plus the `script/` symlink layout + migration loop (`test/integration/init_new_repo_spec.bats` +3 cases, `test/unit/init_spec.bats` updates + 1 new migration case).
+
+## [v0.30.0] - 2026-05-14
+
+Promoted from `v0.30.0-rc1` (#360). rc1 tag CI green: `Self Test` +
+`Release test-tools image to GHCR` both completed/success. Bundles
+all rc1 content; no further changes between rc1 and stable.
+
+Downstream propagation queued separately:
+
+- `/batch-template-upgrade v0.30.0` against the 2 active consumers
+  (`env/ros_distro` + `env/ros2_distro`) when ready. Nothing in
+  v0.30.0 is breaking for them — `local_path` defaults to empty,
+  `_entrypoint_logging.sh` is opt-in via a one-line source, the
+  three new `setup.sh apply` CLI flags are net-additive.
+- 9 downstream repos with a `runtime` stage (`app/*` + `env/*`)
+  may optionally add the `_entrypoint_logging.sh` source line to
+  `script/entrypoint.sh` to unlock host-side `local_path` tee'ing.
+  Tracked as separate per-repo PRs rather than batched, since
+  some repos have non-standard entrypoints.
+
+## [v0.30.0-rc1] - 2026-05-14
+
+Release Candidate for v0.30.0 minor feature release. Bundles the
+`[logging]` UX completion + setup.sh per-invocation CLI flags since
+v0.29.2 (four PRs total):
+
+- **#328 `[logging]` UX completion** — two-part fix closing the orphan
+  documented in the issue body. Part 1 (#355) made the section
+  reachable from the `setup.sh` CLI subcommands and the TUI Runtime
+  menu, with first-class per-service editing for `devel` / `test` /
+  `runtime`. Part 2 (#356) added the `local_path` key + a new
+  `script/docker/_entrypoint_logging.sh` helper, so a single
+  `local_path = ./logs/` opt-in now produces a host-side log file
+  that `tail -f` / `grep` reaches while `docker logs <container>`
+  keeps working unchanged.
+
+- **#338 setup.sh CLI flags** (#357) — three per-invocation overrides
+  on `setup.sh apply` (forwarded by `build.sh` / `run.sh`):
+  `--gui auto|force|off` overrides `[gui] mode` for one invocation
+  (resolution order CLI > `SETUP_GUI` env > setup.conf > default);
+  `--no-x11-cookie` skips the SSH X11 cookie rewrite (debug knob
+  for the #321 / #333 SSH X11 work); `--print-resolved` dumps the
+  resolved state to stdout as `KEY=VALUE` lines without writing
+  `.env` / `compose.yaml` / `.gitignore` (subsumes the dry-run
+  piece of the #230 base-mcp `setup_resolve` plan).
+
+- **Log INFO visual fix** (#358) — `_log_info` no longer wraps the
+  `[<tag>] INFO:` prefix in `\033[2m` dim ANSI. User-feedback
+  driven: WARNING (yellow) and ERROR (red bold) keep their bright
+  styles, but INFO is informational and should share the default
+  terminal colour with the unstyled summary lines that callers
+  print alongside it (e.g. setup.sh's `USER=...` summary).
+
+No breaking changes from v0.29.2. `[logging] local_path` defaults to
+empty so existing repos see zero compose diff on `make upgrade`; the
+new `_entrypoint_logging.sh` helper is opt-in via a one-line source
+in each repo's `script/entrypoint.sh` — repos that don't add it see
+no behaviour change. The three new `setup.sh apply` flags are
+additive; default behaviour is unchanged.
+
+Downstream propagation: `/batch-template-upgrade v0.30.0` fanout
+deferred to after the v0.30.0 stable tag lands. The 9 repos with a
+`runtime` stage need separate per-repo PRs to add the entrypoint
+source-line to unlock `local_path` tee'ing — tracked separately
+as repo-level opt-ins.
+
+### Changed
+
+- `script/docker/lib/log.sh`: `_log_info` no longer dims the `[<tag>] INFO:` prefix with `\033[2m`. Users running `./build.sh` / `./run.sh` saw three different visual weights for back-to-back log lines — `[setup] WARNING:` in yellow, `[setup] INFO: .env + compose.yaml updated` dimmed, and the trailing `[setup] USER=... GPU=... GUI=...` summary at full default colour — even though all three belong to the same scope and the summary line shares no `INFO` keyword to justify dimming. After this change INFO matches the summary line's visual weight (default terminal colour), while WARNING (yellow) and ERROR (red bold) keep their bright styles because those levels exist precisely to draw the eye. Test in `log_spec.bats` updated: `_log_info with FORCE_COLOR=1 still emits plain` replaces the prior `emits dim ANSI on non-TTY stdout` test.
+
+### Added
+
+- `script/docker/setup.sh`, `script/docker/build.sh`, `script/docker/run.sh`: three new per-invocation CLI flags so users can toggle GUI / SSH X11 cookie / inspection state without editing `setup.conf` (closes #338). `--gui auto|force|off` (also `--gui=force` short-form) overrides the `[gui] mode` setting for one apply — resolution order is CLI > `SETUP_GUI` env > setup.conf > default. `--no-x11-cookie` keeps GUI enabled but skips the SSH X11 cookie rewrite path (#321 / #333 debug knob — `$XAUTHORITY` stays at whatever the SSH session populated). `--print-resolved` runs all detection + resolution and prints the effective state to stdout as `KEY=VALUE` lines (one per line) then exits without writing `.env` / `compose.yaml` / `.gitignore` — subsumes the dry-run piece of the #230 base-mcp `setup_resolve` plan. The wrapper trio (`build.sh` + `run.sh`) accumulate `--gui` / `--no-x11-cookie` in `SETUP_FORWARD_ARGS` and forward them into the eventual `setup.sh apply` invocation; per-invocation overrides bypass the TUI (which would persist them to setup.conf — wrong semantics for a one-off debug knob). 9 new bats tests in `setup_spec.bats` covering: print-resolved baseline + CLI override flip; invalid value rejection; `--print-resolved` writes nothing; `--gui` override propagates through print-resolved; `X11_COOKIE_SKIP=1` recorded when `--no-x11-cookie` passed; default `X11_COOKIE_SKIP=0`; `SETUP_GUI` env var path; CLI > env precedence.
+
+- `script/docker/setup.sh`, `script/docker/setup_tui.sh`, new `script/docker/_entrypoint_logging.sh`: `[logging] local_path` host-side log file mount (part 2 of #328 — completes the orphan fix shipped earlier this cycle). When `local_path` is set (global or per-service), `setup.sh apply` emits two compose changes on each affected service: (a) a bind mount `<resolved>:/var/log/<repo>` under `volumes:` so the host directory is visible inside the container, and (b) a `LOG_FILE_PATH=/var/log/<repo>/<svc>.log` env var under `environment:`. Path semantics: relative paths resolve against repo root (`./logs/` → `<repo>/logs`); absolute paths pass through verbatim (`/srv/app/`); `~/dir/` expands to `$HOME/dir`; empty value disables the feature (default — back-compat). The new `_entrypoint_logging.sh` helper, sourced from each repo's `script/entrypoint.sh`, reads `LOG_FILE_PATH` and rebinds the shell's stdout/stderr through `tee` so the file gets populated AND `docker logs <container>` continues to show identical content. The helper is a no-op when `LOG_FILE_PATH` is unset, so downstream repos can adopt the source-line unconditionally without breaking repos that haven't opted into `local_path`. Failure modes are warn-and-continue (read-only target, missing `tee`, target is a directory) so a misconfigured `local_path` never blocks container startup. `setup.sh apply` additionally appends relative `local_path` values to the repo's `.gitignore` under a `# managed by template: [logging] local_path` marker (absolute / `~` paths are skipped — those live outside the repo; idempotent re-runs don't churn the file). 24 new bats tests (12 in `compose_logging_spec.bats` covering volume + env emit / per-svc routing / absolute path pass-through / no-op when key absent / gitignore-sync 6 branches; 4 in `setup_spec.bats` covering CLI set / per-svc set / validator rejection of whitespace; 2 in `tui_spec.bats` covering `_validate_log_local_path` accept + reject; 6 in the new `entrypoint_logging_spec.bats` covering tee + truncate + parent-dir creation + read-only fallback + stderr capture).
+
+- `script/docker/setup.sh`, `script/docker/setup_tui.sh`: `[logging]` is now reachable from the CLI subcommands and the TUI Runtime menu, with first-class per-service editing for the three baseline services (`devel` / `test` / `runtime`) — closes part 1 of #328 (the orphan fix; the new `local_path` key + entrypoint tee helper ship as a follow-up). Background: #310 / #314 added `[logging]` to the compose-emit path (`_collect_logging` / `_emit_logging_block` in `setup.sh`) but neither `setup_tui.sh` nor the CLI subcommand dispatcher (`set` / `show` / `list` / `remove`) learned about the section, so users could only configure log driver / rotation by hand-editing `setup.conf`. This PR adds: `_setup_known_section` recognises `logging` and `logging.<svc>` (shape `logging.?*` rejects the trailing-dot edge case); `_setup_set` / `_setup_show` / `_setup_remove` split specs of the form `logging.<svc>.<key>` on the rightmost dot so the per-service section name is preserved; `_setup_validate_kv` enforces the four global / per-service keys via new validators in `_tui_conf.sh` (`_validate_log_driver` — name shape, `_validate_log_max_size` — `<num>[b|k|m|g]`, `_validate_log_max_file` — positive integer, `_validate_log_compress` — `true` / `false`; empty values fall through as "clear key"); `setup_tui.sh` ships a two-level menu — top level picks scope (Global / Per-service: devel / Per-service: test / Per-service: runtime), inner level edits the four scalar keys via the shared `_edit_logging_keys <section>` helper — with i18n labels + error messages across all 4 languages. Inherit-from-global values show as `(inherit)` in per-service menus so it's visible at a glance which keys are overridden vs falling through to global. 21 new bats tests (9 in `setup_spec.bats` covering CLI round-trips + validator surfacing, 7 in `tui_spec.bats` covering the four validators directly, 5 in `tui_flow.bats` covering Runtime-menu dispatch + per-service scope routing).
+
+- `upgrade.sh`: auto-patch downstream Dockerfile lint stage to add `COPY .base/script/docker/lib /lint/lib` + extend `RUN shellcheck` to cover `/lint/lib/*.sh` on first upgrade after #284 (closes #348). Every fanout cycle since v0.27.0 has tripped on 12 of 13 downstream Dockerfiles failing CI with `/lint/lib/log.sh: No such file or directory` because the umbrella loader (`_lib.sh`) source-chains into `lib/{log,env,conf,compose,config_summary,gitignore}.sh` but the stock `COPY .base/script/docker/*.sh /lint/` doesn't recurse into the `lib/` subdirectory. The auto-patch detects the missing COPY line and the stock `RUN shellcheck -S warning /lint/*.sh` anchor, then sed-inserts the COPY line and extends the shellcheck invocation. Idempotent (no-op when the COPY line is already present); skips with a warning when the Dockerfile uses a custom shape (no stock anchor); skips cleanly when no Dockerfile is at the repo root (subtree-only consumer repos). Patched changes ride on the existing `chore: update template references to vX.Y.Z` commit. Eliminates the recurring `fix-dockerfile-lint-lib.sh` post-fanout cleanup workflow used through v0.28.2.
+
 ## [v0.29.2] - 2026-05-14
 
 Patch release bundling 4 small-bug closures since v0.29.1: #334 (Dockerfile.example WORKDIR collapse), #335 (exec.sh -t non-devel precheck), #341 (stop.sh skips profile-gated services), #345 (stop.sh -v no-op). No breaking changes from v0.29.1. Per CLAUDE.md's "MAJOR.MINOR.PATCH = bug fix; RC not required" rule, tagged directly on the merge commit.

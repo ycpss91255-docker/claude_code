@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for script/docker/exec.sh argument handling, i18n log lines,
+# Unit tests for script/docker/wrapper/exec.sh argument handling, i18n log lines,
 # and the "container not running" guard. Mirrors the sandbox/mock strategy
 # from build_sh_spec.bats / run_sh_spec.bats: a sandbox tree with symlinked
 # exec.sh, real _lib.sh / i18n.sh, and a PATH-shimmed `docker` stub whose
@@ -10,6 +10,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC2154
@@ -19,18 +20,18 @@ setup() {
   SANDBOX="${TEMP_DIR}/repo"
   mkdir -p "${SANDBOX}/.base/script/docker/lib"
 
-  cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/_lib.sh  "${SANDBOX}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh  "${SANDBOX}/.base/script/docker/lib/i18n.sh"
   # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
-  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
-  ln -s /source/script/docker/exec.sh "${SANDBOX}/exec.sh"
+  cp /source/script/docker/lib/* "${SANDBOX}/.base/script/docker/lib/"
+  ln -s /source/script/docker/wrapper/exec.sh "${SANDBOX}/exec.sh"
 
   # Seed .env so _load_env / _compute_project_name succeed without bootstrap.
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
 
   BIN_DIR="${TEMP_DIR}/bin"
   mkdir -p "${BIN_DIR}"
@@ -238,11 +239,9 @@ teardown() {
 @test "exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
-  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  ln -s /source/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
+  cp /source/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -252,11 +251,9 @@ teardown() {
 @test "exec.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
-  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  ln -s /source/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
+  cp /source/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -266,11 +263,9 @@ teardown() {
 @test "exec.sh in /lint/ layout maps ja_JP.UTF-8 to ja" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
-  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  ln -s /source/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
+  cp /source/script/docker/lib/* "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -287,14 +282,14 @@ teardown() {
   # the alt IMAGE_NAME, proving FILE_PATH was redirected.
   local ALT="${TEMP_DIR}/alt"
   mkdir -p "${ALT}/.base/script/docker/lib"
-  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
+  cp /source/script/docker/lib/_lib.sh "${ALT}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh "${ALT}/.base/script/docker/lib/i18n.sh"
+  cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg"
     echo "DOCKER_HUB_USER=altuser"
-  } > "${ALT}/.env"
+  } > "${ALT}/.env.generated"
 
   # Make `docker ps` claim the alt container is running so exec proceeds.
   echo "altuser-altimg" > "${DOCKER_PS_FILE}"
@@ -311,14 +306,14 @@ teardown() {
 @test "exec.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
   mkdir -p "${ALT}/.base/script/docker/lib"
-  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
+  cp /source/script/docker/lib/_lib.sh "${ALT}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh "${ALT}/.base/script/docker/lib/i18n.sh"
+  cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg2"
     echo "DOCKER_HUB_USER=altuser2"
-  } > "${ALT}/.env"
+  } > "${ALT}/.env.generated"
   echo "altuser2-altimg2" > "${DOCKER_PS_FILE}"
 
   run bash "${SANDBOX}/exec.sh" --chdir "${ALT}" --dry-run
@@ -371,4 +366,153 @@ teardown() {
   run --separate-stderr bash "${SANDBOX}/exec.sh" -vv --dry-run
   assert_success
   [[ "${stderr}" == *"+ "* ]]
+}
+
+# ── TTY auto-detect + explicit -T / -i (#382, Option 1+2) ──────────────
+#
+# `docker compose exec` defaults to -it; running a one-shot CMD inherits
+# that TTY so container-side bash echoes terminal escape sequences
+# (focus-in `^[[I`, bracketed-paste, etc.) into stdout. Fix shape:
+#   - auto-detect: positional CMD `bash|sh|dash|zsh|ash|ksh -c ...`
+#     implies no-TTY (the 90% case)
+#   - explicit `-T / --no-tty` forces no-TTY (escape hatch for the
+#     heuristic-misses case, e.g. `whoami`, `env BAR=1 bash -c '...'`)
+#   - explicit `-i / --tty` forces TTY (override for the rare case
+#     where a `bash -c` actually wants a TTY, e.g. `bash -c 'tput cols'`)
+#   - last-wins between -T and -i (standard CLI convention)
+#
+# Verification is via --dry-run path: _compose prints all argv via
+# `printf '%q'` so we can grep for the literal `-T` between `exec` and
+# the target name.
+
+@test "exec.sh --dry-run with no CMD: no -T (default interactive bash entry, #382)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run
+  assert_success
+  assert_output --partial "exec devel"
+  refute_output --partial "exec -T"
+}
+
+@test "exec.sh --dry-run with interactive binary (htop): no -T (auto-detect doesn't fire, #382)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run htop
+  assert_success
+  refute_output --partial "exec -T"
+}
+
+@test "exec.sh --dry-run bash -c '...': auto-detect adds -T (#382 Option 2)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run bash -c 'echo hi'
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run sh -c '...': auto-detect adds -T (#382 Option 2)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run sh -c 'echo hi'
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run dash -c '...': auto-detect adds -T (#382 Option 2)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run dash -c 'echo hi'
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run zsh -c '...': auto-detect adds -T (#382 Option 2)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run zsh -c 'echo hi'
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run bash hello.sh: no -T (no -c → not a one-shot, #382)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run bash hello.sh
+  assert_success
+  refute_output --partial "exec -T"
+}
+
+@test "exec.sh --dry-run -T whoami: explicit -T forces no-TTY (#382 Option 1)" {
+  # Heuristic doesn't fire (whoami isn't bash/sh + -c); explicit -T
+  # covers this leaked-output case.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -T whoami
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run --no-tty long form forces no-TTY (#382)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run --no-tty whoami
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run -T env BAR=1 bash -c '...': covers auto-detect's heuristic gap (#382)" {
+  # `env` is the first positional so the bash + -c heuristic misses;
+  # explicit -T is the escape hatch for this case.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -T env BAR=1 bash -c 'echo $BAR'
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run -i bash -c '...': explicit -i overrides heuristic (#382 Option 1)" {
+  # User wants TTY for `bash -c 'tput cols'`-style commands; -i wins
+  # over the auto-detect -T.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -i bash -c 'tput cols'
+  assert_success
+  refute_output --partial "exec -T"
+}
+
+@test "exec.sh --dry-run --tty long form overrides heuristic (#382)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run --tty bash -c 'tput cols'
+  assert_success
+  refute_output --partial "exec -T"
+}
+
+@test "exec.sh --dry-run -T -i: last-wins gives TTY (#382)" {
+  # Standard CLI last-wins precedence. -T then -i → -i (TTY).
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -T -i bash -c 'echo hi'
+  assert_success
+  refute_output --partial "exec -T"
+}
+
+@test "exec.sh --dry-run -i -T: last-wins gives no-TTY (#382)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -i -T bash -c 'echo hi'
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run -T after -t TARGET still attaches to the right service (#382)" {
+  echo "tester-mockimg-headless" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -t headless -T whoami
+  assert_success
+  assert_output --partial "exec -T headless"
+}
+
+@test "exec.sh --dry-run -- separator: -T propagates, CMD flows through (#382 + #289)" {
+  # The -- separator stops exec.sh option parsing. -T must be BEFORE --.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -T -- my-tool --version
+  assert_success
+  assert_output --partial "exec -T devel"
+  assert_output --partial "my-tool"
+  assert_output --partial "--version"
+}
+
+@test "exec.sh --help mentions -T / --no-tty and -i / --tty flags (#382)" {
+  run bash "${SANDBOX}/exec.sh" --help
+  assert_success
+  assert_output --partial "-T"
+  assert_output --partial "--no-tty"
+  assert_output --partial "-i"
+  assert_output --partial "--tty"
 }

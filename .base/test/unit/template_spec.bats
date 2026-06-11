@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
 }
 
@@ -9,28 +10,28 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "build.sh exists and is executable" {
-  assert [ -f /source/script/docker/build.sh ]
-  assert [ -x /source/script/docker/build.sh ]
+  assert [ -f /source/script/docker/wrapper/build.sh ]
+  assert [ -x /source/script/docker/wrapper/build.sh ]
 }
 
 @test "run.sh exists and is executable" {
-  assert [ -f /source/script/docker/run.sh ]
-  assert [ -x /source/script/docker/run.sh ]
+  assert [ -f /source/script/docker/wrapper/run.sh ]
+  assert [ -x /source/script/docker/wrapper/run.sh ]
 }
 
 @test "exec.sh exists and is executable" {
-  assert [ -f /source/script/docker/exec.sh ]
-  assert [ -x /source/script/docker/exec.sh ]
+  assert [ -f /source/script/docker/wrapper/exec.sh ]
+  assert [ -x /source/script/docker/wrapper/exec.sh ]
 }
 
 @test "stop.sh exists and is executable" {
-  assert [ -f /source/script/docker/stop.sh ]
-  assert [ -x /source/script/docker/stop.sh ]
+  assert [ -f /source/script/docker/wrapper/stop.sh ]
+  assert [ -x /source/script/docker/wrapper/stop.sh ]
 }
 
 @test "setup.sh exists and is executable" {
-  assert [ -f /source/script/docker/setup.sh ]
-  assert [ -x /source/script/docker/setup.sh ]
+  assert [ -f /source/script/docker/wrapper/setup.sh ]
+  assert [ -x /source/script/docker/wrapper/setup.sh ]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -47,25 +48,9 @@ setup() {
   assert_success
 }
 
-@test "Makefile exists (repo entry)" {
-  assert [ -f /source/script/docker/Makefile ]
-}
-
-@test "Makefile has build target" {
-  run grep -E '^build:' /source/script/docker/Makefile
-  assert_success
-}
-
-@test "Makefile upgrade target uses ./.base/upgrade.sh (not ./.base/script/upgrade.sh)" {
-  # Regression: the Makefile symlinked into every downstream repo has
-  # called `./.base/script/upgrade.sh` since v0.10.x, but upgrade.sh
-  # actually lives at template root (`./.base/upgrade.sh`). The
-  # broken target produced "No such file or directory" on `make upgrade`
-  # / `make upgrade-check` for fresh consumer repos.
-  run grep -E '^[[:space:]]+\./.base/upgrade\.sh' /source/script/docker/Makefile
-  assert_success
-  refute_output --partial "./.base/script/upgrade.sh"
-}
+# #546: the container-ops Makefile is retired for `just`; its existence /
+# build-target / upgrade-path checks moved to justfile_spec.bats (static)
+# + justfile_user_spec.bats (executable). Makefile.ci (CI entry) stays.
 
 @test "Makefile.ci exists (template CI)" {
   assert [ -f /source/Makefile.ci ]
@@ -91,18 +76,6 @@ setup() {
   # point. The recipe must pass $(VERSION) to ./upgrade.sh so an empty
   # VERSION resolves to "latest" and a set VERSION pins a specific tag.
   run grep -E '^[[:space:]]+\./upgrade\.sh \$\(VERSION\)' /source/Makefile.ci
-  assert_success
-}
-
-@test "Makefile upgrade-check tolerates upgrade.sh exit 1 (update available)" {
-  # Regression #175: `upgrade.sh --check` exits 1 when an update is
-  # available (documented shell convention so `if ./upgrade.sh --check;
-  # then ...` works). The Makefile recipe must wrap the call so make
-  # treats exit 1 as success — the check itself succeeded, the user-
-  # facing message already conveys the result. Exit codes ≥2 (genuine
-  # failures) still propagate.
-  run grep -E '\./.base/upgrade\.sh --check \|\| \[ \$\$\? -eq 1 \]' \
-      /source/script/docker/Makefile
   assert_success
 }
 
@@ -152,16 +125,16 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Path reference: scripts call .base/script/docker/setup.sh
+# Path reference: scripts call .base/script/docker/wrapper/setup.sh
 # ════════════════════════════════════════════════════════════════════
 
-@test "build.sh references .base/script/docker/setup.sh" {
-  run grep ".base/script/docker/setup.sh" /source/script/docker/build.sh
+@test "build.sh references .base/script/docker/wrapper/setup.sh" {
+  run grep ".base/script/docker/wrapper/setup.sh" /source/script/docker/wrapper/build.sh
   assert_success
 }
 
-@test "run.sh references .base/script/docker/setup.sh" {
-  run grep ".base/script/docker/setup.sh" /source/script/docker/run.sh
+@test "run.sh references .base/script/docker/wrapper/setup.sh" {
+  run grep ".base/script/docker/wrapper/setup.sh" /source/script/docker/wrapper/run.sh
   assert_success
 }
 
@@ -170,49 +143,49 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "build.sh uses set -euo pipefail" {
-  run grep "set -euo pipefail" /source/script/docker/build.sh
+  run grep "set -euo pipefail" /source/script/docker/wrapper/build.sh
   assert_success
 }
 
 @test "build.sh supports --no-cache flag" {
-  run grep -E '\-\-no-cache' /source/script/docker/build.sh
+  run grep -E '\-\-no-cache' /source/script/docker/wrapper/build.sh
   assert_success
 }
 
 @test "build.sh passes --no-cache to docker compose build when set" {
-  run grep -E 'NO_CACHE.*=.*true' /source/script/docker/build.sh
+  run grep -E 'NO_CACHE.*=.*true' /source/script/docker/wrapper/build.sh
   assert_success
 }
 
 @test "build.sh keeps test-tools image by default (cleanup gated by CLEAN_TOOLS)" {
   # Default behavior: do NOT auto-remove test-tools:local
   # cleanup must be conditional on CLEAN_TOOLS
-  run grep -E 'CLEAN_TOOLS.*==.*true' /source/script/docker/build.sh
+  run grep -E 'CLEAN_TOOLS.*==.*true' /source/script/docker/wrapper/build.sh
   assert_success
 }
 
 @test "build.sh supports --clean-tools flag" {
-  run grep -E '\-\-clean-tools' /source/script/docker/build.sh
+  run grep -E '\-\-clean-tools' /source/script/docker/wrapper/build.sh
   assert_success
 }
 
 @test "build.sh removes test-tools image when --clean-tools is set" {
-  run grep -E 'CLEAN_TOOLS.*=.*true' /source/script/docker/build.sh
+  run grep -E 'CLEAN_TOOLS.*=.*true' /source/script/docker/wrapper/build.sh
   assert_success
 }
 
 @test "run.sh uses set -euo pipefail" {
-  run grep "set -euo pipefail" /source/script/docker/run.sh
+  run grep "set -euo pipefail" /source/script/docker/wrapper/run.sh
   assert_success
 }
 
 @test "exec.sh uses set -euo pipefail" {
-  run grep "set -euo pipefail" /source/script/docker/exec.sh
+  run grep "set -euo pipefail" /source/script/docker/wrapper/exec.sh
   assert_success
 }
 
 @test "stop.sh uses set -euo pipefail" {
-  run grep "set -euo pipefail" /source/script/docker/stop.sh
+  run grep "set -euo pipefail" /source/script/docker/wrapper/stop.sh
   assert_success
 }
 
@@ -227,38 +200,21 @@ setup() {
   assert_success
 }
 
-@test "lib/compose.sh _compose_project wraps -p with PROJECT_NAME" {
-  run grep -E '\-p .*PROJECT_NAME' /source/script/docker/lib/compose.sh
-  assert_success
-}
-
-@test "build.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/build.sh
-  assert_success
-}
-
-@test "run.sh routes compose calls through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/run.sh
-  assert_success
-}
-
-@test "exec.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/exec.sh
-  assert_success
-}
-
-@test "stop.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/stop.sh
-  assert_success
-}
+# Wrapper -> compose dispatch is asserted behaviourally in
+# test/integration/wrapper_compose_dispatch_spec.bats (#490): each wrapper
+# is run with --dry-run and the planned `docker compose -p <project> <verb>`
+# is checked (incl. the -p flag, catching a raw-`docker compose` bypass).
+# The old name-coupled greps for `_compose_project` here were removed —
+# they broke on every internal rename (#480 shim, #484 rename) and could
+# not catch a bypass.
 
 @test "exec.sh loads .env via _load_env helper" {
-  run grep -E '_load_env .*\.env' /source/script/docker/exec.sh
+  run grep -E '_load_env .*\.env' /source/script/docker/wrapper/exec.sh
   assert_success
 }
 
 @test "stop.sh loads .env via _load_env helper" {
-  run grep -E '_load_env .*\.env' /source/script/docker/stop.sh
+  run grep -E '_load_env .*\.env' /source/script/docker/wrapper/stop.sh
   assert_success
 }
 
@@ -280,7 +236,7 @@ setup() {
 @test "stop.sh no longer needs orphan cleanup (run.sh devel uses up not run)" {
   # v0.6.6: run.sh devel switched to compose up + exec, so no more orphan
   # containers from `compose run --name`. The orphan cleanup line is removed.
-  run grep -E 'docker rm.*-f.*IMAGE_NAME' /source/script/docker/stop.sh
+  run grep -E 'docker rm.*-f.*IMAGE_NAME' /source/script/docker/wrapper/stop.sh
   assert_failure
 }
 
@@ -288,43 +244,34 @@ setup() {
   # Regression: foreground devel previously used `compose run --name` which
   # created a one-off container that `./exec.sh` (compose exec) couldn't see,
   # producing "service devel is not running". Switched to up + exec.
-  run grep -E 'up -d' /source/script/docker/run.sh
+  run grep -E 'up -d' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
 @test "run.sh devel branch uses compose exec to enter shell" {
-  # Refactored: now goes through `_compose_project exec` wrapper.
-  run grep -E '_compose_project exec' /source/script/docker/run.sh
+  # Refactored: now goes through `_compose_dispatch exec` shim (#465)
+  # which delegates to `_compose_project exec` after overlay routing.
+  run grep -E '_compose_(project|dispatch) exec' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
-@test "run.sh devel branch installs trap to auto-down on exit" {
-  # Refactored: trap calls _devel_cleanup which runs compose down.
-  run grep -E 'trap _devel_cleanup EXIT' /source/script/docker/run.sh
-  assert_success
-  run grep -E '_devel_cleanup\(\)' /source/script/docker/run.sh
-  assert_success
-}
+# run.sh foreground EXIT-trap cleanup (auto compose-down with
+# --remove-orphans -t 0) is asserted behaviourally in
+# wrapper_compose_dispatch_spec.bats (#490) via the dry-run output, instead
+# of grepping the `_app_cleanup` identifier (renamed in #440).
 
-@test "run.sh _devel_cleanup uses short timeout to avoid 10s grace period" {
-  # Regression: compose down's default 10s SIGTERM grace makes ./run.sh
-  # appear to hang for ~10s after the user exits the bash shell. Interactive
-  # devel doesn't need graceful shutdown — the user already exited.
-  run grep -E '_devel_cleanup\(\)' /source/script/docker/run.sh
-  assert_success
-  run grep -E 'down -t 0|down --timeout 0' /source/script/docker/run.sh
-  assert_success
-}
-
-@test "run.sh non-devel TARGET still uses compose run --rm" {
-  # test/runtime/etc one-shots stay on compose run --rm (no exec needed)
-  run grep -E 'run --rm' /source/script/docker/run.sh
+@test "run.sh non-devel TARGET uses compose up (#458)" {
+  # #458: non-devel stages unified to `compose up` so container_name takes
+  # effect. Previously `run --rm` bypassed it with random hash names.
+  run grep -E 'compose run --rm' /source/script/docker/wrapper/run.sh
+  assert_failure
+  run grep -E 'up "?\$\{TARGET\}"?' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
 @test "run.sh devel branch does not use 'compose run --name'" {
   # The old buggy pattern must be gone for devel; only run --rm for one-shots
-  run grep -E 'run .*--name' /source/script/docker/run.sh
+  run grep -E 'run .*--name' /source/script/docker/wrapper/run.sh
   assert_failure
 }
 
@@ -333,45 +280,45 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "run.sh supports --instance flag" {
-  run grep -E '\-\-instance' /source/script/docker/run.sh
+  run grep -E '\-\-instance' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
 @test "exec.sh supports --instance flag" {
-  run grep -E '\-\-instance' /source/script/docker/exec.sh
+  run grep -E '\-\-instance' /source/script/docker/wrapper/exec.sh
   assert_success
 }
 
 @test "stop.sh supports --instance flag" {
-  run grep -E '\-\-instance' /source/script/docker/stop.sh
+  run grep -E '\-\-instance' /source/script/docker/wrapper/stop.sh
   assert_success
 }
 
 @test "stop.sh supports --all flag" {
-  run grep -E '\-\-all' /source/script/docker/stop.sh
+  run grep -E '\-\-all' /source/script/docker/wrapper/stop.sh
   assert_success
 }
 
 @test "run.sh exports INSTANCE_SUFFIX env var to compose" {
   # Compose YAML resolves ${INSTANCE_SUFFIX:-} from this env var
-  run grep -E 'INSTANCE_SUFFIX' /source/script/docker/run.sh
+  run grep -E 'INSTANCE_SUFFIX' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
 @test "exec.sh exports INSTANCE_SUFFIX env var to compose" {
-  run grep -E 'INSTANCE_SUFFIX' /source/script/docker/exec.sh
+  run grep -E 'INSTANCE_SUFFIX' /source/script/docker/wrapper/exec.sh
   assert_success
 }
 
 @test "stop.sh exports INSTANCE_SUFFIX env var to compose" {
-  run grep -E 'INSTANCE_SUFFIX' /source/script/docker/stop.sh
+  run grep -E 'INSTANCE_SUFFIX' /source/script/docker/wrapper/stop.sh
   assert_success
 }
 
 @test "run.sh refuses when default container already running and no --instance" {
   # The script should grep docker ps for existing container with the
   # default name and exit non-zero with a helpful message
-  run grep -E 'already running|already exists' /source/script/docker/run.sh
+  run grep -E 'already running|already exists' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
@@ -379,22 +326,22 @@ setup() {
   # compose.yaml is now generated by setup.sh's generate_compose_yaml()
   # rather than init.sh's heredoc. INSTANCE_SUFFIX lets run.sh --instance
   # suffix the container name for parallel runs.
-  run grep 'INSTANCE_SUFFIX' /source/script/docker/setup.sh
+  run grep 'INSTANCE_SUFFIX' /source/script/docker/wrapper/setup.sh
   assert_success
 }
 
 @test "run.sh -h shows --instance in help" {
-  run bash -c "bash /source/script/docker/run.sh -h 2>&1"
+  run bash -c "bash /source/script/docker/wrapper/run.sh -h 2>&1"
   assert_output --partial "--instance"
 }
 
 @test "exec.sh -h shows --instance in help" {
-  run bash -c "bash /source/script/docker/exec.sh -h 2>&1"
+  run bash -c "bash /source/script/docker/wrapper/exec.sh -h 2>&1"
   assert_output --partial "--instance"
 }
 
 @test "stop.sh -h shows --instance in help" {
-  run bash -c "bash /source/script/docker/stop.sh -h 2>&1"
+  run bash -c "bash /source/script/docker/wrapper/stop.sh -h 2>&1"
   assert_output --partial "--instance"
 }
 
@@ -403,42 +350,42 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "build.sh supports --dry-run flag" {
-  run grep -E '\-\-dry-run' /source/script/docker/build.sh
+  run grep -E '\-\-dry-run' /source/script/docker/wrapper/build.sh
   assert_success
 }
 
 @test "run.sh supports --dry-run flag" {
-  run grep -E '\-\-dry-run' /source/script/docker/run.sh
+  run grep -E '\-\-dry-run' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
 @test "exec.sh supports --dry-run flag" {
-  run grep -E '\-\-dry-run' /source/script/docker/exec.sh
+  run grep -E '\-\-dry-run' /source/script/docker/wrapper/exec.sh
   assert_success
 }
 
 @test "stop.sh supports --dry-run flag" {
-  run grep -E '\-\-dry-run' /source/script/docker/stop.sh
+  run grep -E '\-\-dry-run' /source/script/docker/wrapper/stop.sh
   assert_success
 }
 
 @test "build.sh -h shows --dry-run in help" {
-  run bash -c "bash /source/script/docker/build.sh -h 2>&1"
+  run bash -c "bash /source/script/docker/wrapper/build.sh -h 2>&1"
   assert_output --partial "--dry-run"
 }
 
 @test "run.sh -h shows --dry-run in help" {
-  run bash -c "bash /source/script/docker/run.sh -h 2>&1"
+  run bash -c "bash /source/script/docker/wrapper/run.sh -h 2>&1"
   assert_output --partial "--dry-run"
 }
 
 @test "exec.sh -h shows --dry-run in help" {
-  run bash -c "bash /source/script/docker/exec.sh -h 2>&1"
+  run bash -c "bash /source/script/docker/wrapper/exec.sh -h 2>&1"
   assert_output --partial "--dry-run"
 }
 
 @test "stop.sh -h shows --dry-run in help" {
-  run bash -c "bash /source/script/docker/stop.sh -h 2>&1"
+  run bash -c "bash /source/script/docker/wrapper/stop.sh -h 2>&1"
   assert_output --partial "--dry-run"
 }
 
@@ -448,13 +395,13 @@ setup() {
 
 @test "exec.sh checks container is running before exec" {
   # Should reference docker ps / docker inspect or similar precheck
-  run grep -E 'docker (ps|inspect)' /source/script/docker/exec.sh
+  run grep -E 'docker (ps|inspect)' /source/script/docker/wrapper/exec.sh
   assert_success
 }
 
 @test "exec.sh precheck error mentions run.sh hint" {
   # Friendly error pointing user at ./run.sh or --instance
-  run grep -E 'run\.sh|--instance' /source/script/docker/exec.sh
+  run grep -E 'run\.sh|--instance' /source/script/docker/wrapper/exec.sh
   assert_success
 }
 
@@ -463,17 +410,17 @@ setup() {
   # without docker on PATH so the precheck fails (no container can be found).
   local _tmp
   _tmp="$(mktemp -d)"
-  cat > "${_tmp}/.env" <<EOF
+  cat > "${_tmp}/.env.generated" <<EOF
 USER_NAME=alice
 DOCKER_HUB_USER=alice
 IMAGE_NAME=missing-image-$$
 EOF
   mkdir -p "${_tmp}/.base/script/docker/lib"
-  cp /source/script/docker/_lib.sh "${_tmp}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/.base/script/docker/i18n.sh" 2>/dev/null || true
+  cp /source/script/docker/lib/_lib.sh "${_tmp}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh "${_tmp}/.base/script/docker/lib/i18n.sh" 2>/dev/null || true
   # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
-  cp /source/script/docker/lib/*.sh "${_tmp}/.base/script/docker/lib/"
-  cp /source/script/docker/exec.sh "${_tmp}/exec.sh"
+  cp /source/script/docker/lib/* "${_tmp}/.base/script/docker/lib/"
+  cp /source/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
 
   run bash "${_tmp}/exec.sh"
   assert_failure
@@ -485,17 +432,17 @@ EOF
 @test "exec.sh --dry-run skips precheck and prints compose command" {
   local _tmp
   _tmp="$(mktemp -d)"
-  cat > "${_tmp}/.env" <<EOF
+  cat > "${_tmp}/.env.generated" <<EOF
 USER_NAME=alice
 DOCKER_HUB_USER=alice
 IMAGE_NAME=ghost-$$
 EOF
   mkdir -p "${_tmp}/.base/script/docker/lib"
-  cp /source/script/docker/_lib.sh "${_tmp}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/.base/script/docker/i18n.sh" 2>/dev/null || true
+  cp /source/script/docker/lib/_lib.sh "${_tmp}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh "${_tmp}/.base/script/docker/lib/i18n.sh" 2>/dev/null || true
   # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
-  cp /source/script/docker/lib/*.sh "${_tmp}/.base/script/docker/lib/"
-  cp /source/script/docker/exec.sh "${_tmp}/exec.sh"
+  cp /source/script/docker/lib/* "${_tmp}/.base/script/docker/lib/"
+  cp /source/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
 
   run bash "${_tmp}/exec.sh" --dry-run
   assert_success
@@ -508,12 +455,20 @@ EOF
 # i18n.sh shared module
 # ════════════════════════════════════════════════════════════════════
 
-@test "script/docker/i18n.sh exists" {
-  assert [ -f /source/script/docker/i18n.sh ]
+@test "script/docker/lib/i18n.sh exists" {
+  assert [ -f /source/script/docker/lib/i18n.sh ]
 }
 
 @test "Dockerfile.test-tools includes bats-mock" {
   run grep 'bats-mock' /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
+@test "Dockerfile.test-tools installs just (#546: justfile entry-point execution in CI)" {
+  # #546 retires the Makefile for `just`; the test-tools image must carry
+  # `just` so justfile_user_spec / upgrade-check can exercise the entry
+  # point for real (mirroring the old executable Makefile tests).
+  run grep -E 'apk add .*\bjust\b' /source/dockerfile/Dockerfile.test-tools
   assert_success
 }
 
@@ -536,6 +491,18 @@ EOF
   assert_success
 }
 
+@test "Dockerfile.test-tools curl release downloads retry on transient failure (#550)" {
+  # The shellcheck + hadolint binaries are fetched from github.com release
+  # CDN at build time; a transient 504 there used to fail the whole build
+  # first-hit (no retry). Every curl that pulls a release must use
+  # --retry-all-errors so a 504/timeout retries transparently instead of
+  # blocking every code PR's CI on a release-CDN hiccup.
+  local _n
+  _n="$(grep -cE 'curl .*--retry-all-errors' /source/dockerfile/Dockerfile.test-tools)"
+  # both the shellcheck tarball and the hadolint binary downloads
+  [ "${_n}" -ge 2 ]
+}
+
 @test "Dockerfile.test-tools branches case for amd64 and arm64" {
   # Must handle both common arches; amd64 → x86_64 binaries,
   # arm64 → aarch64 (shellcheck) + arm64 (hadolint) binaries.
@@ -553,51 +520,45 @@ EOF
 }
 
 @test "i18n.sh defines _detect_lang function" {
-  run grep -E '^_detect_lang\(\)' /source/script/docker/i18n.sh
+  run grep -E '^_detect_lang\(\)' /source/script/docker/lib/i18n.sh
   assert_success
 }
 
 @test "build.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/script/docker/build.sh
+  run grep -E 'source.*_lib\.sh' /source/script/docker/wrapper/build.sh
   assert_success
 }
 
 @test "run.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/script/docker/run.sh
+  run grep -E 'source.*_lib\.sh' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
 @test "exec.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/script/docker/exec.sh
+  run grep -E 'source.*_lib\.sh' /source/script/docker/wrapper/exec.sh
   assert_success
 }
 
 @test "stop.sh sources _lib.sh" {
-  run grep -E 'source.*_lib\.sh' /source/script/docker/stop.sh
+  run grep -E 'source.*_lib\.sh' /source/script/docker/wrapper/stop.sh
   assert_success
 }
 
 @test "_lib.sh sources i18n.sh (delegates language detection)" {
-  run grep -E 'source.*i18n\.sh' /source/script/docker/_lib.sh
+  run grep -E 'source.*i18n\.sh' /source/script/docker/lib/_lib.sh
   assert_success
 }
 
 @test "setup.sh sources i18n.sh" {
-  run grep -E 'source.*i18n\.sh' /source/script/docker/setup.sh
+  run grep -E 'source.*i18n\.sh' /source/script/docker/wrapper/setup.sh
   assert_success
 }
 
 _stage_lint_layout() {
-  # Simulate Dockerfile.example's /lint/ stage: script + helpers in one
-  # flat directory, with the lib/ sub-directory (#284 umbrella sources
-  # lib/*.sh — Dockerfile.example COPYs `.base/script/docker/lib /lint/lib`
-  # to mirror it). Callers pass the script file under test.
   local _dest="${1:?}" _script="${2:?}"
-  cp "/source/script/docker/${_script}" "${_dest}/${_script}"
-  cp /source/script/docker/_lib.sh   "${_dest}/_lib.sh"
-  cp /source/script/docker/i18n.sh   "${_dest}/i18n.sh"
-  mkdir -p "${_dest}/lib"
-  cp /source/script/docker/lib/*.sh  "${_dest}/lib/"
+  mkdir -p "${_dest}/wrapper" "${_dest}/lib"
+  cp "/source/script/docker/wrapper/${_script}" "${_dest}/wrapper/${_script}"
+  cp /source/script/docker/lib/* "${_dest}/lib/"
 }
 
 @test "build.sh -h works in /lint/ layout (flat dir with _lib.sh + i18n.sh, issue #104)" {
@@ -606,7 +567,7 @@ _stage_lint_layout() {
   local _tmp
   _tmp="$(mktemp -d)"
   _stage_lint_layout "${_tmp}" build.sh
-  run bash "${_tmp}/build.sh" -h
+  run bash "${_tmp}/wrapper/build.sh" -h
   assert_success
   assert_output --partial "Usage"
   rm -rf "${_tmp}"
@@ -616,7 +577,7 @@ _stage_lint_layout() {
   local _tmp
   _tmp="$(mktemp -d)"
   _stage_lint_layout "${_tmp}" run.sh
-  run bash "${_tmp}/run.sh" -h
+  run bash "${_tmp}/wrapper/run.sh" -h
   assert_success
   rm -rf "${_tmp}"
 }
@@ -625,7 +586,7 @@ _stage_lint_layout() {
   local _tmp
   _tmp="$(mktemp -d)"
   _stage_lint_layout "${_tmp}" exec.sh
-  run bash "${_tmp}/exec.sh" -h
+  run bash "${_tmp}/wrapper/exec.sh" -h
   assert_success
   rm -rf "${_tmp}"
 }
@@ -634,35 +595,95 @@ _stage_lint_layout() {
   local _tmp
   _tmp="$(mktemp -d)"
   _stage_lint_layout "${_tmp}" stop.sh
-  run bash "${_tmp}/stop.sh" -h
+  run bash "${_tmp}/wrapper/stop.sh" -h
   assert_success
   rm -rf "${_tmp}"
 }
 
-@test "build.sh errors with a clear diagnostic when _lib.sh missing from both paths (issue #104)" {
-  # No .base/script/docker/_lib.sh nor sibling _lib.sh → explicit
-  # non-zero exit + error message pointing the user at the two
-  # expected paths. Better UX than the old silent inline fallback
-  # that hid the absence.
+@test "build.sh errors with a clear diagnostic when bootstrap/_lib.sh missing (issue #104, #408)" {
+  # build.sh copied alone (no lib/bootstrap.sh, no _lib.sh) -> explicit
+  # non-zero exit + a clear broken-install diagnostic. Post-#408 the
+  # shared preamble lives in lib/bootstrap.sh (which in turn sources
+  # _lib.sh), so the first missing dependency reported is bootstrap.sh.
+  # Better UX than a cryptic `_bootstrap: command not found`.
   local _tmp
   _tmp="$(mktemp -d)"
-  cp /source/script/docker/build.sh "${_tmp}/build.sh"
+  cp /source/script/docker/wrapper/build.sh "${_tmp}/build.sh"
   run bash "${_tmp}/build.sh" -h
   assert_failure
-  assert_output --partial "cannot find _lib.sh"
+  assert_output --partial "cannot find lib/bootstrap.sh"
   rm -rf "${_tmp}"
 }
 
-@test "Dockerfile.example copies _lib.sh + i18n.sh + _tui_conf.sh into /lint/ (issue #104)" {
-  # Structural guard: if the Dockerfile COPY is dropped, the /lint/
-  # smoke test (script_help.bats) would break silently for new
-  # downstream repos. Pin it here.
-  run grep -F '.base/script/docker/_lib.sh' /source/dockerfile/Dockerfile.example
+@test "Dockerfile.example copies lib/ and wrapper/ into /lint/ (#406)" {
+  run grep -F '.base/script/docker/lib /lint/lib' /source/dockerfile/Dockerfile.example
   assert_success
-  run grep -F '.base/script/docker/i18n.sh' /source/dockerfile/Dockerfile.example
+  run grep -F '.base/script/docker/wrapper /lint/wrapper' /source/dockerfile/Dockerfile.example
   assert_success
-  run grep -F '.base/script/docker/_tui_conf.sh' /source/dockerfile/Dockerfile.example
+}
+
+@test "Dockerfile.example copies logging.sh to /usr/local/lib/base/ in devel stage (#368)" {
+  # PR #356 documented the source-line example as
+  # `. /home/${USER}/work/.base/script/docker/runtime/logging.sh`,
+  # which has two failure modes that broke every v0.30.0 adopter:
+  # (1) $USER is unset/empty in the Dockerfile test stage, crashing
+  # `set -u` entrypoints; (2) on multi-repo workspaces WS_PATH is the
+  # workspace parent, not the repo root, so .base/ is never at the
+  # documented path. Path A: COPY the helper into a stable in-image
+  # location so downstream entrypoints can source it unconditionally
+  # without $USER deref or path arithmetic. Refs #368.
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  run grep -F 'COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}"
   assert_success
+  # COPY must sit in devel stage (between `FROM ... AS devel` and the
+  # devel-test FROM line); a placement inside the commented runtime
+  # block is also documented but devel is the canonical site.
+  local _devel_line _test_line _copy_line
+  _devel_line="$(grep -nE '^FROM devel-base AS devel$' "${_df}" | head -1 | cut -d: -f1)"
+  _test_line="$(grep -nE '^FROM \$\{TEST_TOOLS_IMAGE\} AS test-tools-stage' "${_df}" | head -1 | cut -d: -f1)"
+  _copy_line="$(grep -nF 'COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}" | head -1 | cut -d: -f1)"
+  [[ -n "${_devel_line}" && -n "${_test_line}" && -n "${_copy_line}" ]]
+  (( _devel_line < _copy_line ))
+  (( _copy_line < _test_line ))
+}
+
+@test "Dockerfile.example commented runtime stage shows logging.sh COPY example (#368)" {
+  # The optional runtime stage starts from a fresh BASE_IMAGE, not
+  # FROM devel, so the helper is NOT inherited. Repos that ship a
+  # runtime image and want host-side log tee must opt in via a
+  # second COPY in the runtime stage. The commented-out scaffold
+  # documents it so downstream maintainers see the requirement at
+  # the moment they uncomment the runtime block.
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The example line must be commented (leading '# ') so it doesn't
+  # accidentally activate in repos that haven't enabled the runtime
+  # stage. Either inside the runtime-base/runtime block or the
+  # documentation block above it.
+  run grep -E '^# COPY --chmod=0755 \.base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}"
+  assert_success
+}
+
+@test "runtime/logging.sh header documents in-image source-line (no \$USER, no work/.base) (#368)" {
+  # The helper's own Usage block is the canonical reference downstream
+  # entrypoint authors copy from. Pre-#368 the example was
+  # `. /home/${USER}/work/.base/script/docker/runtime/logging.sh`
+  # which only works on a single-repo workspace AND only at runtime
+  # AFTER the compose bind mount lands -- failing at build-time smoke
+  # and on multi-repo workspace layouts. Header must show the
+  # in-image path instead, with no $USER deref and no work/.base
+  # prefix.
+  local _h="/source/script/docker/runtime/logging.sh"
+  # Positive: header documents the stable in-image path.
+  run grep -F '#   . /usr/local/lib/base/logging.sh' "${_h}"
+  assert_success
+  # Negative regression guards: the broken pre-#368 patterns must not
+  # reappear anywhere in the helper file (header, comments, or code).
+  run grep -F '${USER}/work/.base/script/docker/runtime/logging.sh' "${_h}"
+  assert_failure
+  run grep -F '/home/${USER}/work/.base' "${_h}"
+  assert_failure
 }
 
 @test "no inline _detect_lang fallbacks remain after dedupe (issue #104)" {
@@ -672,23 +693,23 @@ _stage_lint_layout() {
   # definition prevents further drift.
   local _count
   _count="$(grep -cE '^_detect_lang\(\)' \
-    /source/script/docker/build.sh \
-    /source/script/docker/run.sh \
-    /source/script/docker/exec.sh \
-    /source/script/docker/stop.sh \
-    /source/script/docker/_lib.sh \
-    /source/script/docker/setup.sh \
+    /source/script/docker/wrapper/build.sh \
+    /source/script/docker/wrapper/run.sh \
+    /source/script/docker/wrapper/exec.sh \
+    /source/script/docker/wrapper/stop.sh \
+    /source/script/docker/lib/_lib.sh \
+    /source/script/docker/wrapper/setup.sh \
     | awk -F: '{sum += $2} END {print sum}')"
   [ "${_count}" = "0" ]
 
   # i18n.sh must still have exactly one definition.
-  run grep -cE '^_detect_lang\(\)' /source/script/docker/i18n.sh
+  run grep -cE '^_detect_lang\(\)' /source/script/docker/lib/i18n.sh
   assert_output "1"
 }
 
 @test "setup.sh does not redefine _detect_lang" {
   # setup.sh is not COPY'd into consumer /lint stage, so no fallback needed
-  run grep -cE '^_detect_lang\(\)' /source/script/docker/setup.sh
+  run grep -cE '^_detect_lang\(\)' /source/script/docker/wrapper/setup.sh
   assert_output "0"
 }
 
@@ -701,9 +722,9 @@ _stage_lint_layout() {
   # host / setup.conf-changed run. Defensive namespacing fix: rename
   # to `_setup_msg`. Future helpers in setup.sh should follow the
   # `_setup_*` prefix convention to keep this immune.
-  run grep -cE '^_msg\(\) \{' /source/script/docker/setup.sh
+  run grep -cE '^_msg\(\) \{' /source/script/docker/wrapper/setup.sh
   assert_output "0"
-  run grep -cE '^_setup_msg\(\) \{' /source/script/docker/setup.sh
+  run grep -cE '^_setup_msg\(\) \{' /source/script/docker/wrapper/setup.sh
   assert_output "1"
 }
 
@@ -723,7 +744,7 @@ _stage_lint_layout() {
       esac
     }
     # shellcheck source=/dev/null
-    source /source/script/docker/setup.sh </dev/null >/dev/null 2>&1 || true
+    source /source/script/docker/wrapper/setup.sh </dev/null >/dev/null 2>&1 || true
     _msg drift_regen
   '
   assert_success
@@ -736,26 +757,26 @@ _stage_lint_layout() {
   # subprocess call (`bash setup.sh check-drift --base-path ... --lang ...`).
   # No future change should put `source` back — that would reopen the
   # entire shadow-bug class even if _msg vs _setup_msg stays clean.
-  run grep -cE '^[[:space:]]*source[[:space:]]+"\$\{_setup\}"' /source/script/docker/build.sh
+  run grep -cE '^[[:space:]]*source[[:space:]]+"\$\{_setup\}"' /source/script/docker/wrapper/build.sh
   assert_output "0"
 }
 
 @test "run.sh does not source setup.sh (#49 Phase B-1)" {
   # Mirror of build.sh structural guard above.
-  run grep -cE '^[[:space:]]*source[[:space:]]+"\$\{_setup\}"' /source/script/docker/run.sh
+  run grep -cE '^[[:space:]]*source[[:space:]]+"\$\{_setup\}"' /source/script/docker/wrapper/run.sh
   assert_output "0"
 }
 
 @test "build.sh uses subprocess check-drift (#49 Phase B-1)" {
   # Positive guard: build.sh must invoke setup.sh via subprocess with
   # the new check-drift subcommand instead of sourcing it.
-  run grep -cE '"\$\{_setup\}"[[:space:]]+check-drift' /source/script/docker/build.sh
+  run grep -cE '"\$\{_setup\}"[[:space:]]+check-drift' /source/script/docker/wrapper/build.sh
   assert_success
   refute_output "0"
 }
 
 @test "run.sh uses subprocess check-drift (#49 Phase B-1)" {
-  run grep -cE '"\$\{_setup\}"[[:space:]]+check-drift' /source/script/docker/run.sh
+  run grep -cE '"\$\{_setup\}"[[:space:]]+check-drift' /source/script/docker/wrapper/run.sh
   assert_success
   refute_output "0"
 }
@@ -828,7 +849,11 @@ EOF
   # production sed commands here, mirroring what upgrade.sh does.
   # We do this by extracting and running the sed commands from upgrade.sh.
   local _seds
-  _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
+  # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
+  # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
+  # below only knows how to fill in main_yaml + target_ver, so feeding it
+  # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/upgrade.sh)"
   while IFS= read -r _line; do
     # shellcheck disable=SC2001
     _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.6.4|g")"
@@ -862,7 +887,11 @@ jobs:
     uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.10.0-rc1
 EOF
   local _seds
-  _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
+  # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
+  # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
+  # below only knows how to fill in main_yaml + target_ver, so feeding it
+  # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/upgrade.sh)"
   while IFS= read -r _line; do
     # shellcheck disable=SC2001
     _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.10.0-rc2|g")"
@@ -895,7 +924,11 @@ jobs:
     uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.9.9
 EOF
   local _seds
-  _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
+  # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
+  # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
+  # below only knows how to fill in main_yaml + target_ver, so feeding it
+  # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/upgrade.sh)"
   while IFS= read -r _line; do
     # shellcheck disable=SC2001
     _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.10.0|g")"
@@ -1137,68 +1170,26 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# pip relocation: config/pip/ -> dockerfile/setup/pip/ (#261)
+# pip scaffolding removed (#407, reverses #261)
 #
-# config/ is the user-facing override surface post-#254 (layered COPY:
-# .base/config/ defaults + <repo>/config/ overlay = runtime files
-# in the user's interactive shell). pip/setup.sh was the odd one out --
-# build-time install scaffolding that ran once then got wiped by
-# `sudo rm -rf ${CONFIG_DIR}`, never user-facing. Mental-model
-# violation against #254's drop-in semantics + forced every downstream
-# to keep pip/setup.sh in their <repo>/config/ snapshot. #261 moves
-# it to .base/dockerfile/setup/pip/ -- a separate dir intended for
-# build-time scaffolding only, copied into ${SETUP_DIR} (no layered
-# override, single source of truth), cleared alongside CONFIG_DIR.
-#
-# Tests below lock the new path + the Dockerfile.example pattern (new
-# ARG + COPY + RUN + cleanup) so the relocation can't silently revert.
+# dockerfile/setup/ and all pip-related Dockerfile.example patterns
+# have been removed. Downstream repos that need pip handle it
+# independently in their own Dockerfiles.
 # ════════════════════════════════════════════════════════════════════
 
-@test "template ships dockerfile/setup/pip/setup.sh + requirements.txt (#261)" {
-  [[ -f /source/dockerfile/setup/pip/setup.sh ]]
-  [[ -x /source/dockerfile/setup/pip/setup.sh ]]
-  [[ -f /source/dockerfile/setup/pip/requirements.txt ]]
+@test "template no longer ships dockerfile/setup/ (#407, reverses #261)" {
+  [[ ! -e /source/dockerfile/setup ]]
 }
 
 @test "template no longer ships config/pip/ (#261 relocation regression guard)" {
-  # If a future change moves pip/ back under config/, this fires. The
-  # whole point of #261 was to keep config/ pure runtime-override
-  # surface; resurrecting config/pip/ undoes that.
   [[ ! -e /source/config/pip ]]
 }
 
-@test "Dockerfile.example declares ARG SETUP_DIR for build-time scaffolding (#261)" {
+@test "Dockerfile.example has no SETUP_DIR or pip references (#407)" {
   local _df="/source/dockerfile/Dockerfile.example"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
-  run grep -E '^ARG SETUP_DIR="/tmp/setup"$' "${_df}"
-  assert_success
-}
-
-@test "Dockerfile.example COPYs .base/dockerfile/setup into SETUP_DIR (#261)" {
-  local _df="/source/dockerfile/Dockerfile.example"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
-  run grep -E '^COPY --chmod=0755 .base/dockerfile/setup "\$\{SETUP_DIR\}"$' "${_df}"
-  assert_success
-}
-
-@test "Dockerfile.example RUN pip uses SETUP_DIR not CONFIG_DIR (#261)" {
-  local _df="/source/dockerfile/Dockerfile.example"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
-  # Positive: new location
-  run grep -E '^RUN "\$\{SETUP_DIR\}"/pip/setup\.sh$' "${_df}"
-  assert_success
-  # Negative regression guard: no leftover ${CONFIG_DIR}/pip/setup.sh
-  run grep -E '^RUN "\$\{CONFIG_DIR\}"/pip/setup\.sh$' "${_df}"
-  [ "${status}" -ne 0 ] || [ -z "${output}" ]
-}
-
-@test "Dockerfile.example cleans up SETUP_DIR alongside CONFIG_DIR (#261)" {
-  local _df="/source/dockerfile/Dockerfile.example"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
-  # SETUP_DIR must be removed in the same image layer as CONFIG_DIR
-  # (both are build-time-only). Match the literal cleanup line.
-  run grep -E '^    sudo rm -rf "\$\{CONFIG_DIR\}" "\$\{SETUP_DIR\}"$' "${_df}"
-  assert_success
+  run grep -E 'SETUP_DIR|python3-pip|pip/setup|pip install' "${_df}"
+  assert_failure
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1308,17 +1299,17 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "run.sh contains XDG_SESSION_TYPE check" {
-  run grep "XDG_SESSION_TYPE" /source/script/docker/run.sh
+  run grep "XDG_SESSION_TYPE" /source/script/docker/wrapper/run.sh
   assert_success
 }
 
 @test "run.sh contains xhost +SI:localuser for wayland" {
-  run grep 'xhost "+SI:localuser' /source/script/docker/run.sh
+  run grep 'xhost "+SI:localuser' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
 @test "run.sh contains xhost +local: for X11" {
-  run grep 'xhost +local:' /source/script/docker/run.sh
+  run grep 'xhost +local:' /source/script/docker/wrapper/run.sh
   assert_success
 }
 
@@ -1327,9 +1318,9 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "setup.sh default _base_path uses /.." {
-  # In template, setup.sh is at .base/script/docker/setup.sh
+  # In template, setup.sh is at .base/script/docker/wrapper/setup.sh
   # So it should go up 1 level (/..) to reach repo root
-  run grep -E '\.\./\.\.' /source/script/docker/setup.sh
+  run grep -E '\.\./\.\.' /source/script/docker/wrapper/setup.sh
   assert_success  # Should have ../../ ../../ (that was old docker_setup_helper/src/ pattern)
 }
 
@@ -1339,6 +1330,59 @@ EOF
   # then walks up `../../..` to reach the repo root. Accept either the
   # original inline BASH_SOURCE form or the _SETUP_SCRIPT_DIR indirection.
   run grep -E "(dirname.*BASH_SOURCE|_SETUP_SCRIPT_DIR).*\.\..*\.\." \
-    /source/script/docker/setup.sh
+    /source/script/docker/wrapper/setup.sh
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #440: pre/post hook wiring presence across all 7 wrappers
+# ════════════════════════════════════════════════════════════════════
+
+@test "all 7 wrappers call _run_pre_hook with their own name (#440)" {
+  local _w
+  for _w in build run exec stop prune setup setup_tui; do
+    run grep -E "_run_pre_hook ${_w}\b" "/source/script/docker/wrapper/${_w}.sh"
+    [[ "${status}" -eq 0 ]] \
+      || { echo "missing _run_pre_hook ${_w} in ${_w}.sh"; return 1; }
+  done
+}
+
+@test "all 7 wrappers call _run_post_hook with their own name (#440)" {
+  local _w
+  for _w in build run exec stop prune setup setup_tui; do
+    run grep -E "_run_post_hook ${_w}\b" "/source/script/docker/wrapper/${_w}.sh"
+    [[ "${status}" -eq 0 ]] \
+      || { echo "missing _run_post_hook ${_w} in ${_w}.sh"; return 1; }
+  done
+}
+
+@test "run.sh _app_cleanup runs post-hook before compose down (#440)" {
+  # Order matters: container must still be alive when post-hook runs
+  # so the hook can `docker exec` for final reporting.
+  run bash -c "
+    awk '
+      /_app_cleanup\\(\\) \\{/ { in_func = 1; next }
+      in_func && /_run_post_hook run/ { print \"POST_LINE=\" NR; post_seen = 1 }
+      in_func && /_compose_(project|dispatch) down/ { print \"DOWN_LINE=\" NR; down_seen = 1 }
+      in_func && /^\\}/ { exit }
+    ' /source/script/docker/wrapper/run.sh
+  "
+  assert_output --partial "POST_LINE="
+  assert_output --partial "DOWN_LINE="
+  local _post_line _down_line
+  _post_line="$(echo "${output}" | grep POST_LINE | cut -d= -f2 | head -1)"
+  _down_line="$(echo "${output}" | grep DOWN_LINE | cut -d= -f2 | head -1)"
+  (( _post_line < _down_line )) \
+    || { echo "post-hook should run before compose down: post=${_post_line} down=${_down_line}"; return 1; }
+}
+
+@test "lib/hook.sh skips both helpers under DRY_RUN (#440, #13)" {
+  # Regression guard for Q13: dry-run contract requires no side effects.
+  run grep -E 'DRY_RUN.*true' /source/script/docker/lib/hook.sh
+  assert_success
+}
+
+@test "lib/hook.sh hard-fails on present-but-not-executable hook (#440, #11)" {
+  run grep -E 'not executable.*chmod' /source/script/docker/lib/hook.sh
   assert_success
 }

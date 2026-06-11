@@ -10,6 +10,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/../unit/test_helper"
   UPGRADE="/source/upgrade.sh"
 
@@ -26,10 +27,10 @@ setup() {
 # _seed_template_remote
 #   Build a tiny template layout matching what upgrade.sh's post-flight
 #   checks look for (markers: .base/.version, .base/init.sh,
-#   .base/script/docker/setup.sh), wrap two tagged versions around it,
+#   .base/script/docker/wrapper/setup.sh), wrap two tagged versions around it,
 #   and push to a bare repo we can treat as TEMPLATE_REMOTE.
 _seed_template_remote() {
-  mkdir -p "${TMPL_WORK}/script/docker"
+  mkdir -p "${TMPL_WORK}/script/docker/wrapper"
   git -C "${TMPL_WORK}" init -q -b main
   git -C "${TMPL_WORK}" config user.email t@t
   git -C "${TMPL_WORK}" config user.name t
@@ -39,16 +40,16 @@ _seed_template_remote() {
   # same code these tests validate.
   echo "v0.9.5" > "${TMPL_WORK}/.version"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/init.sh"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/setup.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/wrapper/setup.sh"
   cp "${UPGRADE}" "${TMPL_WORK}/upgrade.sh"
   # upgrade.sh sources _lib.sh on load (#278: _log / _error wrap _log_*).
   # _lib.sh itself sources i18n.sh + lib/*.sh sub-libs (#284), so copy
   # all three surfaces into the fake remote.
   mkdir -p "${TMPL_WORK}/script/docker/lib"
-  cp /source/script/docker/_lib.sh "${TMPL_WORK}/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${TMPL_WORK}/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${TMPL_WORK}/script/docker/lib/"
-  chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/script/docker/setup.sh" "${TMPL_WORK}/upgrade.sh"
+  cp /source/script/docker/lib/_lib.sh "${TMPL_WORK}/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh "${TMPL_WORK}/script/docker/lib/i18n.sh"
+  cp /source/script/docker/lib/* "${TMPL_WORK}/script/docker/lib/"
+  chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/script/docker/wrapper/setup.sh" "${TMPL_WORK}/upgrade.sh"
   git -C "${TMPL_WORK}" add -A
   git -C "${TMPL_WORK}" commit -q -m "v0.9.5"
   git -C "${TMPL_WORK}" tag v0.9.5
@@ -112,6 +113,160 @@ YAML
   [ "$(cat README.md)" = "DOWNSTREAM" ]
 }
 
+@test "upgrade.sh patches Dockerfile lint stage when missing COPY .base/script/docker/lib /lint/lib (#348)" {
+  cd "${DOWN_DIR}"
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+RUN shellcheck -S warning /lint/*.sh
+EOF
+  git add Dockerfile
+  git commit -q -m "add Dockerfile"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "Dockerfile patched"
+
+  grep -Fq "COPY .base/script/docker/lib /lint/lib" Dockerfile
+  grep -Fq "RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh" Dockerfile
+}
+
+@test "upgrade.sh is idempotent on Dockerfile already containing the lib COPY line (#348)" {
+  cd "${DOWN_DIR}"
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+COPY .base/script/docker/lib /lint/lib
+RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
+EOF
+  git add Dockerfile
+  git commit -q -m "add Dockerfile (already patched)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "already copies .base/script/docker/lib"
+  refute_output --partial "Dockerfile patched"
+
+  # Single COPY line, no duplicate insertion.
+  [ "$(grep -c 'COPY .base/script/docker/lib /lint/lib' Dockerfile)" = "1" ]
+}
+
+@test "upgrade.sh warns + skips Dockerfile patch when stock shellcheck anchor is missing (#348)" {
+  cd "${DOWN_DIR}"
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+RUN echo "custom Dockerfile lint setup"
+EOF
+  git add Dockerfile
+  git commit -q -m "add custom Dockerfile"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "lacks stock 'RUN shellcheck -S warning /lint/*.sh' anchor"
+  refute_output --partial "Dockerfile patched"
+
+  ! grep -q "COPY .base/script/docker/lib /lint/lib" Dockerfile
+}
+
+@test "upgrade.sh continues cleanly when no Dockerfile at repo root (#348)" {
+  cd "${DOWN_DIR}"
+  # Default _seed_downstream_repo fixture leaves no Dockerfile at root —
+  # exercise the early-return branch.
+  [ ! -f Dockerfile ]
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "no Dockerfile at repo root"
+}
+
+# ── #399: auto-patch COPY *.sh /lint/ → COPY script/*.sh /lint/ ────────
+# Sibling of the #348 tests above. v0.31.0+ moves wrappers from root to
+# script/; init.sh migrates symlinks but the Dockerfile's COPY is
+# user-owned. upgrade.sh now self-heals it.
+
+@test "upgrade.sh patches Dockerfile COPY *.sh /lint/ → script/*.sh /lint/ (#399)" {
+  cd "${DOWN_DIR}"
+  mkdir -p script
+  ln -sf ../.base/script/docker/wrapper/build.sh script/build.sh
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+COPY .base/script/docker/lib /lint/lib
+COPY *.sh /lint/
+RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
+EOF
+  git add Dockerfile script/
+  git commit -q -m "add Dockerfile (pre-#330 COPY *.sh)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "Dockerfile patched: COPY *.sh /lint/ -> COPY script/*.sh /lint/ (#399)"
+
+  grep -Fq "COPY script/*.sh /lint/" Dockerfile
+  ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' Dockerfile
+}
+
+@test "upgrade.sh is idempotent when Dockerfile already has COPY script/*.sh /lint/ (#399)" {
+  cd "${DOWN_DIR}"
+  mkdir -p script
+  ln -sf ../.base/script/docker/wrapper/build.sh script/build.sh
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+COPY .base/script/docker/lib /lint/lib
+COPY script/*.sh /lint/
+RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
+EOF
+  git add Dockerfile script/
+  git commit -q -m "add Dockerfile (already post-#330)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "skip (#399 idempotent)"
+  refute_output --partial "Dockerfile patched"
+
+  [ "$(grep -c 'COPY script/\*\.sh /lint/' Dockerfile)" = "1" ]
+}
+
+@test "upgrade.sh patches stale COPY *.sh /lint/ even when COPY script/*.sh /lint/script/ exists (#403)" {
+  cd "${DOWN_DIR}"
+  mkdir -p script
+  ln -sf ../.base/script/docker/wrapper/build.sh script/build.sh
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY *.sh /lint/
+COPY script/*.sh /lint/script/
+COPY .base/script/docker/lib /lint/lib
+RUN shellcheck -S warning /lint/*.sh /lint/script/*.sh /lint/lib/*.sh
+EOF
+  git add Dockerfile script/
+  git commit -q -m "add Dockerfile (stale root + script/ subdest)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "Dockerfile patched: COPY *.sh /lint/ -> COPY script/*.sh /lint/ (#399)"
+
+  grep -qE '^COPY script/\*\.sh /lint/$' Dockerfile
+  grep -q 'COPY script/\*\.sh /lint/script/' Dockerfile
+}
+
+@test "upgrade.sh skips #399 patch when Dockerfile has no COPY *.sh /lint/ line" {
+  cd "${DOWN_DIR}"
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+RUN shellcheck -S warning /lint/*.sh
+EOF
+  git add Dockerfile
+  git commit -q -m "add Dockerfile (no wrapper COPY)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "has no COPY *.sh /lint/ line"
+  refute_output --partial "Dockerfile patched: COPY *.sh"
+}
+
 @test "upgrade.sh v0.9.7 is idempotent on a second run" {
   cd "${DOWN_DIR}"
 
@@ -134,30 +289,32 @@ YAML
   assert_output --partial "Update available"
 }
 
-@test "make upgrade-check (downstream Makefile): exit 0 when update available (#175)" {
-  # Regression #175: the Makefile recipe wraps upgrade.sh so make doesn't
-  # mistake exit 1 (update available) for a build failure. The downstream
-  # Makefile is symlinked into every consumer repo via init.sh; copy it
-  # here because the seeded subtree fixture omits the Makefile (only the
-  # markers upgrade.sh's post-flight check needs are seeded).
+@test "just upgrade-check (downstream justfile): exit 0 when update available (#175, #546)" {
+  # Regression #175: the upgrade-check recipe wraps upgrade.sh so the
+  # runner does not mistake exit 1 (update available) for a build failure.
+  # #546 moved the recipe from Makefile -> justfile; copy the justfile here
+  # because the seeded subtree fixture omits it. Skips when `just` is not
+  # yet in the test-tools image (pre-release GHCR pull) -- the guard keeps
+  # the suite green until test-tools ships with just.
+  command -v just >/dev/null 2>&1 || skip "just not installed in this test-tools image"
   cd "${DOWN_DIR}"
-  cp /source/script/docker/Makefile Makefile
+  cp /source/script/docker/justfile justfile
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" make upgrade-check
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" just upgrade-check
   assert_success
   assert_output --partial "Local:  v0.9.5"
   assert_output --partial "Latest: v0.9.7"
   assert_output --partial "Update available"
-  refute_output --partial "Error 1"
 }
 
-@test "make upgrade-check (downstream Makefile): exit 0 when up-to-date" {
+@test "just upgrade-check (downstream justfile): exit 0 when up-to-date (#546)" {
+  command -v just >/dev/null 2>&1 || skip "just not installed in this test-tools image"
   cd "${DOWN_DIR}"
-  cp /source/script/docker/Makefile Makefile
+  cp /source/script/docker/justfile justfile
 
   env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7 >/dev/null
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" make upgrade-check
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" just upgrade-check
   assert_success
   assert_output --partial "Already up to date."
 }
@@ -244,7 +401,10 @@ STUB
 
   assert_failure
   assert_output --partial "integrity check failed"
-  assert_output --partial ".base/.version"
+  # R1+ (#477) detects destructive FF via subtree dir missing, ahead of the
+  # later .version / version-mismatch checks. The legacy assertion against
+  # ".base/.version" missing was specific to the pre-R1+ marker list.
+  assert_output --partial "subtree dir missing"
   assert_output --partial "Rolling back"
   assert_output --partial "upgrade aborted"
 
@@ -253,6 +413,6 @@ STUB
   [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
   [ -f ".base/.version" ]
   [ "$(cat .base/.version)" = "v0.9.5" ]
-  [ -f ".base/script/docker/setup.sh" ]
+  [ -f ".base/script/docker/wrapper/setup.sh" ]
   [ -f "README.md" ]
 }

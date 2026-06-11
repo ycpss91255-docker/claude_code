@@ -9,8 +9,14 @@
 # (b) apt-get / git resolve to our mocks instead of the real binaries.
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
   create_mock_dir
+  local _cmd
+  for _cmd in grep date cat printf; do
+    local _path
+    _path="$(command -v "${_cmd}" 2>/dev/null)" && ln -sf "${_path}" "${MOCK_DIR}/${_cmd}"
+  done
 }
 
 teardown() {
@@ -186,7 +192,6 @@ teardown() {
   assert_output --partial "script/ci/ci.sh"
   assert_output --partial "init.sh"
   assert_output --partial "upgrade.sh"
-  assert_output --partial "dockerfile/setup/pip/setup.sh"
   assert_output --partial "config/shell/terminator/setup.sh"
   assert_output --partial "config/shell/tmux/setup.sh"
 }
@@ -202,8 +207,8 @@ teardown() {
   '
   assert_success
 
-  # Every .sh under script/docker/ (non-recursive) must appear.
-  for _f in /source/script/docker/*.sh; do
+  # Every .sh under script/docker/wrapper/ and lib/ must appear.
+  for _f in /source/script/docker/wrapper/*.sh /source/script/docker/lib/*.sh; do
     run grep -F "${_f}" "${_log}"
     assert_success
   done
@@ -361,4 +366,142 @@ teardown() {
   assert_success
   assert_output --partial " coverage"
   assert_output --partial "COVERAGE=1"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# --bats-path / --filter single-path inner loop (#523)
+# ════════════════════════════════════════════════════════════════════
+
+@test "main --bats-path: dispatches a single spec to the ci service with BATS_FILE + BATS_ONLY=1" {
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --bats-path test/unit/ci_spec.bats
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial " ci"
+  assert_output --partial "BATS_FILE=test/unit/ci_spec.bats"
+  assert_output --partial "BATS_ONLY=1"
+  refute_output --partial "COVERAGE=1"
+}
+
+@test "main --bats-path: accepts a directory" {
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --bats-path test/unit/
+  '
+  assert_success
+  run cat "${_log}"
+  assert_output --partial "BATS_FILE=test/unit/"
+}
+
+@test "main --bats-path: non-existent path dies with ci_bats_path_not_found" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --bats-path test/unit/does_not_exist_spec.bats
+  '
+  assert_failure
+  assert_output --partial "No such spec file or directory"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main --bats-path: test/behavioural/ path dies with a clear hint" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --bats-path test/behavioural/runtime_test_smoke_spec.bats
+  '
+  assert_failure
+  assert_output --partial "ci-behavioural"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main --bats-path + --coverage is rejected (ci_bats_path_coverage)" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --bats-path test/unit/ci_spec.bats --coverage
+  '
+  assert_failure
+  assert_output --partial "cannot combine with --coverage"
+}
+
+@test "main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE" {
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --filter cap_add
+  '
+  assert_success
+  run cat "${_log}"
+  assert_output --partial "BATS_FILTER=cap_add"
+  assert_output --partial "BATS_ONLY=1"
+  assert_output --partial "BATS_FILE= "
+}
+
+@test "_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f" {
+  local _log="${BATS_TEST_TMPDIR}/bats.log"
+  mock_cmd "bats" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    BATS_FILE="test/unit/ci_spec.bats" BATS_FILTER="shard" _run_bats_path
+  '
+  assert_success
+  run cat "${_log}"
+  assert_output --partial "test/unit/ci_spec.bats"
+  assert_output --partial "-f shard"
+}
+
+@test "_run_bats_path: filter-only runs bats across unit + integration" {
+  local _log="${BATS_TEST_TMPDIR}/bats.log"
+  mock_cmd "bats" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+
+  run bash -c '
+    source /source/script/ci/ci.sh
+    export PATH="'"${MOCK_DIR}"'"
+    BATS_FILE="" BATS_FILTER="cap_add" _run_bats_path
+  '
+  assert_success
+  run cat "${_log}"
+  assert_output --partial "test/unit/"
+  assert_output --partial "test/integration/"
+  assert_output --partial "-f cap_add"
 }
